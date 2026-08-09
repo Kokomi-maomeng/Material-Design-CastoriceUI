@@ -1,0 +1,18 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name panel.example.com;
+
+    root /var/www/castorice-ui;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(?:css|js|woff2|png|svg)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "material-design-castorice-ui",
+  "version": "0.1.0",
+  "private": false,
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs",
+    "scan:sensitive": "node scripts/sensitive-scan.mjs",
+    "lint": "eslint . --ignore-pattern dist",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm test && npm run scan:sensitive && npm run build && npm run audit:production",
+    "audit:production": "npm audit --omit=dev --audit-level=low"
+  },
+  "dependencies": {
+    "@fontsource-variable/roboto": "^5.3.0",
+    "@material-symbols/font-400": "^0.45.10",
+    "clsx": "^2.1.1",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@types/node": "22.19.19",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "6.0.2",
+    "eslint": "9.39.4",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "16.4.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.59.3",
+    "vite": "^8.2.1"
+  },
+  "type": "module",
+  "license": "MIT"
+}
