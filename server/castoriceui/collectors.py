@@ -34,6 +34,15 @@ def run(command: list[str], timeout: float = 2.5) -> str:
         return ""
 
 
+def run_status(command: list[str], timeout: float = 2.5) -> str:
+    """Return bounded command output even when a status command exits non-zero."""
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
+        return (result.stdout or result.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
 ANSI_ESCAPE = re.compile(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])|(?:\x1B\][^\x07]*(?:\x07|\x1B\\))")
 
 
@@ -171,10 +180,24 @@ def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
         traffic_future = pool.submit(http_json, base + "/traffic", secret)
         online_future = pool.submit(http_json, base + "/online", secret)
         stream_future = pool.submit(http_json, base + "/dump/streams", secret)
-        traffic = traffic_future.result() or {}
-        online = online_future.result() or {}
-        stream_data = stream_future.result() or {}
-    return {"available": True, "traffic": traffic, "online": online, "streams": stream_data.get("streams", [])}
+        traffic_raw = traffic_future.result()
+        online_raw = online_future.result()
+        stream_raw = stream_future.result()
+    traffic = traffic_raw if isinstance(traffic_raw, dict) else {}
+    online = online_raw if isinstance(online_raw, dict) else {}
+    stream_data = stream_raw if isinstance(stream_raw, dict) else {}
+    endpoint_status = {
+        "traffic": isinstance(traffic_raw, dict),
+        "online": isinstance(online_raw, dict),
+        "streams": isinstance(stream_raw, dict),
+    }
+    return {
+        "available": all(endpoint_status.values()),
+        "traffic": traffic,
+        "online": online,
+        "streams": stream_data.get("streams", []) if isinstance(stream_data.get("streams", []), list) else [],
+        "endpointStatus": endpoint_status,
+    }
 
 
 def singbox_snapshot(config: AppConfig) -> dict[str, Any]:
@@ -183,9 +206,11 @@ def singbox_snapshot(config: AppConfig) -> dict[str, Any]:
     if not base:
         return {"available": False, "traffic": {}, "connections": []}
     secret = str(api.get("secret", ""))
-    payload = http_json(base + "/connections", secret, bearer=True) or {}
+    payload_raw = http_json(base + "/connections", secret, bearer=True)
+    payload = payload_raw if isinstance(payload_raw, dict) else {}
     traffic = {"up": int(payload.get("uploadTotal", 0)), "down": int(payload.get("downloadTotal", 0))}
-    return {"available": True, "traffic": traffic, "connections": payload.get("connections", [])}
+    connections = payload.get("connections", [])
+    return {"available": isinstance(payload_raw, dict), "traffic": traffic, "connections": connections if isinstance(connections, list) else []}
 
 
 def service_state(unit: str) -> tuple[str, int]:
@@ -210,6 +235,29 @@ def certificate_info(path: str) -> dict[str, Any]:
         return {"status": "warning", "detail": "Unable to read certificate", "days": 0}
 
 
+def operating_system_version() -> str:
+    try:
+        values = {}
+        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                values[key] = value.strip().strip('"')
+        return values.get("PRETTY_NAME") or values.get("NAME") or "Linux"
+    except OSError:
+        return platform.system() or "Linux"
+
+
+def automatic_update_info() -> dict[str, str]:
+    enabled = run_status(["systemctl", "is-enabled", "unattended-upgrades.service"])
+    timer = run_status(["systemctl", "is-active", "apt-daily-upgrade.timer"])
+    active = enabled in {"enabled", "static"} and timer == "active"
+    if active:
+        detail = "unattended-upgrades enabled · apt-daily-upgrade timer active"
+    else:
+        detail = f"automatic update state: service {enabled or 'unknown'} · timer {timer or 'unknown'}"
+    return {"status": "running" if active else "warning", "detail": detail, "version": operating_system_version()}
+
+
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
     definitions = [
         ("hysteria2", "Hysteria2", "hysteria-server", "bolt", ["/usr/local/bin/hysteria", "version"]),
@@ -226,14 +274,22 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
         inspected = list(pool.map(inspect, definitions))
     for definition, active, uptime, version in inspected:
         service_id, name, _unit, icon, _command = definition
-        adapter = hy2 if service_id == "hysteria2" else sb if service_id == "anytls" else {"available": True}
-        detail = "Live data adapter connected" if adapter.get("available") else "Service detected · statistics adapter pending"
-        services.append({"id": service_id, "name": name, "detail": detail, "status": "running" if active == "active" else "stopped", "version": version, "uptimeSeconds": uptime, "icon": icon})
+        adapter = hy2 if service_id == "hysteria2" else sb if service_id == "anytls" else None
+        if active != "active":
+            status, detail = "stopped", "systemd reports the service is not active"
+        elif adapter is None:
+            status, detail = "running", "systemd reports active"
+        elif adapter.get("available"):
+            status, detail = "running", "systemd active · statistics adapter responding"
+        else:
+            status, detail = "warning", "systemd active · statistics adapter unavailable"
+        services.append({"id": service_id, "name": name, "detail": detail, "status": status, "version": version, "uptimeSeconds": uptime, "icon": icon})
     cert = certificate_info(config.certificate_path)
+    updates = automatic_update_info()
     services.extend([
         {"id": "kernel", "name": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
         {"id": "certificate", "name": "TLS certificate", "detail": cert["detail"], "status": cert["status"], "version": "TLS", "uptimeSeconds": 0, "icon": "verified_user"},
-        {"id": "updates", "name": "System updates", "detail": "Security updates are reviewed by the operator", "status": "running", "version": "Debian stable", "uptimeSeconds": 0, "icon": "system_update"},
+        {"id": "updates", "name": "Automatic updates", "detail": updates["detail"], "status": updates["status"], "version": updates["version"], "uptimeSeconds": 0, "icon": "system_update"},
     ])
     return services
 
@@ -241,18 +297,18 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
 def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
     connections: list[dict[str, Any]] = []
     for index, stream in enumerate(hy2.get("streams", [])):
-        started = stream.get("initial_at", datetime.now(timezone.utc).isoformat())
+        started = stream.get("initial_at")
         account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "协议核心未提供")
         address_text = " ".join(str(stream.get(key, "")) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
         ip_match = re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?!\d)|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){2,}[0-9A-Fa-f:]+", address_text)
         source_ip = ip_match.group(0) if ip_match else "协议核心未提供"
-        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": 0, "downloadBps": 0, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started})
+        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started})
     for index, connection in enumerate(sb.get("connections", [])):
         metadata = connection.get("metadata", {})
         source_ip = str(metadata.get("sourceIP") or "协议核心未提供")
         ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
         account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "AnyTLS 用户")
-        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": 0, "downloadBps": 0, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start", datetime.now(timezone.utc).isoformat())})
+        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start")})
     return connections
 
 

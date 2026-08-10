@@ -13,7 +13,7 @@ SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
 
 from castoriceui.config import AppConfig  # noqa: E402
-from castoriceui.collectors import connection_snapshots, http_json, semantic_version  # noqa: E402
+from castoriceui.collectors import automatic_update_info, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.api import ApiHandler  # noqa: E402
 from castoriceui.security import normalize_https_base_url, normalize_loopback_endpoint, validate_probe_target  # noqa: E402
@@ -26,6 +26,13 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(semantic_version("sing-box version 1.13.15", "anytls"), "1.13.15")
         self.assertEqual(semantic_version("nginx version: nginx/1.26.3", "nginx"), "1.26.3")
 
+    def test_automatic_update_status_comes_from_systemd(self) -> None:
+        with patch("castoriceui.collectors.run_status", side_effect=["disabled", "inactive"]), patch("castoriceui.collectors.operating_system_version", return_value="Debian GNU/Linux 13"):
+            state = automatic_update_info()
+        self.assertEqual(state["status"], "warning")
+        self.assertIn("disabled", state["detail"])
+        self.assertEqual(state["version"], "Debian GNU/Linux 13")
+
     def test_connection_source_is_not_mislabelled_when_core_omits_it(self) -> None:
         payload = connection_snapshots(
             {"streams": [{"connection": "a", "stream": "b", "auth": "alice", "tx": 1, "rx": 2}]},
@@ -34,8 +41,41 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(payload[0]["account"], "alice")
         self.assertEqual(payload[0]["sourceIp"], "协议核心未提供")
         self.assertIsNone(payload[0]["ipVersion"])
+        self.assertIsNone(payload[0]["uploadBps"])
+        self.assertIsNone(payload[0]["downloadBps"])
+        self.assertIsNone(payload[0]["connectedAt"])
         self.assertEqual(payload[1]["account"], "bob")
         self.assertIsNone(payload[1]["ipVersion"])
+        self.assertIsNone(payload[1]["connectedAt"])
+
+    def test_configured_adapter_is_unavailable_when_requests_fail(self) -> None:
+        config = AppConfig(hysteria_api={"url": "http://127.0.0.1:19090"}, singbox_api={"url": "http://127.0.0.1:19091"})
+        with patch("castoriceui.collectors.http_json", return_value=None):
+            self.assertFalse(hysteria_snapshot(config)["available"])
+            self.assertFalse(singbox_snapshot(config)["available"])
+
+    def test_hysteria_adapter_is_not_healthy_when_an_expected_endpoint_fails(self) -> None:
+        config = AppConfig(hysteria_api={"url": "http://127.0.0.1:19090"})
+        def response(url: str, _secret: str = "") -> dict[str, object] | None:
+            return None if url.endswith("/dump/streams") else {}
+
+        with patch("castoriceui.collectors.http_json", side_effect=response):
+            snapshot = hysteria_snapshot(config)
+        self.assertFalse(snapshot["available"])
+        self.assertEqual(snapshot["endpointStatus"], {"traffic": True, "online": True, "streams": False})
+
+    def test_runtime_integration_status_separates_config_from_health(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            config.hysteria_api = {"url": "http://127.0.0.1:19090"}
+            config.subscriptions = [{"id": "sub-1", "account": "alice", "url": "https://example.test/token"}]
+            dashboard = DashboardService(config, Storage(config.database_path))
+            states = {item["id"]: item for item in dashboard.runtime_integrations({"available": False}, {"available": False}, [])}
+            self.assertTrue(states["hysteria2"]["configured"])
+            self.assertEqual(states["hysteria2"]["status"], "error")
+            self.assertEqual(states["connections"]["status"], "error")
+            self.assertEqual(states["subscriptions"]["status"], "ready")
+            self.assertIn("not verified", states["subscriptions"]["summary"])
 
     def test_config_merges_safe_integration_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -35,7 +35,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: AccountsPag
         description="集中管理代理账号、协议权限、流量额度与有效期。"
       />
 
-      <IntegrationGate status={integration} name="账号数据源" description="连接协议认证适配器后，账号状态、额度和在线设备会由后端同步。" onConfigure={onConfigure} />
+      <IntegrationGate status={integration} name="账号统计数据源" description="账号清单、状态和额度来自受保护的服务器配置；协议适配器只补充核心实际返回的累计用量与在线计数。" onConfigure={onConfigure} />
       <FeatureIntro items={[{ icon: "manage_accounts", title: "统一生命周期", description: "集中处理启用状态、到期时间、额度和备注。" }, { icon: "vpn_key", title: "凭据边界", description: "浏览器只触发重置流程，不读取协议明文密码。" }, { icon: "data_usage", title: "账号用量", description: "将协议统计映射到账号，快速定位高用量主体。" }]} />
       <div className="read-only-notice"><Icon name="info" size={20} /><span><strong>当前为只读同步</strong>账号的创建、密码和启停状态由代理核心认证配置决定；面板会在后端配置变更后自动更新，不展示无法真实执行的操作按钮。</span></div>
 
@@ -82,5 +82,5 @@ export function AccountsPage({ accounts, integration, onConfigure }: AccountsPag
 function StatusChip({ status, devices }: { status: Account["status"]; devices: number }) {
   if (status === "disabled") return <Chip staticChip tone="default" icon="pause_circle">已禁用</Chip>;
   if (status === "expiring") return <Chip staticChip tone="warning" icon="schedule">即将到期</Chip>;
-  return <Chip staticChip tone="success" icon="fiber_manual_record">{devices > 0 ? `${devices} 台在线` : "有效"}</Chip>;
+  return <Chip staticChip tone="success" icon="fiber_manual_record">{devices > 0 ? `核心报告在线数 ${devices}` : "有效"}</Chip>;
 }
