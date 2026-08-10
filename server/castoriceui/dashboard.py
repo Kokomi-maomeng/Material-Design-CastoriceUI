@@ -12,12 +12,14 @@ from typing import Any
 from .collectors import (
     SystemCollector,
     connection_snapshots,
+    http_json,
     hysteria_snapshot,
     network_snapshots,
     service_snapshots,
     singbox_snapshot,
 )
 from .config import AppConfig
+from .security import normalize_https_base_url, normalize_loopback_endpoint, validate_interface_name, validate_probe_target
 from .storage import Storage
 
 
@@ -27,25 +29,46 @@ class DashboardService:
         self.storage = storage
         self.system_collector = SystemCollector(config, storage)
         self.lock = threading.RLock()
+        self.snapshot_lock = threading.Lock()
         self.cached_network: list[dict[str, Any]] = []
         self.network_at = 0.0
         overrides = storage.get_setting("integration_overrides", {})
+        sanitized_legacy_secrets = False
         if isinstance(overrides, dict):
             for integration_id, value in overrides.items():
                 if integration_id in config.integrations and isinstance(value, dict):
-                    config.integrations[integration_id].update(value)
                     values = value.get("values", {})
+                    if isinstance(values, dict) and "secret" in values:
+                        values = dict(values)
+                        values.pop("secret", None)
+                        value = {**value, "values": values}
+                        overrides[integration_id] = value
+                        sanitized_legacy_secrets = True
+                    if integration_id in {"hysteria2", "anytls"} and isinstance(values, dict) and values.get("endpoint"):
+                        try:
+                            values["endpoint"] = normalize_loopback_endpoint(str(values["endpoint"]))
+                        except ValueError:
+                            values = dict(values)
+                            values.pop("endpoint", None)
+                            value = {**value, "values": values, "configured": False, "status": "pending"}
+                            overrides[integration_id] = value
+                            sanitized_legacy_secrets = True
+                    config.integrations[integration_id].update(value)
                     if isinstance(values, dict):
                         self._apply_integration_values(integration_id, {key: str(item) for key, item in values.items()})
+        if sanitized_legacy_secrets:
+            storage.set_setting("integration_overrides", overrides)
+            storage.add_audit("清理旧版接入密钥", "配置", "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret")
 
     def _apply_integration_values(self, integration_id: str, values: dict[str, str]) -> None:
         if integration_id == "hysteria2":
-            self.config.hysteria_api.update({"url": values.get("endpoint", ""), "secret": values.get("secret", "")})
+            self.config.hysteria_api.update({"url": values.get("endpoint", "")})
         elif integration_id == "anytls":
-            self.config.singbox_api.update({"url": values.get("endpoint", ""), "secret": values.get("secret", "")})
+            self.config.singbox_api.update({"url": values.get("endpoint", "")})
         elif integration_id == "traffic":
             interface = values.get("interface", "").strip()
             if interface:
+                interface = validate_interface_name(interface)
                 self.config.interface = interface
                 self.system_collector.interface = interface
             quota = values.get("quotaGb", "").strip()
@@ -62,10 +85,7 @@ class DashboardService:
                 address = line.strip()
                 if not address:
                     continue
-                try:
-                    version = ipaddress.ip_address(address).version
-                except ValueError:
-                    version = 6 if ":" in address else 4
+                address, version = validate_probe_target(address)
                 targets.append({"id": f"custom-{index + 1}", "name": address, "provider": "Custom", "address": address, "ipVersion": version})
             if not targets:
                 raise ValueError("At least one valid network target is required")
@@ -81,10 +101,10 @@ class DashboardService:
                         raise ValueError("Alert thresholds cannot be negative")
                     self.config.alert_thresholds[key] = value
 
-    def configure_integration(self, integration_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str = "127.0.0.1") -> dict[str, Any]:
         allowed_fields = {
-            "hysteria2": {"endpoint", "secret"},
-            "anytls": {"endpoint", "secret"},
+            "hysteria2": {"endpoint"},
+            "anytls": {"endpoint"},
             "traffic": {"interface", "quotaGb"},
             "connections": set(),
             "subscriptions": {"baseUrl"},
@@ -100,10 +120,13 @@ class DashboardService:
             raise ValueError("Integration values must be an object")
         clean_values = {key: str(value)[:2048] for key, value in values.items() if key in allowed_fields[integration_id]}
         enabled = bool(payload.get("enabled", True))
-        required = {"hysteria2": {"endpoint", "secret"}, "anytls": {"endpoint", "secret"}, "subscriptions": {"baseUrl"}}
+        required = {"hysteria2": {"endpoint"}, "anytls": {"endpoint"}, "subscriptions": {"baseUrl"}}
         configured = required.get(integration_id, set()).issubset({key for key, value in clean_values.items() if value.strip()})
         if integration_id not in required:
             configured = True
+        if not configured:
+            raise ValueError("Complete the required fields")
+        self._validate_integration(integration_id, clean_values)
         summary = "Configuration saved" if configured else "Complete the required fields"
         state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": clean_values}
         self._apply_integration_values(integration_id, clean_values)
@@ -111,8 +134,44 @@ class DashboardService:
         overrides[integration_id] = state
         self.storage.set_setting("integration_overrides", overrides)
         self.config.integrations[integration_id].update(state)
-        self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新")
+        self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新", source_ip)
         return next(item for item in self.config.public_integrations() if item["id"] == integration_id)
+
+    def _validate_integration(self, integration_id: str, values: dict[str, str]) -> None:
+        if integration_id == "hysteria2":
+            endpoint = normalize_loopback_endpoint(values["endpoint"])
+            secret = str(self.config.hysteria_api.get("secret", "")).strip()
+            if not secret or secret == "replace-on-server":
+                raise ValueError("Configure the Hysteria2 Secret in the protected server config first")
+            http_json(endpoint + "/traffic", secret, strict=True)
+            values["endpoint"] = endpoint
+        elif integration_id == "anytls":
+            endpoint = normalize_loopback_endpoint(values["endpoint"])
+            secret = str(self.config.singbox_api.get("secret", "")).strip()
+            if not secret or secret == "replace-on-server":
+                raise ValueError("Configure the sing-box Secret in the protected server config first")
+            http_json(endpoint + "/connections", secret, bearer=True, strict=True)
+            values["endpoint"] = endpoint
+        elif integration_id == "subscriptions":
+            values["baseUrl"] = normalize_https_base_url(values["baseUrl"])
+        elif integration_id == "network" and values.get("targets", "").strip():
+            for line in values["targets"].splitlines()[:12]:
+                if line.strip():
+                    validate_probe_target(line)
+        elif integration_id == "traffic":
+            if values.get("interface", "").strip():
+                values["interface"] = validate_interface_name(values["interface"])
+            if values.get("quotaGb", "").strip():
+                quota = float(values["quotaGb"])
+                if not 0 < quota <= 1_000_000:
+                    raise ValueError("quotaGb must be between 0 and 1000000")
+        elif integration_id == "alerts":
+            limits = {"trafficPercent": (0, 100), "lossPercent": (0, 100), "latencyMs": (0, 60_000)}
+            for key, (minimum, maximum) in limits.items():
+                if values.get(key, "").strip():
+                    number = float(values[key])
+                    if not minimum <= number <= maximum:
+                        raise ValueError(f"{key} must be between {minimum} and {maximum}")
 
     def network(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -202,6 +261,12 @@ class DashboardService:
         return None
 
     def snapshot(self) -> dict[str, Any]:
+        # SystemCollector keeps previous counter samples, so concurrent requests
+        # must not race while updating those baselines.
+        with self.snapshot_lock:
+            return self._snapshot()
+
+    def _snapshot(self) -> dict[str, Any]:
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="dashboard") as pool:
             system_future = pool.submit(self.system_collector.snapshot)
             hysteria_future = pool.submit(hysteria_snapshot, self.config)

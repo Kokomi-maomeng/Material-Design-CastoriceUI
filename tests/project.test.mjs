@@ -30,7 +30,7 @@ test("documents the backend security boundary", async () => {
   assert.match(provider, /CastoriceDataProvider/);
 });
 
-test("v1.2 keeps setup drafts in React session state only", async () => {
+test("v1.3 keeps setup drafts in React session state only", async () => {
   const [app, wizard] = await Promise.all([
     readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
@@ -38,6 +38,46 @@ test("v1.2 keeps setup drafts in React session state only", async () => {
   assert.match(app, /setupDrafts/);
   assert.doesNotMatch(app, /localStorage\.setItem\([^)]*setupDrafts/);
   assert.match(wizard, /刷新浏览器后不会保留未提交内容/);
+});
+
+test("v1.3 distinguishes preview data from verified live state", async () => {
+  const [app, overview, setup, wizard] = await Promise.all([
+    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/pages/OverviewPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/setup/SetupPanel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(app, /示例数据模式/);
+  assert.match(app, /status: "preview"/);
+  assert.match(overview, /没有连接任何服务器/);
+  assert.match(setup, /不会保存配置或验证服务器/);
+  assert.match(wizard, /没有保存配置，也没有验证任何真实服务/);
+});
+
+test("v1.3 deployment examples are authenticated and path-consistent", async () => {
+  const [nginx, deployment, security, service] = await Promise.all([
+    readFile(new URL("../deploy/nginx.conf.example", import.meta.url), "utf8"),
+    readFile(new URL("../docs/DEPLOYMENT.md", import.meta.url), "utf8"),
+    readFile(new URL("../SECURITY.md", import.meta.url), "utf8"),
+    readFile(new URL("../deploy/castoriceui-backend.service", import.meta.url), "utf8"),
+  ]);
+  assert.match(nginx, /root \/var\/www\/castorice-ui\/current;/);
+  assert.match(nginx, /auth_basic\s+"CastoriceUI";/);
+  assert.match(deployment, /groupadd --system proxycert/);
+  assert.match(service, /SupplementaryGroups=proxycert/);
+  assert.doesNotMatch(security, /vinext|image-size@/i);
+});
+
+test("v1.3 mutation requests carry a browser CSRF guard and share one backend version", async () => {
+  const [apiClient, apiServer, backendPackage] = await Promise.all([
+    readFile(new URL("../lib/api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../server/castoriceui/api.py", import.meta.url), "utf8"),
+    readFile(new URL("../server/castoriceui/__init__.py", import.meta.url), "utf8"),
+  ]);
+  assert.match(apiClient, /X-CastoriceUI-Request/);
+  assert.match(apiServer, /missing_request_guard/);
+  assert.match(apiServer, /__version__/);
+  assert.match(backendPackage, /__version__ = "1\.3\.0"/);
 });
 
 test("backend examples stay loopback-only and secret-free", async () => {
@@ -48,7 +88,7 @@ test("backend examples stay loopback-only and secret-free", async () => {
   assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
 });
 
-test("v1.2 exposes ten themes and removes misleading placeholder controls", async () => {
+test("v1.3 exposes ten themes and removes misleading placeholder controls", async () => {
   const [app, network, pages] = await Promise.all([
     readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/pages/NetworkPage.tsx", import.meta.url), "utf8"),

@@ -12,15 +12,15 @@
   "subscription_base_url": "https://panel.example.com/subscription",
   "hysteria_api": {
     "url": "http://127.0.0.1:19090",
-    "secret": "replace-on-server"
+    "secret": ""
   },
   "singbox_api": {
     "url": "http://127.0.0.1:19091",
-    "secret": "replace-on-server"
+    "secret": ""
   },
   "integrations": {
-    "hysteria2": {"enabled": true, "configured": true, "summary": "Loopback Traffic Stats API"},
-    "anytls": {"enabled": true, "configured": true, "summary": "Loopback Clash API"},
+    "hysteria2": {"enabled": false, "configured": false, "summary": "Add a loopback Traffic Stats API"},
+    "anytls": {"enabled": false, "configured": false, "summary": "Add a loopback Clash API"},
     "subscriptions": {"enabled": false, "configured": false, "summary": "Add a subscription provider"}
   },
   "network_targets": [
