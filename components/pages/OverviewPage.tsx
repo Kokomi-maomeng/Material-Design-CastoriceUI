@@ -1,7 +1,7 @@
 "use client";
 
 import { formatBytes, percent } from "../../lib/format";
-import type { Connection, IntegrationId, IntegrationStatus, OverviewMetrics, ServiceStatus } from "../../lib/types";
+import type { Connection, IntegrationId, IntegrationStatus, NetworkTarget, OverviewMetrics, ServiceStatus } from "../../lib/types";
 import { ResourceChart } from "../charts/ResourceChart";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
@@ -15,6 +15,7 @@ export function OverviewPage({
   metrics,
   connections,
   services,
+  networkTargets,
   integrations,
   resourceHistory,
   showSetup,
@@ -26,6 +27,7 @@ export function OverviewPage({
   metrics: OverviewMetrics;
   connections: Connection[];
   services: ServiceStatus[];
+  networkTargets: NetworkTarget[];
   integrations: IntegrationStatus[];
   resourceHistory: Array<{ label: string; cpu: number; memory: number }>;
   showSetup: boolean;
@@ -40,6 +42,10 @@ export function OverviewPage({
   const onlineAccounts = new Set(connections.map((item) => item.account)).size;
   const remaining = Math.max(0, metrics.trafficLimitBytes - metrics.trafficUsedBytes);
   const estimatedDays = metrics.trafficUsedBytes > 0 ? Math.max(1, Math.round(30 * remaining / metrics.trafficUsedBytes)) : null;
+  const reachableTargets = networkTargets.filter((target) => target.status !== "down").length;
+  const averageLatency = networkTargets.length ? networkTargets.reduce((sum, target) => sum + target.latency, 0) / networkTargets.length : 0;
+  const averageLoss = networkTargets.length ? networkTargets.reduce((sum, target) => sum + target.loss, 0) / networkTargets.length : 0;
+  const networkGrade = networkTargets.length === 0 ? "暂无数据" : averageLoss >= 5 || averageLatency >= 150 ? "较差" : averageLoss >= 1 || averageLatency >= 80 ? "一般" : "优秀";
 
   return (
     <div className="page-content page-enter">
@@ -114,11 +120,10 @@ export function OverviewPage({
 
         <Card variant="filled" className="quality-card">
           <CardHeader title="网络质量" description="IPv4 / IPv6 综合观测" />
-          <div className="quality-score"><strong>96</strong><span>/ 100</span></div>
+          <div className="quality-summary"><span><Icon name="verified" size={26} /></span><div><small>当前质量等级</small><strong>{networkGrade}</strong><em>{reachableTargets} / {networkTargets.length} 个目标可达</em></div></div>
           <div className="quality-bars">
-            <div><span>延迟</span><b>2.8 ms</b><Progress value={92} tone="success" /></div>
-            <div><span>抖动</span><b>0.6 ms</b><Progress value={96} tone="success" /></div>
-            <div><span>丢包</span><b>0.2%</b><Progress value={88} tone="success" /></div>
+            <div><span>平均延迟</span><b>{networkTargets.length ? `${averageLatency.toFixed(1)} ms` : "等待探测"}</b><Progress value={networkTargets.length ? Math.max(0, 100 - averageLatency / 2) : 0} tone={networkTargets.length && averageLatency < 80 ? "success" : "warning"} /></div>
+            <div><span>平均丢包</span><b>{networkTargets.length ? `${averageLoss.toFixed(1)}%` : "等待探测"}</b><Progress value={networkTargets.length ? Math.max(0, 100 - averageLoss * 10) : 0} tone={networkTargets.length && averageLoss < 1 ? "success" : "warning"} /></div>
           </div>
         </Card>
       </section>

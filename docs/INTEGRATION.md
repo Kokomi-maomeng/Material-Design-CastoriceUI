@@ -16,7 +16,7 @@ Hysteria2 / sing-box / systemd / provider API
 
 The browser must never receive an upstream API secret, raw configuration file, private key, full stored password, or privileged command capability.
 
-## Included v1.1 endpoints
+## Included v1.2 endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ Query the Traffic Stats API from the backend only. Authenticate it, bind it to l
 
 ### sing-box / AnyTLS
 
-Keep the Clash API on loopback with a strong secret. v1.1 reads `/connections` and its cumulative totals; it intentionally does not treat the streaming `/traffic` endpoint as a finite JSON response. Never proxy the entire management API or its authorization header to the browser.
+Keep the Clash API on loopback with a strong secret. v1.2 reads `/connections` and its cumulative totals; it intentionally does not treat the streaming `/traffic` endpoint as a finite JSON response. Never proxy the entire management API or its authorization header to the browser.
 
 ### Other protocols
 

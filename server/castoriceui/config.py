@@ -36,6 +36,8 @@ class AppConfig:
     network_targets: list[dict[str, Any]] = field(default_factory=list)
     managed_accounts: list[dict[str, Any]] = field(default_factory=list)
     subscriptions: list[dict[str, Any]] = field(default_factory=list)
+    redact_live_data: bool = False
+    alert_thresholds: dict[str, float] = field(default_factory=lambda: {"trafficPercent": 80.0, "latencyMs": 150.0, "lossPercent": 5.0})
 
     @classmethod
     def load(cls, path: str | Path) -> "AppConfig":
