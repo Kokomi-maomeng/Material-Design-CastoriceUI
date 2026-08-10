@@ -25,7 +25,25 @@ test("documents the backend security boundary", async () => {
     readFile(new URL("../docs/INTEGRATION.md", import.meta.url), "utf8"),
     readFile(new URL("../lib/data-provider.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(readme, /Never embed passwords.*API tokens/is);
+  assert.match(readme, /private keys.*plaintext passwords are never returned/is);
   assert.match(integration, /browser must never receive/i);
   assert.match(provider, /CastoriceDataProvider/);
+});
+
+test("v1.1 keeps setup drafts in React session state only", async () => {
+  const [app, wizard] = await Promise.all([
+    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(app, /setupDrafts/);
+  assert.doesNotMatch(app, /localStorage\.setItem\([^)]*setupDrafts/);
+  assert.match(wizard, /刷新浏览器后不会保留未提交内容/);
+});
+
+test("backend examples stay loopback-only and secret-free", async () => {
+  const config = JSON.parse(await readFile(new URL("../server/config.example.json", import.meta.url), "utf8"));
+  assert.equal(config.listen_host, "127.0.0.1");
+  assert.match(config.hysteria_api.url, /^http:\/\/127\.0\.0\.1:/);
+  assert.match(config.singbox_api.url, /^http:\/\/127\.0\.0\.1:/);
+  assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
 });

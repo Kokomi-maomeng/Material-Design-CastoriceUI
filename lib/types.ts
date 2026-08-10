@@ -25,6 +25,8 @@ export interface Connection {
   uploadBps: number;
   downloadBps: number;
   connectedAt: string;
+  uploadedBytes?: number;
+  downloadedBytes?: number;
 }
 
 export interface TrafficPoint {
@@ -52,8 +54,76 @@ export interface ServiceStatus {
   detail: string;
   status: "running" | "warning" | "stopped";
   version: string;
-  uptime: string;
+  uptime?: string;
+  uptimeSeconds?: number;
   icon: string;
+}
+
+export type IntegrationId =
+  | "system"
+  | "hysteria2"
+  | "anytls"
+  | "connections"
+  | "traffic"
+  | "subscriptions"
+  | "network"
+  | "alerts"
+  | "audit";
+
+export interface IntegrationStatus {
+  id: IntegrationId;
+  enabled: boolean;
+  configured: boolean;
+  status: "ready" | "pending" | "error";
+  summary: string;
+}
+
+export interface OverviewMetrics {
+  nodeName: string;
+  nodeRegion: string;
+  cpuPercent: number;
+  cpuCores: number;
+  memoryPercent: number;
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
+  diskPercent: number;
+  diskUsedBytes: number;
+  diskTotalBytes: number;
+  load: number[];
+  uptimeSeconds: number;
+  trafficUsedBytes: number;
+  trafficLimitBytes: number;
+  downloadBps: number;
+  uploadBps: number;
+  interface: string;
+  kernel: string;
+}
+
+export interface TrafficBreakdown {
+  name: string;
+  value: number;
+  color?: string;
+}
+
+export interface DashboardPayload {
+  mode: "live" | "preview";
+  generatedAt: string;
+  overview: OverviewMetrics;
+  accounts: Account[];
+  connections: Connection[];
+  traffic: {
+    hourly: TrafficPoint[];
+    daily: TrafficPoint[];
+    protocol: TrafficBreakdown[];
+    account: TrafficBreakdown[];
+  };
+  subscriptions: Subscription[];
+  networkTargets: NetworkTarget[];
+  services: ServiceStatus[];
+  alerts: AlertItem[];
+  auditEvents: AuditEvent[];
+  integrations: IntegrationStatus[];
+  resourceHistory: Array<{ label: string; cpu: number; memory: number }>;
 }
 
 export interface AlertItem {
@@ -85,6 +155,7 @@ export interface Subscription {
   updatedAt: string;
   lastFetchedAt: string;
   enabled: boolean;
+  url?: string;
 }
 
 export type PageId =

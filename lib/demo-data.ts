@@ -8,6 +8,7 @@ import type {
   ServiceStatus,
   Subscription,
   TrafficPoint,
+  DashboardPayload,
 } from "./types";
 
 const gb = 1024 ** 3;
@@ -160,4 +161,47 @@ export const resourceHistory = [
   { label: "现在", cpu: 31, memory: 54 },
 ];
 
-export const demoNotice = "当前展示为脱敏演示数据 · 等待后端数据源接入";
+export const previewDashboard: DashboardPayload = {
+  mode: "preview",
+  generatedAt: new Date().toISOString(),
+  overview: {
+    nodeName: "Tokyo edge",
+    nodeRegion: "Tokyo · NRT",
+    cpuPercent: 31,
+    cpuCores: 4,
+    memoryPercent: 54,
+    memoryUsedBytes: 553 * 1024 ** 2,
+    memoryTotalBytes: 1024 ** 3,
+    diskPercent: 18,
+    diskUsedBytes: 3.6 * gb,
+    diskTotalBytes: 20 * gb,
+    load: [0.42, 0.36, 0.31],
+    uptimeSeconds: 18 * 86400 + 4 * 3600 + 23 * 60,
+    trafficUsedBytes: 366.2 * gb,
+    trafficLimitBytes: 500 * gb,
+    downloadBps: 12_840_000,
+    uploadBps: 1_960_000,
+    interface: "eth0",
+    kernel: "6.12",
+  },
+  accounts: initialAccounts,
+  connections: initialConnections,
+  traffic: { hourly: hourlyTraffic, daily: dailyTraffic, protocol: protocolTraffic.map((item) => ({ name: item.name, value: item.value * gb })), account: accountTraffic.map((item) => ({ ...item, value: item.value * gb })) },
+  subscriptions: initialSubscriptions,
+  networkTargets,
+  services,
+  alerts: initialAlerts,
+  auditEvents,
+  integrations: [
+    { id: "system", enabled: true, configured: true, status: "ready", summary: "系统指标正在采集" },
+    { id: "hysteria2", enabled: true, configured: true, status: "ready", summary: "Traffic Stats API 已连接" },
+    { id: "anytls", enabled: true, configured: true, status: "ready", summary: "sing-box API 已连接" },
+    { id: "connections", enabled: true, configured: true, status: "ready", summary: "实时连接已接入" },
+    { id: "traffic", enabled: true, configured: true, status: "ready", summary: "流量采样正常" },
+    { id: "subscriptions", enabled: false, configured: false, status: "pending", summary: "等待配置订阅发布器" },
+    { id: "network", enabled: true, configured: true, status: "ready", summary: "IPv4 / IPv6 探测正常" },
+    { id: "alerts", enabled: true, configured: true, status: "ready", summary: "告警规则已启用" },
+    { id: "audit", enabled: true, configured: true, status: "ready", summary: "审计记录正在写入" },
+  ],
+  resourceHistory,
+};

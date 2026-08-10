@@ -1,0 +1,34 @@
+[Unit]
+Description=CastoriceUI backend API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=castoriceui
+Group=castoriceui
+SupplementaryGroups=proxycert
+WorkingDirectory=/opt/castoriceui/backend
+ExecStart=/usr/bin/python3 /opt/castoriceui/backend/run.py --config /etc/castoriceui/config.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/castoriceui
+TasksMax=128
+MemoryHigh=120M
+MemoryMax=180M
+
+[Install]
+WantedBy=multi-user.target

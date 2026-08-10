@@ -2,14 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { formatDuration, formatRate } from "../../lib/format";
-import type { Connection, Protocol } from "../../lib/types";
+import type { Connection, IntegrationStatus, Protocol } from "../../lib/types";
+import { FeatureIntro } from "../setup/FeatureIntro";
+import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 
-export function ConnectionsPage({ connections, now, onToast }: { connections: Connection[]; now: number; onToast: (message: string) => void }) {
+export function ConnectionsPage({ connections, now, onToast, integration, onConfigure }: { connections: Connection[]; now: number; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void }) {
   const [protocol, setProtocol] = useState<"all" | Protocol>("all");
   const [ipVersion, setIpVersion] = useState<"all" | 4 | 6>("all");
   const filtered = useMemo(() => connections.filter((item) => (protocol === "all" || item.protocol === protocol) && (ipVersion === "all" || item.ipVersion === ipVersion)), [connections, ipVersion, protocol]);
@@ -19,6 +21,8 @@ export function ConnectionsPage({ connections, now, onToast }: { connections: Co
   return (
     <div className="page-content page-enter">
       <PageHeader eyebrow="实时会话" title="在线连接" description="查看各协议活跃客户端、来源地址、即时速率与连接时长。" actions={<Chip staticChip tone="success" icon="fiber_manual_record">数据流已连接</Chip>} />
+      <IntegrationGate status={integration} name="实时连接采集" description="连接协议统计 API 后即可合并账号、来源 IP、速率和持续时间。" onConfigure={onConfigure} />
+      <FeatureIntro items={[{ icon: "speed", title: "秒级速率", description: "自动换算 KB/s、MB/s 和 GB/s，避免固定单位误读。" }, { icon: "badge", title: "账号与协议", description: "将核心连接统一映射为一致的数据结构。" }, { icon: "public", title: "IPv4 / IPv6", description: "同时识别两类来源地址并提供筛选。" }]} />
 
       <section className="summary-strip">
         <div><span className="summary-icon"><Icon name="devices" /></span><p><b>{filtered.length}</b><span>在线设备</span></p></div>
