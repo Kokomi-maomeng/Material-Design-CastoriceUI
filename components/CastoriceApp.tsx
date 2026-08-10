@@ -172,11 +172,15 @@ export function CastoriceApp() {
       await configureIntegration(id, true, values);
       await loadDashboard();
       showToast("配置已保存并通过后端验证");
-    } catch {
-      setDashboard((current) => ({ ...current, integrations: current.integrations.map((item) => item.id === id ? { ...item, enabled: true, configured: true, status: "ready", summary: "本地预览配置已完成" } : item) }));
-      showToast("本地预览已完成；部署后会由后端执行真实验证");
+    } catch (error) {
+      if (dashboard.mode !== "preview") {
+        showToast("验证失败；配置未保存，请检查回环地址、Secret 和后端日志");
+        throw error;
+      }
+      setDashboard((current) => ({ ...current, integrations: current.integrations.map((item) => item.id === id ? { ...item, enabled: true, configured: true, status: "preview", summary: "仅完成界面演示，未连接或验证后端" } : item) }));
+      showToast("演示流程已完成；没有保存配置，也没有验证真实服务");
     }
-  }, [loadDashboard, showToast]);
+  }, [dashboard.mode, loadDashboard, showToast]);
 
   const content = useMemo(() => {
     switch (page) {
@@ -189,7 +193,7 @@ export function CastoriceApp() {
       case "services": return <ServicesPage services={dashboard.services} metrics={dashboard.overview} onRefresh={() => { void loadDashboard(); showToast("正在重新读取服务状态"); }} integration={integrationFor("system")} onConfigure={() => configurePage("system")} />;
       case "alerts": return <AlertsPage alerts={alerts} integration={integrationFor("alerts")} onConfigure={() => configurePage("alerts")} onAcknowledge={(id) => { setAlerts((current) => current.map((item) => item.id === id ? { ...item, acknowledged: true } : item)); void acknowledgeAlert(id).catch(() => undefined); showToast("告警已确认"); }} onToast={showToast} />;
       case "audit": return <AuditPage events={dashboard.auditEvents} integration={integrationFor("audit")} onConfigure={() => configurePage("audit")} />;
-      default: return <OverviewPage metrics={dashboard.overview} connections={connections} services={dashboard.services} networkTargets={dashboard.networkTargets} integrations={dashboard.integrations} resourceHistory={dashboard.resourceHistory} showSetup={showSetup} onOpenSetup={configurePage} onEditQuota={openQuota} onRefresh={() => { void loadDashboard(); showToast("正在刷新实时指标"); }} onViewServices={() => navigate("services")} />;
+      default: return <OverviewPage mode={dashboard.mode} metrics={dashboard.overview} connections={connections} services={dashboard.services} networkTargets={dashboard.networkTargets} integrations={dashboard.integrations} resourceHistory={dashboard.resourceHistory} showSetup={showSetup} onOpenSetup={configurePage} onEditQuota={openQuota} onRefresh={() => { void loadDashboard(); showToast(dashboard.mode === "preview" ? "正在重载示例数据" : "正在刷新实时指标"); }} onViewServices={() => navigate("services")} />;
     }
   }, [alerts, configurePage, connections, dashboard, integrationFor, loadDashboard, navigate, now, openQuota, page, showSetup, showToast]);
 
@@ -213,7 +217,10 @@ export function CastoriceApp() {
           <div aria-hidden="true" />
           <div className="top-actions"><Button variant="text" icon="contrast" aria-label="主题设置" onClick={() => setThemeOpen(true)} /><button className="notification-button" onClick={() => navigate("alerts")} aria-label={`${unacknowledgedAlerts} 条未确认告警`}><Icon name="notifications" /><span>{unacknowledgedAlerts}</span></button><div className="user-menu" aria-label="当前管理员"><span className="avatar avatar--small">C</span><div><strong>admin</strong><small>系统管理员</small></div></div></div>
         </header>
-        <main id="main-content"><Suspense fallback={<PageLoading />}>{content}</Suspense></main>
+        <main id="main-content">
+          {dashboard.mode === "preview" && !backendOnline ? <div className="preview-mode-banner" role="status"><Icon name="science" size={21} /><div><strong>示例数据模式</strong><span>当前数字、连接、服务状态和配置结果均为界面演示，不代表任何服务器已经接入或验证。</span></div></div> : null}
+          <Suspense fallback={<PageLoading />}>{content}</Suspense>
+        </main>
       </div>
 
       <nav className="bottom-navigation" aria-label="手机导航">
@@ -222,7 +229,7 @@ export function CastoriceApp() {
       </nav>
 
       <ThemeDialog open={themeOpen} onClose={closeTheme} mode={themeMode} color={themeColor} onMode={setThemeMode} onColor={setThemeColor} showSetup={showSetup} onShowSetup={setShowSetup} />
-      <SetupWizard key={selectedSetup ?? "closed"} selected={selectedSetup} status={selectedSetup ? integrationFor(selectedSetup) : undefined} drafts={setupDrafts} onDraft={(id, field, value) => setSetupDrafts((current) => ({ ...current, [id]: { ...(current[id] ?? {}), [field]: value } }))} onClose={() => setSelectedSetup(null)} onSave={saveIntegration} />
+      <SetupWizard key={selectedSetup ?? "closed"} selected={selectedSetup} status={selectedSetup ? integrationFor(selectedSetup) : undefined} preview={dashboard.mode === "preview"} drafts={setupDrafts} onDraft={(id, field, value) => setSetupDrafts((current) => ({ ...current, [id]: { ...(current[id] ?? {}), [field]: value } }))} onClose={() => setSelectedSetup(null)} onSave={saveIntegration} />
       <Dialog open={quotaOpen} onClose={closeQuota} title="设置月度总流量" description="用于总览、预计耗尽日期和流量阈值告警。" size="small" actions={<><Button variant="text" onClick={closeQuota} disabled={quotaSaving}>取消</Button><Button onClick={() => void saveQuota()} disabled={quotaSaving}>{quotaSaving ? "保存中…" : "保存"}</Button></>}><label className="field"><span>总流量（GB）</span><div className="field-with-suffix"><input type="number" min="1" step="1" inputMode="numeric" value={draftLimit} onChange={(event) => setDraftLimit(event.target.value)} autoComplete="off" /><b>GB</b></div></label><p className="field-hint">输入期间实时刷新不会覆盖该字段；保存成功后才更新后端额度。</p></Dialog>
       <Toast message={toast} onDismiss={dismissToast} />
     </div>

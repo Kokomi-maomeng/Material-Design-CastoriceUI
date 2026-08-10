@@ -12,6 +12,7 @@ import { Progress } from "../ui/Progress";
 import { SetupPanel } from "../setup/SetupPanel";
 
 export function OverviewPage({
+  mode,
   metrics,
   connections,
   services,
@@ -24,6 +25,7 @@ export function OverviewPage({
   onRefresh,
   onViewServices,
 }: {
+  mode: "live" | "preview";
   metrics: OverviewMetrics;
   connections: Connection[];
   services: ServiceStatus[];
@@ -36,6 +38,7 @@ export function OverviewPage({
   onRefresh: () => void;
   onViewServices: () => void;
 }) {
+  const preview = mode === "preview";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
   const totalDown = connections.reduce((sum, item) => sum + item.downloadBps, 0) || metrics.downloadBps;
   const totalUp = connections.reduce((sum, item) => sum + item.uploadBps, 0) || metrics.uploadBps;
@@ -52,11 +55,11 @@ export function OverviewPage({
       <PageHeader
         eyebrow={metrics.nodeRegion}
         title={metrics.nodeName}
-        description="服务器资源、协议连接和网络质量来自后端实时采集。"
+        description={preview ? "当前展示内置示例数据，用于体验布局和交互；没有连接任何服务器。" : "服务器资源、协议连接和网络质量来自后端实时采集。"}
         actions={<Button variant="tonal" icon="refresh" onClick={onRefresh}>刷新数据</Button>}
       />
 
-      {showSetup ? <SetupPanel statuses={integrations} onOpen={onOpenSetup} /> : null}
+      {showSetup ? <SetupPanel statuses={integrations} onOpen={onOpenSetup} preview={preview} /> : null}
 
       <section className="overview-hero-grid" aria-label="关键运行指标">
         <Card className="traffic-hero" variant="elevated">
@@ -75,23 +78,23 @@ export function OverviewPage({
           </div>
         </Card>
 
-        <MetricCard icon="memory" label="CPU" value={`${metrics.cpuPercent.toFixed(0)}%`} detail={`${metrics.cpuCores} 核 · 负载 ${metrics.load[0] ?? 0}`} trend={metrics.cpuPercent < 80 ? "稳定" : "繁忙"} />
-        <MetricCard icon="memory_alt" label="内存" value={`${metrics.memoryPercent.toFixed(0)}%`} detail={`${formatBytes(metrics.memoryUsedBytes)} / ${formatBytes(metrics.memoryTotalBytes)}`} trend={metrics.memoryPercent < 85 ? "正常" : "偏高"} />
-        <MetricCard icon="hard_drive" label="磁盘" value={`${metrics.diskPercent.toFixed(0)}%`} detail={`${formatBytes(metrics.diskUsedBytes)} / ${formatBytes(metrics.diskTotalBytes)}`} trend={metrics.diskPercent < 85 ? "正常" : "偏高"} />
+        <MetricCard icon="memory" label="CPU" value={`${metrics.cpuPercent.toFixed(0)}%`} detail={`${metrics.cpuCores} 核 · 负载 ${metrics.load[0] ?? 0}`} trend={preview ? "演示" : metrics.cpuPercent < 80 ? "稳定" : "繁忙"} />
+        <MetricCard icon="memory_alt" label="内存" value={`${metrics.memoryPercent.toFixed(0)}%`} detail={`${formatBytes(metrics.memoryUsedBytes)} / ${formatBytes(metrics.memoryTotalBytes)}`} trend={preview ? "演示" : metrics.memoryPercent < 85 ? "正常" : "偏高"} />
+        <MetricCard icon="hard_drive" label="磁盘" value={`${metrics.diskPercent.toFixed(0)}%`} detail={`${formatBytes(metrics.diskUsedBytes)} / ${formatBytes(metrics.diskTotalBytes)}`} trend={preview ? "演示" : metrics.diskPercent < 85 ? "正常" : "偏高"} />
       </section>
 
       <section className="content-grid content-grid--dashboard">
         <Card className="resource-panel" variant="outlined">
           <CardHeader
             title="系统资源"
-            description="最近 30 分钟 · 后端持续采样"
+            description={preview ? "示例趋势 · 不代表真实采样" : "最近 30 分钟 · 后端持续采样"}
             action={<div className="legend-inline"><span className="dot dot--primary" />CPU<span className="dot dot--tertiary" />内存</div>}
           />
           <ResourceChart data={resourceHistory} />
         </Card>
 
         <Card className="live-summary" variant="filled">
-          <CardHeader title="实时连接" description="过去 3 秒内活跃" action={<Chip staticChip tone="success" icon="fiber_manual_record">实时</Chip>} />
+          <CardHeader title={preview ? "连接数据示例" : "实时连接"} description={preview ? "用于演示列表与速率布局" : "过去 3 秒内活跃"} action={<Chip staticChip tone={preview ? "default" : "success"} icon={preview ? "science" : "fiber_manual_record"}>{preview ? "演示" : "实时"}</Chip>} />
           <div className="live-speed">
             <div><span><Icon name="download" size={18} />下载</span><strong>{formatBytes(totalDown)}<small>/s</small></strong></div>
             <div><span><Icon name="upload" size={18} />上传</span><strong>{formatBytes(totalUp)}<small>/s</small></strong></div>
@@ -106,20 +109,20 @@ export function OverviewPage({
 
       <section className="content-grid content-grid--dashboard-bottom">
         <Card variant="outlined">
-          <CardHeader title="服务健康度" description="核心组件与证书状态" action={<Button variant="text" compact trailingIcon="arrow_forward" onClick={onViewServices}>查看全部</Button>} />
+          <CardHeader title={preview ? "服务状态示例" : "服务健康度"} description={preview ? "以下状态均为虚构演示" : "核心组件与证书状态"} action={<Button variant="text" compact trailingIcon="arrow_forward" onClick={onViewServices}>查看全部</Button>} />
           <div className="service-compact-list">
             {services.slice(0, 4).map((service) => (
               <div className="service-compact" key={service.id}>
                 <span className={`service-icon service-icon--${service.status}`}><Icon name={service.icon} /></span>
                 <div><strong>{service.name}</strong><span>{service.detail}</span></div>
-                <Chip staticChip tone={service.status === "running" ? "success" : "warning"}>{service.status === "running" ? "运行中" : "需关注"}</Chip>
+                <Chip staticChip tone={preview ? "default" : service.status === "running" ? "success" : "warning"}>{preview ? "演示" : service.status === "running" ? "运行中" : "需关注"}</Chip>
               </div>
             ))}
           </div>
         </Card>
 
         <Card variant="filled" className="quality-card">
-          <CardHeader title="网络质量" description="IPv4 / IPv6 综合观测" />
+          <CardHeader title={preview ? "网络质量示例" : "网络质量"} description={preview ? "虚构 IPv4 / IPv6 观测数据" : "IPv4 / IPv6 综合观测"} />
           <div className="quality-summary"><span><Icon name="verified" size={26} /></span><div><small>当前质量等级</small><strong>{networkGrade}</strong><em>{reachableTargets} / {networkTargets.length} 个目标可达</em></div></div>
           <div className="quality-bars">
             <div><span>平均延迟</span><b>{networkTargets.length ? `${averageLatency.toFixed(1)} ms` : "等待探测"}</b><Progress value={networkTargets.length ? Math.max(0, 100 - averageLatency / 2) : 0} tone={networkTargets.length && averageLatency < 80 ? "success" : "warning"} /></div>

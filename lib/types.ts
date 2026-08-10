@@ -74,7 +74,7 @@ export interface IntegrationStatus {
   id: IntegrationId;
   enabled: boolean;
   configured: boolean;
-  status: "ready" | "pending" | "error";
+  status: "ready" | "pending" | "preview" | "error";
   summary: string;
 }
 
