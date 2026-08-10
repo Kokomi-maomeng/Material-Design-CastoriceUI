@@ -127,7 +127,18 @@ class DashboardService:
         if not configured:
             raise ValueError("Complete the required fields")
         self._validate_integration(integration_id, clean_values)
-        summary = "Configuration saved" if configured else "Complete the required fields"
+        summaries = {
+            "hysteria2": "Endpoint saved; connectivity and authentication validated",
+            "anytls": "Endpoint saved; connectivity and authentication validated",
+            "subscriptions": "HTTPS URL format validated; publisher reachability is not probed",
+            "network": "Probe targets saved; runtime reachability is reported separately",
+            "traffic": "Traffic sampling settings saved",
+            "connections": "Connection view enabled; fields depend on configured protocol adapters",
+            "alerts": "Alert thresholds saved",
+            "audit": "Local audit recording enabled",
+            "system": "Local system collection enabled",
+        }
+        summary = summaries.get(integration_id, "Configuration saved") if configured else "Complete the required fields"
         state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": clean_values}
         self._apply_integration_values(integration_id, clean_values)
         overrides = self.storage.get_setting("integration_overrides", {})
@@ -253,6 +264,33 @@ class DashboardService:
             public.append(item)
         return public
 
+    def runtime_integrations(self, hy2: dict[str, Any], singbox: dict[str, Any], network: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        states = {item["id"]: item for item in self.config.public_integrations()}
+
+        def update(integration_id: str, *, configured: bool | None = None, ready: bool, summary: str) -> None:
+            state = states[integration_id]
+            if configured is not None:
+                state["configured"] = configured
+            state["status"] = "ready" if ready else "error" if state["configured"] else "pending"
+            state["summary"] = summary
+
+        hy2_configured = bool(str(self.config.hysteria_api.get("url", "")).strip())
+        sb_configured = bool(str(self.config.singbox_api.get("url", "")).strip())
+        update("hysteria2", configured=hy2_configured, ready=bool(hy2.get("available")), summary="Traffic Stats API is responding" if hy2.get("available") else "Traffic Stats API is not configured or not responding")
+        update("anytls", configured=sb_configured, ready=bool(singbox.get("available")), summary="sing-box connections API is responding" if singbox.get("available") else "sing-box connections API is not configured or not responding")
+        hy2_streams_ready = bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available")))
+        adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
+        update("connections", ready=adapters_ready, summary="Protocol connection snapshots are available; individual fields may be absent" if adapters_ready else "No configured protocol statistics adapter is currently responding")
+        update("system", ready=True, summary="Local /proc, filesystem and systemd data collected")
+        update("traffic", ready=True, summary=f"Interface {self.system_collector.interface} counters sampled; monthly usage starts at the first retained sample")
+        subscription_count = len(self.config.subscriptions)
+        update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified")
+        reachable = sum(1 for target in network if target.get("status") != "down")
+        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary=f"Last cached probe: {reachable}/{len(network)} targets reachable; results may be up to 5 minutes old" if network else "No network probe result is available")
+        update("alerts", ready=True, summary="Local threshold evaluation enabled")
+        update("audit", ready=True, summary="Local audit records loaded from protected storage")
+        return list(states.values())
+
     def subscription_url(self, subscription_id: str) -> str | None:
         for subscription in self.config.subscriptions:
             if str(subscription.get("id", "")) == subscription_id and subscription.get("enabled", True):
@@ -278,6 +316,7 @@ class DashboardService:
             network = network_future.result()
         services = service_snapshots(self.config, system, hy2, singbox)
         connections = connection_snapshots(hy2, singbox)
+        integrations = self.runtime_integrations(hy2, singbox, network)
         if self.config.redact_live_data:
             for connection in connections:
                 connection["sourceIp"] = self._mask_ip(connection.get("sourceIp"))
@@ -310,6 +349,6 @@ class DashboardService:
             "services": services,
             "alerts": self.alerts(system, services, network),
             "auditEvents": self.audit_events(),
-            "integrations": self.config.public_integrations(),
+            "integrations": integrations,
             "resourceHistory": [{"label": datetime.fromtimestamp(sample["captured_at"], timezone.utc).strftime("%H:%M"), "cpu": sample["cpu"], "memory": sample["memory"]} for sample in self.storage.samples_since(int(time.time()) - 1800)][-12:],
         }

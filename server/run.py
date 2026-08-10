@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from castoriceui.api import ApiServer  # noqa: E402
+from castoriceui import __version__  # noqa: E402
 from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
@@ -21,7 +22,7 @@ def main() -> None:
     storage = Storage(config.database_path)
     dashboard = DashboardService(config, storage)
     server = ApiServer(config, storage, dashboard)
-    storage.add_audit("后端启动", "系统", "CastoriceUI 1.3 数据服务已启动")
+    storage.add_audit("后端启动", "系统", f"CastoriceUI {__version__} 数据服务已启动")
     print(f"CastoriceUI backend listening on {config.listen_host}:{config.listen_port}")
     server.serve_forever(poll_interval=0.5)
 
