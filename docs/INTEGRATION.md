@@ -16,23 +16,17 @@ Hysteria2 / sing-box / systemd / provider API
 
 The browser must never receive an upstream API secret, raw configuration file, private key, full stored password, or privileged command capability.
 
-## Suggested endpoints
+## Included v1.1 endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/overview` | Quota, system resources and forecast |
-| GET/POST | `/api/v1/accounts` | List and create accounts |
-| PATCH | `/api/v1/accounts/:id` | Status, quota, expiry and note |
-| POST | `/api/v1/accounts/:id/reset-password` | Rotate credential; return once |
-| GET | `/api/v1/connections` | Initial live-connection snapshot |
-| WS | `/api/v1/realtime` | Sanitized rates and connection changes |
-| GET | `/api/v1/traffic?range=day` | Aggregated traffic history |
-| GET/POST | `/api/v1/subscriptions` | Subscription metadata and creation |
-| POST | `/api/v1/subscriptions/:id/rotate` | Rotate bearer Token |
-| GET | `/api/v1/network-targets` | IPv4/IPv6 quality snapshots |
-| GET | `/api/v1/services` | Sanitized service health |
-| GET/PATCH | `/api/v1/alerts` | Alerts and acknowledgement |
-| GET | `/api/v1/audit` | Append-only audit events |
+| GET | `/api/v1/health` | Lightweight service health |
+| GET | `/api/v1/dashboard` | Bounded aggregate snapshot for all nine pages |
+| PUT | `/api/v1/settings/traffic-limit` | Persist the monthly quota |
+| PUT | `/api/v1/integrations/:id` | Validate and save an integration configuration |
+| POST | `/api/v1/alerts/:id/ack` | Persist acknowledgement and an audit event |
+
+The aggregate endpoint keeps the first paint simple and reduces round trips on small VPS instances. Add narrower endpoints or a WebSocket stream when the account or connection volume requires it.
 
 ## Adapter guidance
 
@@ -42,7 +36,7 @@ Query the Traffic Stats API from the backend only. Authenticate it, bind it to l
 
 ### sing-box / AnyTLS
 
-Keep the Clash API on loopback with a strong secret. A backend adapter can sample sanitized connection metadata and rates. Never proxy the entire management API or its authorization header to the browser.
+Keep the Clash API on loopback with a strong secret. v1.1 reads `/connections` and its cumulative totals; it intentionally does not treat the streaming `/traffic` endpoint as a finite JSON response. Never proxy the entire management API or its authorization header to the browser.
 
 ### Other protocols
 

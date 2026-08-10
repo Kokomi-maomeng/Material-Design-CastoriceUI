@@ -1,0 +1,31 @@
+{
+  "listen_host": "127.0.0.1",
+  "listen_port": 18080,
+  "database_path": "/var/lib/castoriceui/state.db",
+  "node_name": "Tokyo edge",
+  "node_region": "Tokyo · NRT",
+  "interface": "eth0",
+  "traffic_limit_bytes": 1000000000000,
+  "certificate_path": "/etc/castoriceui/tls-fullchain.pem",
+  "subscription_base_url": "https://panel.example.com/subscription",
+  "hysteria_api": {
+    "url": "http://127.0.0.1:19090",
+    "secret": "replace-on-server"
+  },
+  "singbox_api": {
+    "url": "http://127.0.0.1:19091",
+    "secret": "replace-on-server"
+  },
+  "integrations": {
+    "hysteria2": {"enabled": true, "configured": true, "summary": "Loopback Traffic Stats API"},
+    "anytls": {"enabled": true, "configured": true, "summary": "Loopback Clash API"},
+    "subscriptions": {"enabled": false, "configured": false, "summary": "Add a subscription provider"}
+  },
+  "network_targets": [
+    {"id": "cloudflare-v4", "name": "Cloudflare IPv4", "provider": "Cloudflare", "address": "1.1.1.1", "ipVersion": 4},
+    {"id": "google-v4", "name": "Google IPv4", "provider": "Google", "address": "8.8.8.8", "ipVersion": 4},
+    {"id": "cloudflare-v6", "name": "Cloudflare IPv6", "provider": "Cloudflare", "address": "2606:4700:4700::1111", "ipVersion": 6}
+  ],
+  "managed_accounts": [],
+  "subscriptions": []
+}

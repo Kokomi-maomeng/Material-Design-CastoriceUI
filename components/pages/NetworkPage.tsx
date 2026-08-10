@@ -1,23 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { NetworkTarget } from "../../lib/types";
+import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
+import { FeatureIntro } from "../setup/FeatureIntro";
+import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 
-export function NetworkPage({ targets, onToast }: { targets: NetworkTarget[]; onToast: (message: string) => void }) {
+export function NetworkPage({ targets, onToast, integration, onConfigure }: { targets: NetworkTarget[]; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void }) {
   const [version, setVersion] = useState<"all" | 4 | 6>("all");
   const filtered = useMemo(() => targets.filter((target) => version === "all" || target.ipVersion === version), [targets, version]);
-  const avgLatency = filtered.reduce((sum, item) => sum + item.latency, 0) / filtered.length;
-  const avgJitter = filtered.reduce((sum, item) => sum + item.jitter, 0) / filtered.length;
-  const avgLoss = filtered.reduce((sum, item) => sum + item.loss, 0) / filtered.length;
+  const avgLatency = filtered.length ? filtered.reduce((sum, item) => sum + item.latency, 0) / filtered.length : 0;
+  const avgJitter = filtered.length ? filtered.reduce((sum, item) => sum + item.jitter, 0) / filtered.length : 0;
+  const avgLoss = filtered.length ? filtered.reduce((sum, item) => sum + item.loss, 0) / filtered.length : 0;
 
   return (
     <div className="page-content page-enter">
-      <PageHeader eyebrow="链路可观测性" title="网络质量" description="持续观测常用大厂与自定义目标的延迟、抖动和丢包。" actions={<><Button variant="outlined" icon="add" onClick={() => onToast("探测目标需要由后端校验并保存")}>添加目标</Button><Button variant="tonal" icon="refresh" onClick={() => onToast("演示探测结果已刷新")}>立即探测</Button></>} />
+      <PageHeader eyebrow="链路可观测性" title="网络质量" description="持续观测常用大厂与自定义目标的延迟、抖动和丢包。" actions={<><Button variant="outlined" icon="add" onClick={() => onToast("探测目标需要由后端校验并保存")}>添加目标</Button><Button variant="tonal" icon="refresh" onClick={() => onToast("后端将在下一采样周期刷新结果")}>立即探测</Button></>} />
+      <IntegrationGate status={integration} name="网络探测" description="设置 IPv4 / IPv6 目标后，后端会周期计算延迟、抖动和丢包。" onConfigure={onConfigure} />
+      <FeatureIntro items={[{ icon: "timer", title: "延迟", description: "比较不同服务商与线路的往返时间。" }, { icon: "ssid_chart", title: "抖动", description: "识别平均延迟正常但体验不稳定的路径。" }, { icon: "packet_mirror", title: "丢包", description: "以独立阈值发现链路拥塞或不可达。" }]} />
       <div className="network-overview">
         <Card variant="elevated" className="network-score-card"><div className="network-grade"><span>A</span></div><div><small>综合质量</small><strong>优秀</strong><p>IPv4 与 IPv6 路径整体稳定</p></div></Card>
         <NetworkMetric icon="timer" label="平均延迟" value={`${avgLatency.toFixed(1)} ms`} state="较低" />

@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { formatBytes, formatDate, percent } from "../../lib/format";
-import type { Account } from "../../lib/types";
+import type { Account, IntegrationStatus } from "../../lib/types";
+import { FeatureIntro } from "../setup/FeatureIntro";
+import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -17,9 +19,11 @@ interface AccountsPageProps {
   onToggle: (id: string) => void;
   onResetPassword: (account: Account) => void;
   onToast: (message: string) => void;
+  integration?: IntegrationStatus;
+  onConfigure: () => void;
 }
 
-export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, onToast }: AccountsPageProps) {
+export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, onToast, integration, onConfigure }: AccountsPageProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "disabled">("all");
   const [createOpen, setCreateOpen] = useState(false);
@@ -39,6 +43,9 @@ export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, on
         description="集中管理代理账号、协议权限、流量额度与有效期。"
         actions={<Button icon="person_add" onClick={() => setCreateOpen(true)}>创建账号</Button>}
       />
+
+      <IntegrationGate status={integration} name="账号数据源" description="连接协议认证适配器后，账号状态、额度和在线设备会由后端同步。" onConfigure={onConfigure} />
+      <FeatureIntro items={[{ icon: "manage_accounts", title: "统一生命周期", description: "集中处理启用状态、到期时间、额度和备注。" }, { icon: "vpn_key", title: "凭据边界", description: "浏览器只触发重置流程，不读取协议明文密码。" }, { icon: "data_usage", title: "账号用量", description: "将协议统计映射到账号，快速定位高用量主体。" }]} />
 
       <Card variant="outlined" className="table-panel">
         <div className="table-toolbar">
