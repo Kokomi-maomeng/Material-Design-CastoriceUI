@@ -30,7 +30,7 @@ test("documents the backend security boundary", async () => {
   assert.match(provider, /CastoriceDataProvider/);
 });
 
-test("v1.3 keeps setup drafts in React session state only", async () => {
+test("v1.4 keeps setup drafts in React session state only", async () => {
   const [app, wizard] = await Promise.all([
     readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
@@ -40,7 +40,7 @@ test("v1.3 keeps setup drafts in React session state only", async () => {
   assert.match(wizard, /刷新浏览器后不会保留未提交内容/);
 });
 
-test("v1.3 distinguishes preview data from verified live state", async () => {
+test("v1.4 distinguishes loading, preview, live, and stale state", async () => {
   const [app, overview, setup, wizard] = await Promise.all([
     readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/pages/OverviewPage.tsx", import.meta.url), "utf8"),
@@ -48,13 +48,16 @@ test("v1.3 distinguishes preview data from verified live state", async () => {
     readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(app, /示例数据模式/);
+  assert.match(app, /后端连接中断，数据已停止更新/);
+  assert.match(app, /emptyDashboard/);
   assert.match(app, /status: "preview"/);
   assert.match(overview, /没有连接任何服务器/);
   assert.match(setup, /不会保存配置或验证服务器/);
   assert.match(wizard, /没有保存配置，也没有验证任何真实服务/);
+  assert.match(app, /previewDashboard/);
 });
 
-test("v1.3 deployment examples are authenticated and path-consistent", async () => {
+test("v1.4 deployment examples are authenticated and path-consistent", async () => {
   const [nginx, deployment, security, service] = await Promise.all([
     readFile(new URL("../deploy/nginx.conf.example", import.meta.url), "utf8"),
     readFile(new URL("../docs/DEPLOYMENT.md", import.meta.url), "utf8"),
@@ -68,7 +71,7 @@ test("v1.3 deployment examples are authenticated and path-consistent", async () 
   assert.doesNotMatch(security, /vinext|image-size@/i);
 });
 
-test("v1.3 mutation requests carry a browser CSRF guard and share one backend version", async () => {
+test("v1.4 mutation requests carry a browser CSRF guard and share one backend version", async () => {
   const [apiClient, apiServer, backendPackage] = await Promise.all([
     readFile(new URL("../lib/api.ts", import.meta.url), "utf8"),
     readFile(new URL("../server/castoriceui/api.py", import.meta.url), "utf8"),
@@ -77,7 +80,7 @@ test("v1.3 mutation requests carry a browser CSRF guard and share one backend ve
   assert.match(apiClient, /X-CastoriceUI-Request/);
   assert.match(apiServer, /missing_request_guard/);
   assert.match(apiServer, /__version__/);
-  assert.match(backendPackage, /__version__ = "1\.3\.0"/);
+  assert.match(backendPackage, /__version__ = "1\.4\.0"/);
 });
 
 test("backend examples stay loopback-only and secret-free", async () => {
@@ -88,7 +91,7 @@ test("backend examples stay loopback-only and secret-free", async () => {
   assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
 });
 
-test("v1.3 exposes ten themes and removes misleading placeholder controls", async () => {
+test("v1.4 exposes ten themes and removes misleading placeholder controls", async () => {
   const [app, network, pages] = await Promise.all([
     readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/pages/NetworkPage.tsx", import.meta.url), "utf8"),
@@ -103,4 +106,19 @@ test("v1.3 exposes ten themes and removes misleading placeholder controls", asyn
   assert.doesNotMatch(network, /packet_mirror/i);
   assert.match(network, /暂无数据/);
   assert.doesNotMatch(pages.join("\n"), /需要后端授权|接入后端后启用|仅在当前页面生效/);
+});
+
+test("v1.4 does not fabricate unavailable live connection fields", async () => {
+  const [connections, collector, gate] = await Promise.all([
+    readFile(new URL("../components/pages/ConnectionsPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../server/castoriceui/collectors.py", import.meta.url), "utf8"),
+    readFile(new URL("../components/setup/IntegrationGate.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(connections, /核心未提供/);
+  assert.match(connections, /活动连接条目/);
+  assert.doesNotMatch(connections, /在线设备|每秒更新|过去 3 秒/);
+  assert.match(collector, /"uploadBps": None/);
+  assert.match(collector, /"connectedAt": connection\.get\("start"\)/);
+  assert.match(gate, /status\.status === "error"/);
+  assert.match(gate, /status\?\.status === "preview"/);
 });

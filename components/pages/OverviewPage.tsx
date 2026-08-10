@@ -25,7 +25,7 @@ export function OverviewPage({
   onRefresh,
   onViewServices,
 }: {
-  mode: "live" | "preview";
+  mode: "loading" | "live" | "preview" | "stale";
   metrics: OverviewMetrics;
   connections: Connection[];
   services: ServiceStatus[];
@@ -39,9 +39,11 @@ export function OverviewPage({
   onViewServices: () => void;
 }) {
   const preview = mode === "preview";
+  const stale = mode === "stale";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
-  const totalDown = connections.reduce((sum, item) => sum + item.downloadBps, 0) || metrics.downloadBps;
-  const totalUp = connections.reduce((sum, item) => sum + item.uploadBps, 0) || metrics.uploadBps;
+  const connectionRatesAvailable = connections.length > 0 && connections.every((item) => item.downloadBps !== null && item.uploadBps !== null);
+  const totalDown = connectionRatesAvailable ? connections.reduce((sum, item) => sum + (item.downloadBps ?? 0), 0) : metrics.downloadBps;
+  const totalUp = connectionRatesAvailable ? connections.reduce((sum, item) => sum + (item.uploadBps ?? 0), 0) : metrics.uploadBps;
   const onlineAccounts = new Set(connections.map((item) => item.account)).size;
   const remaining = Math.max(0, metrics.trafficLimitBytes - metrics.trafficUsedBytes);
   const estimatedDays = metrics.trafficUsedBytes > 0 ? Math.max(1, Math.round(30 * remaining / metrics.trafficUsedBytes)) : null;
@@ -55,7 +57,7 @@ export function OverviewPage({
       <PageHeader
         eyebrow={metrics.nodeRegion}
         title={metrics.nodeName}
-        description={preview ? "当前展示内置示例数据，用于体验布局和交互；没有连接任何服务器。" : "服务器资源、协议连接和网络质量来自后端实时采集。"}
+        description={preview ? "当前展示内置示例数据，用于体验布局和交互；没有连接任何服务器。" : stale ? "当前是最后一次成功快照，后端连接已中断；这些值不是当前实时状态。" : "服务器资源来自后端当前快照；协议与网络字段按各数据源实际能力展示。"}
         actions={<Button variant="tonal" icon="refresh" onClick={onRefresh}>刷新数据</Button>}
       />
 
@@ -94,13 +96,13 @@ export function OverviewPage({
         </Card>
 
         <Card className="live-summary" variant="filled">
-          <CardHeader title={preview ? "连接数据示例" : "实时连接"} description={preview ? "用于演示列表与速率布局" : "过去 3 秒内活跃"} action={<Chip staticChip tone={preview ? "default" : "success"} icon={preview ? "science" : "fiber_manual_record"}>{preview ? "演示" : "实时"}</Chip>} />
+          <CardHeader title={preview ? "连接数据示例" : "协议连接快照"} description={preview ? "用于演示列表与速率布局" : stale ? "后端中断前的最后一次成功快照" : "每 5 秒刷新；字段取决于协议核心"} action={<Chip staticChip tone={preview ? "default" : stale ? "warning" : "success"} icon={preview ? "science" : stale ? "cloud_off" : "schedule"}>{preview ? "演示" : stale ? "已停止更新" : "快照"}</Chip>} />
           <div className="live-speed">
-            <div><span><Icon name="download" size={18} />下载</span><strong>{formatBytes(totalDown)}<small>/s</small></strong></div>
-            <div><span><Icon name="upload" size={18} />上传</span><strong>{formatBytes(totalUp)}<small>/s</small></strong></div>
+            <div><span><Icon name="download" size={18} />{connectionRatesAvailable ? "连接下载" : `主网卡 ${metrics.interface} 下载`}</span><strong>{formatBytes(totalDown)}<small>/s</small></strong></div>
+            <div><span><Icon name="upload" size={18} />{connectionRatesAvailable ? "连接上传" : `主网卡 ${metrics.interface} 上传`}</span><strong>{formatBytes(totalUp)}<small>/s</small></strong></div>
           </div>
           <div className="live-meta">
-            <span><b>{connections.length}</b> 在线设备</span>
+            <span><b>{connections.length}</b> 活动连接条目</span>
             <span><b>{onlineAccounts}</b> 活跃账号</span>
             <span><b>{connections.reduce((sum, item) => sum + item.connections, 0)}</b> 并发连接</span>
           </div>
@@ -122,7 +124,7 @@ export function OverviewPage({
         </Card>
 
         <Card variant="filled" className="quality-card">
-          <CardHeader title={preview ? "网络质量示例" : "网络质量"} description={preview ? "虚构 IPv4 / IPv6 观测数据" : "IPv4 / IPv6 综合观测"} />
+          <CardHeader title={preview ? "网络质量示例" : "网络质量"} description={preview ? "虚构 IPv4 / IPv6 观测数据" : "探测结果最多缓存 5 分钟；不是 5 秒实时探测"} />
           <div className="quality-summary"><span><Icon name="verified" size={26} /></span><div><small>当前质量等级</small><strong>{networkGrade}</strong><em>{reachableTargets} / {networkTargets.length} 个目标可达</em></div></div>
           <div className="quality-bars">
             <div><span>平均延迟</span><b>{networkTargets.length ? `${averageLatency.toFixed(1)} ms` : "等待探测"}</b><Progress value={networkTargets.length ? Math.max(0, 100 - averageLatency / 2) : 0} tone={networkTargets.length && averageLatency < 80 ? "success" : "warning"} /></div>

@@ -1,6 +1,6 @@
 # Material-Design CastoriceUI
 
-![Version](https://img.shields.io/badge/version-1.3.0-6750A4)
+![Version](https://img.shields.io/badge/version-1.4.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -19,16 +19,27 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 
 ## 中文
 
-### v1.3 功能与修复
+### v1.4 真实性与状态修复
+
+- 首屏先显示中性加载状态，不再在真实后端响应前闪现示例服务器数字。
+- 后端中断时保留最后成功快照，但明确标记“已停止更新”和快照时间，不再继续声称实时。
+- Hysteria2 活动流和 sing-box 连接统一称为“活动连接条目”，不再误称独立在线设备。
+- 协议核心未返回速率、来源 IP 或开始时间时显示“核心未提供”，不再使用 `0` 或当前时间补造。
+- Hysteria2 / sing-box 的运行态取决于当前 API 响应；仅填写地址不再显示为已连接。
+- 系统自动更新状态改为读取 `unattended-upgrades` 与 `apt-daily-upgrade.timer`，系统版本来自 `/etc/os-release`。
+- 订阅记录明确属于受保护的服务器配置；HTTPS 格式校验不代表发布器可达或已验证。
+- 网络探测明确标注最多缓存 5 分钟；月度流量继续明确以首个保留采样为基线。
+
+### 主要功能
 
 - 总览：已用/剩余流量、预计耗尽、CPU、内存、磁盘、负载、实时上下行
 - 初始化向导：按服务展示配置目的、操作步骤、参数输入与验证结果
 - 向导草稿：页面间切换不丢失，刷新或关闭页面后自动清除未提交内容
-- 接入状态：未配置页面显示开启和配置入口，配置完成后显示实时状态
+- 接入状态：区分未配置、配置成功、当前可用和已配置但运行异常
 - 账号、在线连接、流量分析、订阅、网络质量、服务、告警与审计九个页面
 - 各页面包含简明的能力说明，方便首次部署者理解数据来源和安全边界
 - 侧栏与设置中均可显示/隐藏初始化向导，并支持浅色、深色、跟随系统和十组主题色
-- 实时数据状态移动到侧栏底部；总览网络卡片改为质量等级、可达目标和真实平均值
+- 后端快照状态位于侧栏底部；总览网络卡片显示质量等级、可达目标和探测结果
 - 账号、连接、服务等只读页面不再展示无法真正执行的伪操作按钮
 - 桌面、平板、手机响应式布局与无障碍弹窗/键盘导航
 - 接入配置只有在真实上游鉴权请求成功后才会标记为就绪，失败配置不会持久化
@@ -42,7 +53,7 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 `server/` 提供不依赖第三方 Python 包的数据服务：
 
 - `/proc`、`/sys`、`statvfs`：CPU、内存、磁盘、负载、运行时间和网卡计数器
-- Hysteria2 Traffic Stats API：账号流量、在线设备和活动流
+- Hysteria2 Traffic Stats API：账号累计流量、在线计数和活动流条目
 - sing-box Clash API：AnyTLS 连接、来源地址和累计流量
 - `systemd` 与证书读取：核心状态、版本、运行时间和证书有效期
 - IPv4 / IPv6 并发探测：延迟、抖动和丢包
@@ -80,8 +91,10 @@ npm run check
 ### 数据准确性边界
 
 - 网卡流量从后端首次运行时开始建立月度基线，不能恢复部署前未记录的历史采样。
+- 页面每 5 秒刷新后端快照；网络 ICMP 探测最多缓存 5 分钟，二者不是同一采样频率。
 - Hysteria2 可以提供账号级统计；sing-box 当前接口主要提供连接与聚合统计，能否映射到账号取决于核心返回字段。
 - Hysteria2 Traffic Stats 活动流包含认证账号，但当前接口不保证返回客户端来源 IP；缺失时页面会明确显示“协议核心未提供”，不会把访问目标误标为来源地址。
+- 活动流或连接条目不是独立设备计数；协议核心没有提供瞬时速率或连接开始时间时，面板不会自行推算。
 - 面板不会直接执行任意 shell 命令。协议账号写入、认证迁移等高风险操作应通过经过审计的专用适配器实现。
 - Basic Auth 可用于单管理员部署；多人环境建议换成带会话、CSRF 和 MFA 的认证代理。
 
@@ -105,7 +118,16 @@ tests/                  前端边界测试
 
 ## English
 
-### What v1.3 includes
+### What v1.4 fixes
+
+- Neutral loading state before the first backend response; demo metrics no longer flash during production startup
+- Explicit stale-snapshot state after a backend disconnect, including the last successful timestamp
+- Activity streams and connection records are no longer mislabeled as independent online devices
+- Missing source IP, instantaneous rate, or start time is shown as unavailable instead of being fabricated
+- Runtime adapter health is derived from current authenticated API responses, not configuration presence
+- Automatic-update state comes from systemd, subscription URLs are described as configured records, and network-probe caching is disclosed
+
+### Main capabilities
 
 - Live overview for quota, forecast, CPU, memory, disk, load, and network rates
 - Guided integration cards with purpose, ordered steps, parameter forms, and verification state

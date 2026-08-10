@@ -22,9 +22,9 @@ export interface Connection {
   sourceIp: string;
   ipVersion: 4 | 6 | null;
   connections: number;
-  uploadBps: number;
-  downloadBps: number;
-  connectedAt: string;
+  uploadBps: number | null;
+  downloadBps: number | null;
+  connectedAt: string | null;
   uploadedBytes?: number;
   downloadedBytes?: number;
 }
@@ -106,7 +106,7 @@ export interface TrafficBreakdown {
 }
 
 export interface DashboardPayload {
-  mode: "live" | "preview";
+  mode: "loading" | "live" | "preview" | "stale";
   generatedAt: string;
   overview: OverviewMetrics;
   accounts: Account[];

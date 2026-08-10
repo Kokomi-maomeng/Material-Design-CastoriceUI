@@ -1,5 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  emptyDashboard,
   navigation,
   previewDashboard,
 } from "../lib/demo-data";
@@ -57,15 +58,16 @@ export function CastoriceApp() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => readPreference("castorice-theme-mode", THEME_MODES, "system"));
   const [themeColor, setThemeColor] = useState<ThemeColor>(() => readPreference("castorice-theme-color", THEME_COLORS, "violet"));
   const [showSetup, setShowSetup] = useState(() => readPreference("castorice-setup-panel", ["show", "hide"], "show") === "show");
-  const [dashboard, setDashboard] = useState<DashboardPayload>(previewDashboard);
+  const [dashboard, setDashboard] = useState<DashboardPayload>(emptyDashboard);
   const [backendOnline, setBackendOnline] = useState(false);
-  const [draftLimit, setDraftLimit] = useState(String(Math.round(previewDashboard.overview.trafficLimitBytes / 1024 ** 3)));
-  const [alerts, setAlerts] = useState<AlertItem[]>(previewDashboard.alerts);
+  const [draftLimit, setDraftLimit] = useState("0");
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [connections, setConnections] = useState(previewDashboard.connections);
+  const [connections, setConnections] = useState(emptyDashboard.connections);
   const [selectedSetup, setSelectedSetup] = useState<IntegrationId | null>(null);
   const [setupDrafts, setSetupDrafts] = useState<Record<string, Record<string, string>>>({});
+  const hasLiveData = useRef(false);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -97,12 +99,20 @@ export function CastoriceApp() {
   const loadDashboard = useCallback(async () => {
     try {
       const payload = await fetchDashboard();
-      setDashboard(payload);
+      setDashboard({ ...payload, mode: "live" });
       setAlerts(payload.alerts);
       setConnections(payload.connections);
       setBackendOnline(true);
+      hasLiveData.current = true;
     } catch {
       setBackendOnline(false);
+      if (hasLiveData.current) {
+        setDashboard((current) => ({ ...current, mode: "stale" }));
+      } else {
+        setAlerts(previewDashboard.alerts);
+        setConnections(previewDashboard.connections);
+        setDashboard({ ...previewDashboard, generatedAt: new Date().toISOString() });
+      }
     }
   }, []);
 
@@ -171,7 +181,7 @@ export function CastoriceApp() {
     try {
       await configureIntegration(id, true, values);
       await loadDashboard();
-      showToast("配置已保存并通过后端验证");
+      showToast(id === "hysteria2" || id === "anytls" ? "配置已保存，协议接口连通与鉴权验证通过" : "配置已保存；运行状态以页面采集结果为准");
     } catch (error) {
       if (dashboard.mode !== "preview") {
         showToast("验证失败；配置未保存，请检查回环地址、Secret 和后端日志");
@@ -193,7 +203,7 @@ export function CastoriceApp() {
       case "services": return <ServicesPage services={dashboard.services} metrics={dashboard.overview} onRefresh={() => { void loadDashboard(); showToast("正在重新读取服务状态"); }} integration={integrationFor("system")} onConfigure={() => configurePage("system")} />;
       case "alerts": return <AlertsPage alerts={alerts} integration={integrationFor("alerts")} onConfigure={() => configurePage("alerts")} onAcknowledge={(id) => { setAlerts((current) => current.map((item) => item.id === id ? { ...item, acknowledged: true } : item)); void acknowledgeAlert(id).catch(() => undefined); showToast("告警已确认"); }} onToast={showToast} />;
       case "audit": return <AuditPage events={dashboard.auditEvents} integration={integrationFor("audit")} onConfigure={() => configurePage("audit")} />;
-      default: return <OverviewPage mode={dashboard.mode} metrics={dashboard.overview} connections={connections} services={dashboard.services} networkTargets={dashboard.networkTargets} integrations={dashboard.integrations} resourceHistory={dashboard.resourceHistory} showSetup={showSetup} onOpenSetup={configurePage} onEditQuota={openQuota} onRefresh={() => { void loadDashboard(); showToast(dashboard.mode === "preview" ? "正在重载示例数据" : "正在刷新实时指标"); }} onViewServices={() => navigate("services")} />;
+      default: return <OverviewPage mode={dashboard.mode} metrics={dashboard.overview} connections={connections} services={dashboard.services} networkTargets={dashboard.networkTargets} integrations={dashboard.integrations} resourceHistory={dashboard.resourceHistory} showSetup={showSetup} onOpenSetup={configurePage} onEditQuota={openQuota} onRefresh={() => { void loadDashboard(); showToast(dashboard.mode === "preview" ? "正在尝试连接后端；失败时继续显示明确标注的示例数据" : "正在刷新后端快照"); }} onViewServices={() => navigate("services")} />;
     }
   }, [alerts, configurePage, connections, dashboard, integrationFor, loadDashboard, navigate, now, openQuota, page, showSetup, showToast]);
 
@@ -207,7 +217,7 @@ export function CastoriceApp() {
             return <button key={item.id} className={page === item.id ? "is-active" : ""} onClick={() => navigate(item.id)} aria-current={page === item.id ? "page" : undefined} aria-label={badge ? `${item.label} ${badge}` : item.label} title={item.label}><Icon name={item.icon} filled={page === item.id} /><span>{item.label}</span>{badge ? <em>{badge}</em> : null}</button>;
           })}
         </nav>
-        <div className="nav-footer"><button onClick={() => setThemeOpen(true)} aria-label="主题与外观" title="主题与外观"><Icon name="palette" /><span>主题与外观</span></button><div className="nav-status"><span className={`status-dot ${backendOnline ? "status-dot--online" : "status-dot--warning"}`} /><div><strong>{backendOnline ? `实时数据 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "本地预览"}</strong><span>{dashboard.overview.nodeName}</span></div></div><button onClick={() => setShowSetup((visible) => !visible)} aria-label={showSetup ? "隐藏初始化向导" : "显示初始化向导"} title={showSetup ? "隐藏初始化向导" : "显示初始化向导"}><Icon name={showSetup ? "checklist" : "playlist_add_check"} /><span>{showSetup ? "隐藏初始化向导" : "显示初始化向导"}</span></button></div>
+        <div className="nav-footer"><button onClick={() => setThemeOpen(true)} aria-label="主题与外观" title="主题与外观"><Icon name="palette" /><span>主题与外观</span></button><div className="nav-status"><span className={`status-dot ${backendOnline ? "status-dot--online" : "status-dot--warning"}`} /><div><strong>{dashboard.mode === "live" ? `后端快照 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : dashboard.mode === "stale" ? `数据已停止更新 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : dashboard.mode === "loading" ? "正在连接后端" : "明确标注的示例数据"}</strong><span>{dashboard.overview.nodeName}</span></div></div><button onClick={() => setShowSetup((visible) => !visible)} aria-label={showSetup ? "隐藏初始化向导" : "显示初始化向导"} title={showSetup ? "隐藏初始化向导" : "显示初始化向导"}><Icon name={showSetup ? "checklist" : "playlist_add_check"} /><span>{showSetup ? "隐藏初始化向导" : "显示初始化向导"}</span></button></div>
       </aside>
       {drawerOpen ? <button className="drawer-scrim" onClick={() => setDrawerOpen(false)} aria-label="关闭导航" /> : null}
 
@@ -219,7 +229,8 @@ export function CastoriceApp() {
         </header>
         <main id="main-content">
           {dashboard.mode === "preview" && !backendOnline ? <div className="preview-mode-banner" role="status"><Icon name="science" size={21} /><div><strong>示例数据模式</strong><span>当前数字、连接、服务状态和配置结果均为界面演示，不代表任何服务器已经接入或验证。</span></div></div> : null}
-          <Suspense fallback={<PageLoading />}>{content}</Suspense>
+          {dashboard.mode === "stale" ? <div className="preview-mode-banner" role="alert"><Icon name="cloud_off" size={21} /><div><strong>后端连接中断，数据已停止更新</strong><span>页面保留的是 {new Date(dashboard.generatedAt).toLocaleString()} 最后一次成功快照，不是当前实时状态。</span></div></div> : null}
+          {dashboard.mode === "loading" ? <PageLoading /> : <Suspense fallback={<PageLoading />}>{content}</Suspense>}
         </main>
       </div>
 
