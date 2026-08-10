@@ -15,7 +15,7 @@ Do not disclose a suspected vulnerability in a public issue. Use the repository'
 
 ## Security boundary
 
-CastoriceUI v1.3 includes a browser frontend and an optional Python backend. The backend collects local Linux metrics, queries loopback-only Hysteria2 and sing-box management APIs, and stores bounded operational history in SQLite. It is not an identity provider and must not be exposed directly to the internet.
+CastoriceUI v1.4 includes a browser frontend and an optional Python backend. The backend collects local Linux metrics, queries loopback-only Hysteria2 and sing-box management APIs, and stores bounded operational history in SQLite. It is not an identity provider and must not be exposed directly to the internet.
 
 The supported production boundary is:
 
@@ -28,7 +28,7 @@ The browser never receives upstream API Secrets, raw configuration files, privat
 
 ## Secret handling
 
-Upstream Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`, owned by `root:castoriceui` with mode `0640`. v1.3 does not accept those Secrets from the setup UI and does not persist them in SQLite. On startup, it removes any legacy v1.2 `secret` value found in the `integration_overrides` setting.
+Upstream Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`, owned by `root:castoriceui` with mode `0640`. v1.4 does not accept those Secrets from the setup UI and does not persist them in SQLite. On startup, it removes any legacy v1.2 `secret` value found in the `integration_overrides` setting.
 
 The setup API accepts only loopback management endpoints, rejects embedded URL credentials, query strings, and fragments, and performs a real authenticated upstream request before reporting a ready state. Failed validation is not persisted.
 
