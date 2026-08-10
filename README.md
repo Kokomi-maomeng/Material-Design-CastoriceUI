@@ -1,164 +1,167 @@
 # Material-Design CastoriceUI
 
-![License](https://img.shields.io/badge/license-MIT-6750A4)
-![Node](https://img.shields.io/badge/Node.js-%E2%89%A520.19-42664F)
+![Version](https://img.shields.io/badge/version-1.1.0-6750A4)
+![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
+![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
 
-一个采用 Material Design 3 的响应式 VPS 代理管理前端，也是一套便于二次开发的纯静态界面基础。项目不捆绑代理内核、数据库或特权系统服务；所有演示数据均为虚构内容。
+一套采用 Material Design 3 的轻量 VPS 代理管理面板，包含响应式前端、初始化向导和可选的 Python 标准库后端。它可以统一展示主机资源、Hysteria2、AnyTLS / sing-box、连接、流量、网络质量、证书、告警与审计信息。
 
-A responsive Material Design 3 frontend for VPS proxy management and a clean foundation for custom integrations. It ships as static files and does not bundle a proxy core, database, authentication server, or privileged system agent. All included data is fictional.
+A lightweight Material Design 3 VPS proxy console with a responsive frontend, guided integrations, and an optional Python standard-library backend. It provides one place for host metrics, Hysteria2, AnyTLS / sing-box, connections, traffic, network quality, certificates, alerts, and audit events.
 
-![CastoriceUI desktop overview](docs/images/dashboard-desktop.png)
+![CastoriceUI desktop dashboard](docs/images/dashboard-desktop.png)
 
 <p align="center">
-  <img src="docs/images/dashboard-mobile.png" width="320" alt="CastoriceUI mobile subscription view">
+  <img src="docs/images/dashboard-mobile.png" width="320" alt="CastoriceUI mobile dashboard">
 </p>
 
-[中文](#中文说明) · [English](#english)
+[中文](#中文) · [English](#english)
 
-## 中文说明
+## 中文
 
-### 功能
+### v1.1 功能
 
-- 总览：流量额度、预计耗尽日期、CPU、内存、磁盘与系统负载
-- 账号管理：创建、筛选、启用/禁用、额度、到期时间与重置密码交互
-- 在线连接：协议、账号、来源 IP、连接数、实时速率与持续时间
-- 流量分析：今日/月度、账号排行、协议分布与小时/天趋势
-- 订阅管理：独立地址、Token 重置、一键复制与二维码
-- 网络质量：IPv4/IPv6 延迟、抖动、丢包与趋势
-- 服务状态、告警中心与操作审计
-- 浅色、深色、跟随系统及五组主题色
-- 桌面、平板、手机自适应导航
+- 总览：已用/剩余流量、预计耗尽、CPU、内存、磁盘、负载、实时上下行
+- 初始化向导：按服务展示配置目的、操作步骤、参数输入与验证结果
+- 向导草稿：页面间切换不丢失，刷新或关闭页面后自动清除未提交内容
+- 接入状态：未配置页面显示开启和配置入口，配置完成后显示实时状态
+- 账号、在线连接、流量分析、订阅、网络质量、服务、告警与审计九个页面
+- 各页面包含简明的能力说明，方便首次部署者理解数据来源和安全边界
+- 设置中可隐藏初始化向导，并支持浅色、深色、跟随系统和五组主题色
+- 桌面、平板、手机响应式布局与无障碍弹窗/键盘导航
 
-### 快速开始
+### 后端能力
 
-需要 Node.js 20.19 或更高版本。
+`server/` 提供不依赖第三方 Python 包的数据服务：
+
+- `/proc`、`/sys`、`statvfs`：CPU、内存、磁盘、负载、运行时间和网卡计数器
+- Hysteria2 Traffic Stats API：账号流量、在线设备和活动流
+- sing-box Clash API：AnyTLS 连接、来源地址和累计流量
+- `systemd` 与证书读取：核心状态、版本、运行时间和证书有效期
+- IPv4 / IPv6 并发探测：延迟、抖动和丢包
+- SQLite：流量采样、设置、告警确认和操作审计
+
+管理 API 默认只监听 `127.0.0.1`，由 Nginx 通过同源 `/api/` 转发。协议 API 也应只监听回环地址，并使用独立随机密钥。浏览器不会收到上游 API Secret、配置文件、私钥或明文密码。
+
+实时数据默认经过展示脱敏：来源 IP、账号/邮箱标识、备注和审计来源地址只返回掩码，常规仪表盘响应不会包含完整订阅 URL 或 Token。复制地址和二维码只有在管理员主动操作时才从受保护端点按需读取，二维码关闭后即从页面内存清除。
+
+### 快速预览
+
+需要 Node.js 20.19 或更高版本：
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
 cd Material-Design-CastoriceUI
 npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5173`。开发时通常只需要修改 `components/`、`lib/` 和 `app/globals.css`。
+打开 `http://localhost:5173`。未启动后端时会使用内置预览数据，向导和所有前端交互仍可测试。
 
-完整检查与生产构建：
+### 完整检查
 
 ```bash
 npm run check
 ```
 
-构建结果位于 `dist/`，可直接上传到任何静态 Web 服务器：
+该命令依次执行 ESLint、TypeScript、前后端测试、敏感信息扫描、生产构建和生产依赖审计。
+
+### 生产部署
+
+前端：
 
 ```bash
+npm ci
 npm run build
+sudo rsync -a --delete dist/ /var/www/castorice-ui/
 ```
 
-### 部署
+后端：
 
-CastoriceUI 使用 Hash 路由，因此不需要服务器重写规则。将 `dist/` 作为站点根目录即可。Nginx 最小配置示例见 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)。
-
-```nginx
-server {
-    listen 80;
-    server_name panel.example.com;
-    root /var/www/castorice-ui;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
+```bash
+sudo install -d /opt/castoriceui/backend /etc/castoriceui /var/lib/castoriceui
+sudo cp -a server/. /opt/castoriceui/backend/
+sudo cp server/config.example.json /etc/castoriceui/config.json
+sudo cp deploy/castoriceui-backend.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now castoriceui-backend
 ```
 
-TLS、登录认证、限流和安全响应头应在反向代理或后端完成，不要把密码、API Token 或证书放入前端仓库。
+编辑 `/etc/castoriceui/config.json` 时，只在服务器上填写 API Secret、订阅地址和真实路径；不要提交该文件。Nginx 配置见 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，完整步骤和回滚说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
-### 接入真实后端
+### 数据准确性边界
 
-浏览器安全的数据模型位于 `lib/types.ts`，统一适配器接口位于 `lib/data-provider.ts`。生产后端可聚合 Hysteria2、AnyTLS、sing-box、系统指标和数据库数据，再返回经过鉴权、授权和脱敏的模型。
+- 网卡流量从后端首次运行时开始建立月度基线，不能恢复部署前未记录的历史采样。
+- Hysteria2 可以提供账号级统计；sing-box 当前接口主要提供连接与聚合统计，能否映射到账号取决于核心返回字段。
+- 面板不会直接执行任意 shell 命令。协议账号写入、认证迁移等高风险操作应通过经过审计的专用适配器实现。
+- Basic Auth 可用于单管理员部署；多人环境建议换成带会话、CSRF 和 MFA 的认证代理。
 
-浏览器不得直接访问代理内核管理端口、Docker Socket、systemd 或数据库。详细端点建议与安全边界见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
-
-### 浏览器与性能
-
-- 构建目标为 ES2017，并提供剪贴板、主题存储和媒体查询兼容回退
-- 弹窗不依赖浏览器原生 `<dialog>`，兼容较旧的 Safari 和嵌入式 WebView
-- 字体与图标随项目本地打包，不依赖 Google Fonts CDN
-- 页面按需加载，图表使用轻量 SVG，不引入大型图表或 UI 框架
-- 建议使用仍受维护的 Chrome、Edge、Firefox、Safari 或其移动版本；不支持 Internet Explorer
-
-### 目录结构
+### 项目结构
 
 ```text
-components/          页面、图表与小型 UI 组件
-lib/                 类型、格式化、演示数据与后端适配接口
-app/globals.css      Material Design 3 设计令牌与响应式样式
-public/              静态资源
-docs/                接入与设计系统文档
-deploy/              可复制的部署示例
-tests/               构建与安全边界测试
-main.tsx              浏览器入口
+app/                    Material Design 3 样式与设计令牌
+components/             页面、图表、向导和 UI 组件
+lib/                    类型、API 客户端、预览数据和接入定义
+server/castoriceui/     Python 后端、采集器、SQLite 与 HTTP API
+deploy/                 systemd 和 Nginx 示例
+docs/                   部署、接入与设计文档
+tests/                  前端边界测试
 ```
 
-### 安全提醒
+### 安全
 
-提交前请运行 `npm run check`，并检查暂存区。不要提交 `.env`、真实 IP、用户名、密码、Cookie、订阅地址、私钥、证书或云厂商凭据。演示数据应使用 `example.test`、RFC 5737 IPv4 和 RFC 3849 IPv6 文档地址。
+提交前运行 `npm run check`。不要提交 `.env`、真实服务器地址、用户名、密码、订阅 Token、Cookie、API Secret、私钥或证书。示例只能使用 `example.com` / `example.test` 和文档地址。
 
-安全问题请按 [`SECURITY.md`](SECURITY.md) 私下报告。参与开发请参阅 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+安全问题请参阅 [`SECURITY.md`](SECURITY.md)，贡献流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ## English
 
-### Features
+### What v1.1 includes
 
-- Overview with quota, exhaustion forecast, CPU, memory, disk, and load
-- Account creation, filtering, status, quota, expiry, and password-reset handoff
-- Live protocol, account, source IP, connection count, rate, and duration views
-- Daily/monthly traffic, account ranking, protocol distribution, and trends
-- Per-account subscription links, token rotation, copy, and QR interactions
-- IPv4/IPv6 latency, jitter, packet loss, and history
-- Service health, alert center, and audit history
-- Light, dark, system, and five color themes
+- Live overview for quota, forecast, CPU, memory, disk, load, and network rates
+- Guided integration cards with purpose, ordered steps, parameter forms, and verification state
+- Session-only form drafts that survive page navigation but disappear after a reload
+- Integration gates on every functional page; completed services move below pending setup items
+- Accounts, connections, traffic, subscriptions, network, services, alerts, and audit views
+- Concise capability explanations for every page
+- Optional setup-panel visibility, light/dark/system modes, and five color themes
 - Responsive desktop, tablet, and mobile navigation
 
-### Quick start
+### Backend
 
-Node.js 20.19 or newer is required.
+The optional backend under `server/` uses only the Python standard library and SQLite. It collects Linux resource counters, Hysteria2 Traffic Stats, sing-box Clash connection data, systemd health, certificate expiry, network probes, traffic history, alerts, and audit events.
+
+The API listens on loopback by default and is exposed only through the authenticated same-origin `/api/` reverse proxy. Upstream secrets, raw configuration files, private keys, and plaintext passwords are never returned to the browser.
+
+Live presentation data is masked by default. Source IPs, account/email identifiers, notes, and audit addresses are redacted, while subscription URLs and tokens are excluded from the dashboard payload. A protected endpoint returns a URL only for an explicit copy or QR action, and the QR value is cleared from page memory when the dialog closes.
+
+### Development
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
 cd Material-Design-CastoriceUI
 npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. Run the complete validation and production build with:
+Open `http://localhost:5173`. Without a backend, the UI starts in preview mode so the complete workflow remains testable.
+
+Run all checks and create the production build:
 
 ```bash
 npm run check
+npm run build
 ```
 
-The deployable static site is written to `dist/`.
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the backend, systemd, Nginx, TLS, validation, and rollback workflow. See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) for the API and adapter boundary.
 
-### Deployment
+### Compatibility
 
-CastoriceUI uses hash routing, so it needs no framework server and no route-specific rewrite rules. Serve `dist/` from Nginx, Apache, an object-storage website, or a static hosting provider. See [`deploy/nginx.conf.example`](deploy/nginx.conf.example) for a minimal Nginx configuration.
-
-Terminate TLS and implement authentication, rate limiting, and security headers in your reverse proxy or backend. Never embed passwords, API tokens, certificate material, or infrastructure credentials in this frontend.
-
-### Backend integration
-
-Browser-safe domain models are in `lib/types.ts`; the backend-neutral contract is in `lib/data-provider.ts`. A trusted backend should collect and sanitize Hysteria2, AnyTLS, sing-box, system, and database data before returning it to the UI.
-
-The browser must never receive privileged upstream credentials or direct access to management ports, Docker, systemd, or a database. See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) for endpoint guidance and security requirements.
-
-### Compatibility and performance
-
-- ES2017 production target with clipboard, preference-storage, and media-query fallbacks
-- Framework-independent modal implementation for older Safari and embedded WebViews
-- Locally packaged fonts and icons; no runtime font CDN
-- Lazy-loaded pages and lightweight SVG charts; no heavyweight component or chart framework
-- Intended for maintained Chrome, Edge, Firefox, Safari, and mobile variants; Internet Explorer is not supported
+- ES2017 browser target with clipboard, storage, and media-query fallbacks
+- Locally bundled fonts and Material Symbols; no runtime font CDN
+- Lazy-loaded pages and lightweight SVG charts
+- Maintained Chrome, Edge, Firefox, Safari, and their mobile variants
+- Python 3.11+ and a systemd-based Linux host for the optional backend
 
 ### License
 
