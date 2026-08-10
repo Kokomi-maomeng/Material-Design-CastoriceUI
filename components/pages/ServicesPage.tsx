@@ -11,12 +11,12 @@ import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
 
-export function ServicesPage({ services, metrics, onToast, integration, onConfigure }: { services: ServiceStatus[]; metrics: OverviewMetrics; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void }) {
+export function ServicesPage({ services, metrics, onRefresh, integration, onConfigure }: { services: ServiceStatus[]; metrics: OverviewMetrics; onRefresh: () => void; integration?: IntegrationStatus; onConfigure: () => void }) {
   const running = services.filter((service) => service.status === "running").length;
   const unhealthy = services.length - running;
   return (
     <div className="page-content page-enter">
-      <PageHeader eyebrow="运行状态" title="服务状态" description="集中查看代理核心、系统组件、证书和更新状态。" actions={<Button variant="tonal" icon="refresh" onClick={() => onToast("服务状态已重新检查")}>重新检查</Button>} />
+      <PageHeader eyebrow="运行状态" title="服务状态" description="集中查看代理核心、系统组件、证书和更新状态。" actions={<Button variant="tonal" icon="refresh" onClick={onRefresh}>重新检查</Button>} />
       <IntegrationGate status={integration} name="系统服务监控" description="连接本机 systemd 与证书读取器后，页面会显示真实状态和运行时间。" onConfigure={onConfigure} />
       <FeatureIntro items={[{ icon: "dns", title: "核心状态", description: "统一检查 Hysteria2、AnyTLS 和 Nginx。" }, { icon: "verified_user", title: "证书有效期", description: "提前发现证书即将到期或读取异常。" }, { icon: "memory", title: "主机环境", description: "展示内核、负载、运行时间和存储状态。" }]} />
       <div className={`status-banner ${unhealthy ? "status-banner--warning" : "status-banner--success"}`}><span><Icon name={unhealthy ? "warning" : "check_circle"} size={30} filled /></span><div><strong>{unhealthy ? "部分组件需要关注" : "系统运行正常"}</strong><p>{services.length} 个受监控组件中，{running} 个正常运行，{unhealthy} 个需要关注。上次检查：刚刚</p></div><Chip staticChip tone={unhealthy ? "warning" : "success"}>实时检查</Chip></div>
@@ -26,7 +26,7 @@ export function ServicesPage({ services, metrics, onToast, integration, onConfig
             <div className="service-card__top"><span className={`service-icon service-icon--${service.status}`}><Icon name={service.icon} size={25} /></span><Chip staticChip tone={service.status === "running" ? "success" : service.status === "warning" ? "warning" : "danger"}>{service.status === "running" ? "运行中" : service.status === "warning" ? "需关注" : "已停止"}</Chip></div>
             <div className="service-card__body"><h3>{service.name}</h3><p>{service.detail}</p></div>
             <dl><div><dt>版本</dt><dd>{service.version}</dd></div><div><dt>运行时间</dt><dd>{service.uptime ?? formatDuration(service.uptimeSeconds ?? 0)}</dd></div></dl>
-            <div className="service-card__actions"><Button variant="text" compact icon="article" onClick={() => onToast(`${service.name} 日志需要后端脱敏后返回`)}>查看日志</Button><Button variant="text" compact icon="more_vert" aria-label={`更多 ${service.name} 操作`} onClick={() => onToast(`${service.name} 管理操作需要后端授权`)} /></div>
+            <div className="service-card__source"><Icon name="sync" size={17} />由 systemd 与本机程序自动读取</div>
           </Card>
         ))}
       </section>

@@ -21,7 +21,7 @@ def main() -> None:
     storage = Storage(config.database_path)
     dashboard = DashboardService(config, storage)
     server = ApiServer(config, storage, dashboard)
-    storage.add_audit("后端启动", "系统", "CastoriceUI 1.1 数据服务已启动")
+    storage.add_audit("后端启动", "系统", "CastoriceUI 1.2 数据服务已启动")
     print(f"CastoriceUI backend listening on {config.listen_host}:{config.listen_port}")
     server.serve_forever(poll_interval=0.5)
 

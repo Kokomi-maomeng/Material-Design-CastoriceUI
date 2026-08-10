@@ -7,14 +7,13 @@ import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { DonutChart } from "../charts/DonutChart";
 import { TrafficChart } from "../charts/TrafficChart";
-import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
 
-export function TrafficPage({ onToast, traffic, integration, onConfigure }: { onToast: (message: string) => void; traffic: DashboardPayload["traffic"]; integration?: IntegrationStatus; onConfigure: () => void }) {
+export function TrafficPage({ traffic, integration, onConfigure }: { onToast: (message: string) => void; traffic: DashboardPayload["traffic"]; integration?: IntegrationStatus; onConfigure: () => void }) {
   const [range, setRange] = useState<"day" | "month">("day");
   const hourlyTraffic = traffic.hourly.map((item) => ({ ...item, upload: item.upload / 1024 ** 3, download: item.download / 1024 ** 3 }));
   const dailyTraffic = traffic.daily.map((item) => ({ ...item, upload: item.upload / 1024 ** 3, download: item.download / 1024 ** 3 }));
@@ -25,7 +24,7 @@ export function TrafficPage({ onToast, traffic, integration, onConfigure }: { on
 
   return (
     <div className="page-content page-enter">
-      <PageHeader eyebrow="用量洞察" title="流量分析" description="按时间、账号与代理协议了解流量去向和增长趋势。" actions={<Button variant="outlined" icon="download" onClick={() => onToast("报告导出需要由后端生成完整数据")}>导出报告</Button>} />
+      <PageHeader eyebrow="用量洞察" title="流量分析" description="按时间、账号与代理协议了解流量去向和增长趋势。" />
       <IntegrationGate status={integration} name="流量采集" description="启用网卡采样并连接协议统计后，趋势和分类会切换为真实数据。" onConfigure={onConfigure} />
       <FeatureIntro items={[{ icon: "timeline", title: "小时与天趋势", description: "持续采样服务器计数器，形成短期与月度走势。" }, { icon: "donut_large", title: "协议分类", description: "对比 Hysteria2、AnyTLS 与扩展协议的用量。" }, { icon: "group", title: "账号排行", description: "发现异常增长并辅助设置配额。" }]} />
       <section className="traffic-kpis">

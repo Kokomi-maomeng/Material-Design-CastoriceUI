@@ -6,6 +6,8 @@
   "node_region": "Tokyo · NRT",
   "interface": "eth0",
   "traffic_limit_bytes": 1000000000000,
+  "redact_live_data": false,
+  "alert_thresholds": {"trafficPercent": 80, "latencyMs": 150, "lossPercent": 5},
   "certificate_path": "/etc/castoriceui/tls-fullchain.pem",
   "subscription_base_url": "https://panel.example.com/subscription",
   "hysteria_api": {

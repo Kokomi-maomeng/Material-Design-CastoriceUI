@@ -5,29 +5,21 @@ import { formatBytes, formatDate, percent } from "../../lib/format";
 import type { Account, IntegrationStatus } from "../../lib/types";
 import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
-import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
-import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
 
 interface AccountsPageProps {
   accounts: Account[];
-  onCreate: (account: Account) => void;
-  onToggle: (id: string) => void;
-  onResetPassword: (account: Account) => void;
-  onToast: (message: string) => void;
   integration?: IntegrationStatus;
   onConfigure: () => void;
 }
 
-export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, onToast, integration, onConfigure }: AccountsPageProps) {
+export function AccountsPage({ accounts, integration, onConfigure }: AccountsPageProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "disabled">("all");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [menuId, setMenuId] = useState<string | null>(null);
 
   const filtered = useMemo(() => accounts.filter((account) => {
     const matchesSearch = `${account.name} ${account.email} ${account.note}`.toLowerCase().includes(search.toLowerCase());
@@ -41,11 +33,11 @@ export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, on
         eyebrow="访问控制"
         title="账号管理"
         description="集中管理代理账号、协议权限、流量额度与有效期。"
-        actions={<Button icon="person_add" onClick={() => setCreateOpen(true)}>创建账号</Button>}
       />
 
       <IntegrationGate status={integration} name="账号数据源" description="连接协议认证适配器后，账号状态、额度和在线设备会由后端同步。" onConfigure={onConfigure} />
       <FeatureIntro items={[{ icon: "manage_accounts", title: "统一生命周期", description: "集中处理启用状态、到期时间、额度和备注。" }, { icon: "vpn_key", title: "凭据边界", description: "浏览器只触发重置流程，不读取协议明文密码。" }, { icon: "data_usage", title: "账号用量", description: "将协议统计映射到账号，快速定位高用量主体。" }]} />
+      <div className="read-only-notice"><Icon name="info" size={20} /><span><strong>当前为只读同步</strong>账号的创建、密码和启停状态由代理核心认证配置决定；面板会在后端配置变更后自动更新，不展示无法真实执行的操作按钮。</span></div>
 
       <Card variant="outlined" className="table-panel">
         <div className="table-toolbar">
@@ -63,7 +55,7 @@ export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, on
 
         <div className="responsive-table accounts-table">
           <table>
-            <thead><tr><th>账号</th><th>状态</th><th>协议</th><th>流量</th><th>到期时间</th><th>备注</th><th><span className="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th>账号</th><th>状态</th><th>协议</th><th>流量</th><th>到期时间</th><th>备注</th></tr></thead>
             <tbody>
               {filtered.map((account) => {
                 const usage = percent(account.usedBytes, account.quotaBytes);
@@ -75,26 +67,14 @@ export function AccountsPage({ accounts, onCreate, onToggle, onResetPassword, on
                     <td data-label="流量"><div className="quota-cell"><div><span>{formatBytes(account.usedBytes)}</span><small>/ {formatBytes(account.quotaBytes)}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
                     <td data-label="到期时间"><span className={account.status === "expiring" ? "text-warning" : ""}>{formatDate(account.expiresAt)}</span></td>
                     <td data-label="备注"><span className="muted">{account.note || "—"}</span></td>
-                    <td className="action-cell">
-                      <Button variant="text" icon="more_vert" aria-label={`管理 ${account.name}`} onClick={() => setMenuId(menuId === account.id ? null : account.id)} />
-                      {menuId === account.id ? (
-                        <div className="context-menu">
-                          <button onClick={() => { onResetPassword(account); setMenuId(null); }}><Icon name="key" size={19} />重置密码</button>
-                          <button onClick={() => { onToggle(account.id); setMenuId(null); }}><Icon name={account.status === "disabled" ? "play_circle" : "block"} size={19} />{account.status === "disabled" ? "启用账号" : "禁用账号"}</button>
-                          <button onClick={() => { onToast("账号编辑将在接入后端后启用"); setMenuId(null); }}><Icon name="edit" size={19} />编辑信息</button>
-                        </div>
-                      ) : null}
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <div className="table-footer"><span>显示 {filtered.length} / {accounts.length} 个账号</span><span>演示模式 · 操作仅在当前页面生效</span></div>
+        <div className="table-footer"><span>显示 {filtered.length} / {accounts.length} 个账号</span><span>数据随协议认证配置自动同步</span></div>
       </Card>
-
-      <CreateAccountDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreate={(account) => { onCreate(account); setCreateOpen(false); }} />
     </div>
   );
 }
@@ -103,42 +83,4 @@ function StatusChip({ status, devices }: { status: Account["status"]; devices: n
   if (status === "disabled") return <Chip staticChip tone="default" icon="pause_circle">已禁用</Chip>;
   if (status === "expiring") return <Chip staticChip tone="warning" icon="schedule">即将到期</Chip>;
   return <Chip staticChip tone="success" icon="fiber_manual_record">{devices > 0 ? `${devices} 台在线` : "有效"}</Chip>;
-}
-
-function CreateAccountDialog({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (account: Account) => void }) {
-  const [name, setName] = useState("");
-  const [quota, setQuota] = useState("100");
-  const [expires, setExpires] = useState("2026-12-31");
-  const [note, setNote] = useState("");
-  const [protocols, setProtocols] = useState<Account["protocols"]>(["Hysteria2", "AnyTLS"]);
-
-  const submit = () => {
-    const quotaGb = Number(quota);
-    if (!name.trim() || !Number.isFinite(quotaGb) || quotaGb <= 0 || protocols.length === 0 || !expires) return;
-    onCreate({
-      id: `acc-${Date.now()}`,
-      name: name.trim(),
-      email: `${name.trim().toLowerCase()}@example.test`,
-      status: "active",
-      protocols,
-      usedBytes: 0,
-      quotaBytes: quotaGb * 1024 ** 3,
-      expiresAt: `${expires}T23:59:59+08:00`,
-      note,
-      onlineDevices: 0,
-    });
-    setName(""); setQuota("100"); setNote("");
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} title="创建代理账号" description="凭据将由后端安全生成；前端不会保存明文密码。" actions={<><Button variant="text" onClick={onClose}>取消</Button><Button onClick={submit} disabled={!name.trim() || !Number.isFinite(Number(quota)) || Number(quota) <= 0 || protocols.length === 0 || !expires}>创建账号</Button></>}>
-      <div className="form-grid">
-        <label className="field field--wide"><span>账号名称</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：stelle" /></label>
-        <label className="field"><span>流量额度（GB）</span><input type="number" min="1" value={quota} onChange={(event) => setQuota(event.target.value)} /></label>
-        <label className="field"><span>到期日期</span><input type="date" value={expires} onChange={(event) => setExpires(event.target.value)} /></label>
-        <fieldset className="field field--wide"><legend>允许协议</legend><div className="filter-chips">{(["Hysteria2", "AnyTLS", "VLESS", "TUIC"] as const).map((protocol) => <Chip key={protocol} selected={protocols.includes(protocol)} onClick={() => setProtocols((current) => current.includes(protocol) ? current.filter((item) => item !== protocol) : [...current, protocol])}>{protocol}</Chip>)}</div></fieldset>
-        <label className="field field--wide"><span>备注</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="可选，仅管理员可见" rows={3} /></label>
-      </div>
-    </Dialog>
-  );
 }

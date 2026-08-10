@@ -5,13 +5,12 @@ import { formatDuration, formatRate } from "../../lib/format";
 import type { Connection, IntegrationStatus, Protocol } from "../../lib/types";
 import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
-import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 
-export function ConnectionsPage({ connections, now, onToast, integration, onConfigure }: { connections: Connection[]; now: number; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void }) {
+export function ConnectionsPage({ connections, now, integration, onConfigure }: { connections: Connection[]; now: number; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void }) {
   const [protocol, setProtocol] = useState<"all" | Protocol>("all");
   const [ipVersion, setIpVersion] = useState<"all" | 4 | 6>("all");
   const filtered = useMemo(() => connections.filter((item) => (protocol === "all" || item.protocol === protocol) && (ipVersion === "all" || item.ipVersion === ipVersion)), [connections, ipVersion, protocol]);
@@ -42,22 +41,21 @@ export function ConnectionsPage({ connections, now, onToast, integration, onConf
         </div>
         <div className="responsive-table connections-table">
           <table>
-            <thead><tr><th>协议</th><th>账号</th><th>来源 IP</th><th>连接数</th><th>下载速率</th><th>上传速率</th><th>持续时间</th><th><span className="sr-only">操作</span></th></tr></thead>
+            <thead><tr><th>协议</th><th>账号</th><th>来源 IP</th><th>连接数</th><th>下载速率</th><th>上传速率</th><th>持续时间</th></tr></thead>
             <tbody>{filtered.map((item) => (
               <tr key={item.id}>
                 <td data-label="协议"><Chip staticChip tone={item.protocol === "Hysteria2" ? "info" : "default"}>{item.protocol}</Chip></td>
                 <td data-label="账号"><div className="account-inline"><span className="status-dot status-dot--online" /><strong>{item.account}</strong></div></td>
-                <td data-label="来源 IP"><div className="ip-cell"><code>{item.sourceIp}</code><Chip staticChip>IPv{item.ipVersion}</Chip></div></td>
+                <td data-label="来源 IP"><div className="ip-cell"><code>{item.sourceIp}</code>{item.ipVersion ? <Chip staticChip>IPv{item.ipVersion}</Chip> : null}</div></td>
                 <td data-label="连接数"><span className="connection-count">{item.connections}</span></td>
                 <td data-label="下载速率"><span className="rate rate--down"><Icon name="south" size={17} />{formatRate(item.downloadBps)}</span></td>
                 <td data-label="上传速率"><span className="rate rate--up"><Icon name="north" size={17} />{formatRate(item.uploadBps)}</span></td>
                 <td data-label="持续时间"><span className="mono-time">{formatDuration((now - new Date(item.connectedAt).getTime()) / 1000)}</span></td>
-                <td><Button variant="text" icon="more_vert" aria-label={`管理 ${item.account} 的连接`} onClick={() => onToast("断开连接等操作需要后端授权")} /></td>
               </tr>
             ))}</tbody>
           </table>
         </div>
-        <div className="table-footer"><span>每秒更新 · 速率单位自动换算</span><span>来源 IP 为脱敏示例地址</span></div>
+        <div className="table-footer"><span>每秒更新 · 速率单位自动换算</span><span>登录后的部署页面显示协议核心返回的真实账号与来源地址</span></div>
       </Card>
     </div>
   );

@@ -35,21 +35,62 @@ class DashboardService:
                 if integration_id in config.integrations and isinstance(value, dict):
                     config.integrations[integration_id].update(value)
                     values = value.get("values", {})
-                    if integration_id == "hysteria2" and isinstance(values, dict):
-                        config.hysteria_api.update({"url": values.get("endpoint", ""), "secret": values.get("secret", "")})
-                    if integration_id == "anytls" and isinstance(values, dict):
-                        config.singbox_api.update({"url": values.get("endpoint", ""), "secret": values.get("secret", "")})
+                    if isinstance(values, dict):
+                        self._apply_integration_values(integration_id, {key: str(item) for key, item in values.items()})
+
+    def _apply_integration_values(self, integration_id: str, values: dict[str, str]) -> None:
+        if integration_id == "hysteria2":
+            self.config.hysteria_api.update({"url": values.get("endpoint", ""), "secret": values.get("secret", "")})
+        elif integration_id == "anytls":
+            self.config.singbox_api.update({"url": values.get("endpoint", ""), "secret": values.get("secret", "")})
+        elif integration_id == "traffic":
+            interface = values.get("interface", "").strip()
+            if interface:
+                self.config.interface = interface
+                self.system_collector.interface = interface
+            quota = values.get("quotaGb", "").strip()
+            if quota:
+                quota_bytes = round(float(quota) * 1024 ** 3)
+                if quota_bytes < 1_000_000_000:
+                    raise ValueError("Traffic quota must be at least 1 GB")
+                self.storage.set_setting("traffic_limit_bytes", quota_bytes)
+        elif integration_id == "subscriptions":
+            self.config.subscription_base_url = values.get("baseUrl", "").strip()
+        elif integration_id == "network" and values.get("targets", "").strip():
+            targets: list[dict[str, Any]] = []
+            for index, line in enumerate(values["targets"].splitlines()[:12]):
+                address = line.strip()
+                if not address:
+                    continue
+                try:
+                    version = ipaddress.ip_address(address).version
+                except ValueError:
+                    version = 6 if ":" in address else 4
+                targets.append({"id": f"custom-{index + 1}", "name": address, "provider": "Custom", "address": address, "ipVersion": version})
+            if not targets:
+                raise ValueError("At least one valid network target is required")
+            self.config.network_targets = targets
+            self.cached_network = []
+            self.network_at = 0.0
+        elif integration_id == "alerts":
+            for key in ("trafficPercent", "latencyMs", "lossPercent"):
+                raw = values.get(key, "").strip()
+                if raw:
+                    value = float(raw)
+                    if value < 0:
+                        raise ValueError("Alert thresholds cannot be negative")
+                    self.config.alert_thresholds[key] = value
 
     def configure_integration(self, integration_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         allowed_fields = {
             "hysteria2": {"endpoint", "secret"},
             "anytls": {"endpoint", "secret"},
             "traffic": {"interface", "quotaGb"},
-            "connections": {"pollSeconds"},
+            "connections": set(),
             "subscriptions": {"baseUrl"},
             "network": {"targets"},
             "alerts": {"trafficPercent", "latencyMs", "lossPercent"},
-            "audit": {"retentionDays"},
+            "audit": set(),
             "system": set(),
         }
         if integration_id not in allowed_fields:
@@ -64,14 +105,12 @@ class DashboardService:
         if integration_id not in required:
             configured = True
         summary = "Configuration saved" if configured else "Complete the required fields"
+        state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": clean_values}
+        self._apply_integration_values(integration_id, clean_values)
         overrides = self.storage.get_setting("integration_overrides", {})
-        overrides[integration_id] = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": clean_values}
+        overrides[integration_id] = state
         self.storage.set_setting("integration_overrides", overrides)
-        self.config.integrations[integration_id].update(overrides[integration_id])
-        if integration_id == "hysteria2":
-            self.config.hysteria_api.update({"url": clean_values.get("endpoint", ""), "secret": clean_values.get("secret", "")})
-        if integration_id == "anytls":
-            self.config.singbox_api.update({"url": clean_values.get("endpoint", ""), "secret": clean_values.get("secret", "")})
+        self.config.integrations[integration_id].update(state)
         self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新")
         return next(item for item in self.config.public_integrations() if item["id"] == integration_id)
 
@@ -104,13 +143,16 @@ class DashboardService:
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]]) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
         usage = 100 * system["trafficUsedBytes"] / max(1, system["trafficLimitBytes"])
-        if usage >= 80:
-            alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= 95 else "warning", "title": f"Traffic usage reached {usage:.0f}%", "description": "Review the remaining monthly quota and recent growth trend.", "time": "now", "acknowledged": False, "source": "Traffic quota"})
+        traffic_threshold = float(self.config.alert_thresholds.get("trafficPercent", 80))
+        latency_threshold = float(self.config.alert_thresholds.get("latencyMs", 150))
+        loss_threshold = float(self.config.alert_thresholds.get("lossPercent", 5))
+        if usage >= traffic_threshold:
+            alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "description": "Review the remaining monthly quota and recent growth trend.", "time": "now", "acknowledged": False, "source": "Traffic quota"})
         for service in services:
             if service["status"] == "stopped":
                 alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "description": service["detail"], "time": "now", "acknowledged": False, "source": "Service monitor"})
         for target in network:
-            if target["status"] != "healthy":
+            if target["status"] == "down" or target["latency"] >= latency_threshold or target["loss"] >= loss_threshold:
                 alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "time": "latest probe", "acknowledged": False, "source": "Network probe"})
         acknowledged = self.storage.acknowledged()
         for alert in alerts:
@@ -118,7 +160,7 @@ class DashboardService:
         return alerts
 
     def audit_events(self) -> list[dict[str, Any]]:
-        return [{"id": f"audit-{row['id']}", "action": row["action"], "category": row["category"], "actor": self._mask_identity(row["actor"]), "ip": self._mask_ip(row["source_ip"]), "time": row["created_at"], "result": row["result"], "detail": row["detail"]} for row in self.storage.audits()]
+        return [{"id": f"audit-{row['id']}", "action": row["action"], "category": row["category"], "actor": self._mask_identity(row["actor"]) if self.config.redact_live_data else row["actor"], "ip": self._mask_ip(row["source_ip"]) if self.config.redact_live_data else row["source_ip"], "time": row["created_at"], "result": row["result"], "detail": row["detail"]} for row in self.storage.audits()]
 
     @staticmethod
     def _mask_identity(value: Any) -> str:
@@ -147,7 +189,8 @@ class DashboardService:
         public: list[dict[str, Any]] = []
         for source in self.config.subscriptions:
             item = {key: copy.deepcopy(value) for key, value in source.items() if key != "url"}
-            item["account"] = self._mask_identity(item.get("account", "account"))
+            if self.config.redact_live_data:
+                item["account"] = self._mask_identity(item.get("account", "account"))
             public.append(item)
         return public
 
@@ -170,9 +213,10 @@ class DashboardService:
             network = network_future.result()
         services = service_snapshots(self.config, system, hy2, singbox)
         connections = connection_snapshots(hy2, singbox)
-        for connection in connections:
-            connection["sourceIp"] = self._mask_ip(connection.get("sourceIp"))
-            connection["account"] = self._mask_identity(connection.get("account"))
+        if self.config.redact_live_data:
+            for connection in connections:
+                connection["sourceIp"] = self._mask_ip(connection.get("sourceIp"))
+                connection["account"] = self._mask_identity(connection.get("account"))
         traffic = self.traffic_series()
         accounts = copy.deepcopy(self.config.managed_accounts)
         for account in accounts:
@@ -180,10 +224,11 @@ class DashboardService:
             hy2_usage = hy2.get("traffic", {}).get(identity, {})
             account["usedBytes"] = int(hy2_usage.get("tx", 0)) + int(hy2_usage.get("rx", 0))
             account["onlineDevices"] = int(hy2.get("online", {}).get(identity, 0))
-            account["name"] = self._mask_identity(identity)
-            account["email"] = self._mask_identity(account.get("email", ""))
-            if account.get("note"):
-                account["note"] = "已设置备注（内容已隐藏）"
+            if self.config.redact_live_data:
+                account["name"] = self._mask_identity(identity)
+                account["email"] = self._mask_identity(account.get("email", ""))
+                if account.get("note"):
+                    account["note"] = "已设置备注（内容已隐藏）"
         protocol = [
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},
             {"name": "AnyTLS", "value": int(singbox.get("traffic", {}).get("up", 0)) + int(singbox.get("traffic", {}).get("down", 0))},
