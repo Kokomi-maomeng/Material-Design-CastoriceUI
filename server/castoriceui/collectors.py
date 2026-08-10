@@ -29,6 +29,26 @@ def run(command: list[str], timeout: float = 2.5) -> str:
         return ""
 
 
+ANSI_ESCAPE = re.compile(r"(?:\x1B[@-_][0-?]*[ -/]*[@-~])|(?:\x1B\][^\x07]*(?:\x07|\x1B\\))")
+
+
+def clean_command_output(value: str) -> str:
+    cleaned = ANSI_ESCAPE.sub("", value).replace("\r", "\n")
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", cleaned)
+    return "\n".join(line.strip() for line in cleaned.splitlines() if line.strip())
+
+
+def semantic_version(value: str, service_id: str) -> str:
+    cleaned = clean_command_output(value)
+    patterns = {
+        "hysteria2": r"(?i)(?:hysteria\s*)?v?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)",
+        "anytls": r"(?i)(?:sing-box\s+version\s+)?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)",
+        "nginx": r"(?i)nginx(?:\s+version)?:\s*nginx/(\d+\.\d+(?:\.\d+)?)",
+    }
+    match = re.search(patterns[service_id], cleaned)
+    return match.group(1) if match else "installed"
+
+
 def detect_interface(configured: str) -> str:
     if configured:
         return configured
@@ -191,8 +211,8 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     services: list[dict[str, Any]] = []
     def inspect(definition: tuple[str, str, str, str, list[str]]) -> tuple[tuple[str, str, str, str, list[str]], str, int, str]:
         active, uptime = service_state(definition[2])
-        version = run(definition[4], timeout=2).splitlines()
-        return definition, active, uptime, version[0] if version else "installed"
+        version = semantic_version(run(definition[4], timeout=2), definition[0])
+        return definition, active, uptime, version
 
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="service") as pool:
         inspected = list(pool.map(inspect, definitions))
@@ -200,7 +220,7 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
         service_id, name, _unit, icon, _command = definition
         adapter = hy2 if service_id == "hysteria2" else sb if service_id == "anytls" else {"available": True}
         detail = "Live data adapter connected" if adapter.get("available") else "Service detected · statistics adapter pending"
-        services.append({"id": service_id, "name": name, "detail": detail, "status": "running" if active == "active" else "stopped", "version": version.replace(name, "").strip()[:50] or "installed", "uptimeSeconds": uptime, "icon": icon})
+        services.append({"id": service_id, "name": name, "detail": detail, "status": "running" if active == "active" else "stopped", "version": version, "uptimeSeconds": uptime, "icon": icon})
     cert = certificate_info(config.certificate_path)
     services.extend([
         {"id": "kernel", "name": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
@@ -214,11 +234,17 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[s
     connections: list[dict[str, Any]] = []
     for index, stream in enumerate(hy2.get("streams", [])):
         started = stream.get("initial_at", datetime.now(timezone.utc).isoformat())
-        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": str(stream.get("auth", "authenticated")), "sourceIp": "provided by protocol core", "ipVersion": 4, "connections": 1, "uploadBps": 0, "downloadBps": 0, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started})
+        account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "协议核心未提供")
+        address_text = " ".join(str(stream.get(key, "")) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
+        ip_match = re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?!\d)|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){2,}[0-9A-Fa-f:]+", address_text)
+        source_ip = ip_match.group(0) if ip_match else "协议核心未提供"
+        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": 0, "downloadBps": 0, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started})
     for index, connection in enumerate(sb.get("connections", [])):
         metadata = connection.get("metadata", {})
-        source_ip = str(metadata.get("sourceIP", "unknown"))
-        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": str(metadata.get("inboundName", "AnyTLS user")), "sourceIp": source_ip, "ipVersion": 6 if ":" in source_ip else 4, "connections": 1, "uploadBps": 0, "downloadBps": 0, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start", datetime.now(timezone.utc).isoformat())})
+        source_ip = str(metadata.get("sourceIP") or "协议核心未提供")
+        ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
+        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "AnyTLS 用户")
+        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": 0, "downloadBps": 0, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start", datetime.now(timezone.utc).isoformat())})
     return connections
 
 

@@ -20,7 +20,7 @@ export interface Connection {
   protocol: Protocol;
   account: string;
   sourceIp: string;
-  ipVersion: 4 | 6;
+  ipVersion: 4 | 6 | null;
   connections: number;
   uploadBps: number;
   downloadBps: number;

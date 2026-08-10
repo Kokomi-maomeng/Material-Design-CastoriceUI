@@ -1,4 +1,4 @@
-# CastoriceUI v1.1 deployment / 部署配置手册
+# CastoriceUI v1.2 deployment / 部署配置手册
 
 This guide uses a versioned release directory, a loopback backend, systemd, and Nginx. Replace all example names on the server only. Never commit the resulting private configuration.
 
@@ -105,7 +105,7 @@ curl -u admin https://panel.example.com/api/v1/dashboard
 
 Expected behavior: unauthenticated requests are rejected, authenticated health returns 200, and the dashboard payload reports `mode: live` without upstream secrets.
 
-The dashboard response must also contain masked source IPs and identities, and must not contain complete subscription URLs. `/api/v1/subscriptions/<id>/url` is intentionally separate: the UI calls it only after an authenticated administrator clicks copy or QR, and does not persist the result in browser storage.
+For a private authenticated deployment, `redact_live_data: false` displays the account, source IP, and audit identity returned by the configured adapters. Set it to `true` for a shared demo or presentation environment. Neither mode includes complete subscription URLs in the dashboard response. `/api/v1/subscriptions/<id>/url` is intentionally separate: the UI calls it only after an authenticated administrator clicks copy or QR, and does not persist the result in browser storage.
 
 ## 7. Rollback / 回滚
 
@@ -121,6 +121,6 @@ The dashboard response must also contain masked source IPs and identities, and m
 - TLS and authentication cover the frontend and API
 - `/etc/castoriceui/config.json` is `0640 root:castoriceui`
 - no real secrets are present in the Git repository
-- dashboard payload contains only masked identifiers and no subscription URL or Token
+- private deployment uses the intended `redact_live_data` policy and never includes a subscription URL or Token in the dashboard payload
 - Nginx, backend, Hysteria2, and sing-box are active
 - `npm run check` and the production browser regression pass before release

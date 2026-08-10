@@ -1,6 +1,6 @@
 # Material-Design CastoriceUI
 
-![Version](https://img.shields.io/badge/version-1.1.0-6750A4)
+![Version](https://img.shields.io/badge/version-1.2.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -19,7 +19,7 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 
 ## 中文
 
-### v1.1 功能
+### v1.2 功能
 
 - 总览：已用/剩余流量、预计耗尽、CPU、内存、磁盘、负载、实时上下行
 - 初始化向导：按服务展示配置目的、操作步骤、参数输入与验证结果
@@ -27,7 +27,9 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 - 接入状态：未配置页面显示开启和配置入口，配置完成后显示实时状态
 - 账号、在线连接、流量分析、订阅、网络质量、服务、告警与审计九个页面
 - 各页面包含简明的能力说明，方便首次部署者理解数据来源和安全边界
-- 设置中可隐藏初始化向导，并支持浅色、深色、跟随系统和五组主题色
+- 侧栏与设置中均可显示/隐藏初始化向导，并支持浅色、深色、跟随系统和十组主题色
+- 实时数据状态移动到侧栏底部；总览网络卡片改为质量等级、可达目标和真实平均值
+- 账号、连接、服务等只读页面不再展示无法真正执行的伪操作按钮
 - 桌面、平板、手机响应式布局与无障碍弹窗/键盘导航
 
 ### 后端能力
@@ -43,7 +45,7 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 
 管理 API 默认只监听 `127.0.0.1`，由 Nginx 通过同源 `/api/` 转发。协议 API 也应只监听回环地址，并使用独立随机密钥。浏览器不会收到上游 API Secret、配置文件、私钥或明文密码。
 
-实时数据默认经过展示脱敏：来源 IP、账号/邮箱标识、备注和审计来源地址只返回掩码，常规仪表盘响应不会包含完整订阅 URL 或 Token。复制地址和二维码只有在管理员主动操作时才从受保护端点按需读取，二维码关闭后即从页面内存清除。
+开源仓库、示例数据和 README 截图只使用文档保留地址与虚构账号。登录后的私有部署默认显示协议核心实际返回的账号、来源 IP 和审计来源，便于管理；如需演示环境，可设置 `redact_live_data: true`。无论该选项如何，常规仪表盘响应都不会包含完整订阅 URL、Token、上游 API Secret、配置文件、私钥或明文密码。复制地址和二维码只在管理员主动操作时从受保护端点按需读取。
 
 ### 快速预览
 
@@ -93,6 +95,7 @@ sudo systemctl enable --now castoriceui-backend
 
 - 网卡流量从后端首次运行时开始建立月度基线，不能恢复部署前未记录的历史采样。
 - Hysteria2 可以提供账号级统计；sing-box 当前接口主要提供连接与聚合统计，能否映射到账号取决于核心返回字段。
+- Hysteria2 Traffic Stats 活动流包含认证账号，但当前接口不保证返回客户端来源 IP；缺失时页面会明确显示“协议核心未提供”，不会把访问目标误标为来源地址。
 - 面板不会直接执行任意 shell 命令。协议账号写入、认证迁移等高风险操作应通过经过审计的专用适配器实现。
 - Basic Auth 可用于单管理员部署；多人环境建议换成带会话、CSRF 和 MFA 的认证代理。
 
@@ -116,7 +119,7 @@ tests/                  前端边界测试
 
 ## English
 
-### What v1.1 includes
+### What v1.2 includes
 
 - Live overview for quota, forecast, CPU, memory, disk, load, and network rates
 - Guided integration cards with purpose, ordered steps, parameter forms, and verification state
@@ -124,7 +127,9 @@ tests/                  前端边界测试
 - Integration gates on every functional page; completed services move below pending setup items
 - Accounts, connections, traffic, subscriptions, network, services, alerts, and audit views
 - Concise capability explanations for every page
-- Optional setup-panel visibility, light/dark/system modes, and five color themes
+- Setup visibility controls in both the sidebar and settings, light/dark/system modes, and ten color themes
+- Sidebar live-data status, network quality grades, and resilient service-version rendering
+- Read-only views omit controls that cannot perform a real backend operation
 - Responsive desktop, tablet, and mobile navigation
 
 ### Backend
@@ -133,7 +138,7 @@ The optional backend under `server/` uses only the Python standard library and S
 
 The API listens on loopback by default and is exposed only through the authenticated same-origin `/api/` reverse proxy. Upstream secrets, raw configuration files, private keys, and plaintext passwords are never returned to the browser.
 
-Live presentation data is masked by default. Source IPs, account/email identifiers, notes, and audit addresses are redacted, while subscription URLs and tokens are excluded from the dashboard payload. A protected endpoint returns a URL only for an explicit copy or QR action, and the QR value is cleared from page memory when the dialog closes.
+Repository examples and screenshots remain documentation-safe. A private authenticated deployment shows the real account, source IP, and audit identifiers returned by its adapters by default; operators can opt into presentation masking with `redact_live_data: true`. Subscription URLs and tokens remain excluded from the dashboard payload in both modes. A protected endpoint returns a URL only for an explicit copy or QR action, and the QR value is cleared from page memory when the dialog closes.
 
 ### Development
 

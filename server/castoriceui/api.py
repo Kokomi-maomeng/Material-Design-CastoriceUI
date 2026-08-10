@@ -12,7 +12,7 @@ from .storage import Storage
 
 
 class ApiHandler(BaseHTTPRequestHandler):
-    server_version = "CastoriceUI/1.1"
+    server_version = "CastoriceUI/1.2"
 
     @property
     def app(self) -> "ApiServer":
@@ -43,7 +43,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
         if path == "/api/v1/health":
-            self.send_json(HTTPStatus.OK, {"status": "ok", "version": "1.1.0"})
+            self.send_json(HTTPStatus.OK, {"status": "ok", "version": "1.2.0"})
         elif path == "/api/v1/dashboard":
             self.send_json(HTTPStatus.OK, self.app.dashboard.snapshot())
         elif path.startswith("/api/v1/subscriptions/") and path.endswith("/url"):

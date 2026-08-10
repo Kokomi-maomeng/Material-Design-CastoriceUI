@@ -30,7 +30,7 @@ test("documents the backend security boundary", async () => {
   assert.match(provider, /CastoriceDataProvider/);
 });
 
-test("v1.1 keeps setup drafts in React session state only", async () => {
+test("v1.2 keeps setup drafts in React session state only", async () => {
   const [app, wizard] = await Promise.all([
     readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
@@ -46,4 +46,21 @@ test("backend examples stay loopback-only and secret-free", async () => {
   assert.match(config.hysteria_api.url, /^http:\/\/127\.0\.0\.1:/);
   assert.match(config.singbox_api.url, /^http:\/\/127\.0\.0\.1:/);
   assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
+});
+
+test("v1.2 exposes ten themes and removes misleading placeholder controls", async () => {
+  const [app, network, pages] = await Promise.all([
+    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/pages/NetworkPage.tsx", import.meta.url), "utf8"),
+    Promise.all([
+      "AccountsPage.tsx", "ConnectionsPage.tsx", "TrafficPage.tsx", "SubscriptionsPage.tsx",
+      "ServicesPage.tsx", "AlertsPage.tsx", "AuditPage.tsx",
+    ].map((name) => readFile(new URL(`../components/pages/${name}`, import.meta.url), "utf8"))),
+  ]);
+  for (const color of ["violet", "blue", "green", "rose", "amber", "teal", "cyan", "indigo", "coral", "slate"]) {
+    assert.match(app, new RegExp(`\\b${color}\\b`));
+  }
+  assert.doesNotMatch(network, /packet_mirror/i);
+  assert.match(network, /暂无数据/);
+  assert.doesNotMatch(pages.join("\n"), /需要后端授权|接入后端后启用|仅在当前页面生效/);
 });
