@@ -5,21 +5,21 @@
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
 
-一套采用 Material Design 3 的轻量 VPS 代理管理面板，包含响应式前端、初始化向导和可选的 Python 标准库后端。它可以统一展示主机资源、Hysteria2、AnyTLS / sing-box、连接、流量、网络质量、证书、告警与审计信息。
+一套采用 Material Design 3 的开源轻量 VPS 代理管理面板，包含响应式前端、引导式接入和可选的 Python 标准库后端。它统一呈现主机资源、Hysteria2、AnyTLS / sing-box、连接快照、流量、网络质量、证书、告警与审计信息，并明确区分实时采样、缓存结果、配置记录、缺失字段和演示数据。
 
-A lightweight Material Design 3 VPS proxy console with a responsive frontend, guided integrations, and an optional Python standard-library backend. It provides one place for host metrics, Hysteria2, AnyTLS / sing-box, connections, traffic, network quality, certificates, alerts, and audit events.
+A lightweight open-source Material Design 3 VPS proxy console with a responsive frontend, guided integrations, and an optional Python standard-library backend. It brings host metrics, Hysteria2, AnyTLS / sing-box, connection snapshots, traffic, network quality, certificates, alerts, and audit events together without presenting cached, missing, configured, or demo values as live evidence.
 
-![CastoriceUI desktop dashboard](docs/images/dashboard-desktop.png)
+![Material-Design CastoriceUI desktop overview](docs/images/dashboard-desktop.png)
 
-<p align="center">
-  <img src="docs/images/dashboard-mobile.png" width="320" alt="CastoriceUI mobile dashboard">
-</p>
+> 上图为使用文档保留地址与演示数据生成的界面预览，不代表任何真实服务器状态。
+>
+> The hero uses documentation-safe demo data and does not represent a live server.
 
 [中文](#中文) · [English](#english)
 
 ## 中文
 
-### v1.4 真实性与状态修复
+### v1.4：可信数据状态
 
 - 首屏先显示中性加载状态，不再在真实后端响应前闪现示例服务器数字。
 - 后端中断时保留最后成功快照，但明确标记“已停止更新”和快照时间，不再继续声称实时。
@@ -30,23 +30,17 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 - 订阅记录明确属于受保护的服务器配置；HTTPS 格式校验不代表发布器可达或已验证。
 - 网络探测明确标注最多缓存 5 分钟；月度流量继续明确以首个保留采样为基线。
 
-### 主要功能
+### 主要能力
 
-- 总览：已用/剩余流量、预计耗尽、CPU、内存、磁盘、负载、实时上下行
-- 初始化向导：按服务展示配置目的、操作步骤、参数输入与验证结果
-- 向导草稿：页面间切换不丢失，刷新或关闭页面后自动清除未提交内容
-- 接入状态：区分未配置、配置成功、当前可用和已配置但运行异常
-- 账号、在线连接、流量分析、订阅、网络质量、服务、告警与审计九个页面
-- 各页面包含简明的能力说明，方便首次部署者理解数据来源和安全边界
-- 侧栏与设置中均可显示/隐藏初始化向导，并支持浅色、深色、跟随系统和十组主题色
-- 后端快照状态位于侧栏底部；总览网络卡片显示质量等级、可达目标和探测结果
-- 账号、连接、服务等只读页面不再展示无法真正执行的伪操作按钮
-- 桌面、平板、手机响应式布局与无障碍弹窗/键盘导航
-- 接入配置只有在真实上游鉴权请求成功后才会标记为就绪，失败配置不会持久化
-- Hysteria2 / sing-box 管理地址只接受 localhost 或回环 IP，阻止公网、内网和云元数据地址
-- 上游 Secret 仅从服务器 `0640` 配置读取，不经浏览器提交、不写入 SQLite；启动时清理 v1.2 遗留值
-- 预览模式使用持续可见的“示例数据”提示，演示状态不再伪装成真实运行或验证成功
-- Nginx、systemd、版本化目录、认证、用户/组和回滚文档已统一为可复现的安全部署流程
+- **主机总览**：CPU、内存、磁盘、负载、运行时间、网卡速率和月度流量基线。
+- **协议快照**：Hysteria2 Traffic Stats 与 sing-box Clash API；只展示协议核心实际提供的字段。
+- **状态分层**：清楚区分加载中、实时快照、最后快照、预览数据、已配置和当前不可用。
+- **网络与服务**：IPv4 / IPv6 延迟、抖动、丢包、systemd、证书和自动更新状态。
+- **管理视图**：账号配置、活动连接条目、流量分析、订阅记录、告警和操作审计。
+- **安全接入**：管理 API 默认仅监听回环地址；上游 Secret 只保存在服务器 `0640` 配置中。
+- **真实验证**：Hysteria2 / sing-box 必须完成回环地址限制、连通性与鉴权检查后才可标记就绪。
+- **使用体验**：桌面、平板和手机响应式布局，无障碍弹窗与键盘导航，十组主题色。
+- **可回滚部署**：提供 Nginx、systemd、专用用户/组、版本化目录、备份与回滚流程。
 
 ### 后端能力
 
@@ -61,7 +55,7 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 
 管理 API 默认只监听 `127.0.0.1`，由 Nginx 通过同源 `/api/` 转发。协议 API 也应只监听回环地址，并使用独立随机密钥。浏览器不会收到上游 API Secret、配置文件、私钥或明文密码。
 
-开源仓库、示例数据和 README 截图只使用文档保留地址与虚构账号。登录后的私有部署默认显示协议核心实际返回的账号、来源 IP 和审计来源，便于管理；如需演示环境，可设置 `redact_live_data: true`。无论该选项如何，常规仪表盘响应都不会包含完整订阅 URL、Token、上游 API Secret、配置文件、私钥或明文密码。复制地址和二维码只在管理员主动操作时从受保护端点按需读取。
+开源仓库、示例数据和 README 主视觉只使用文档保留地址与虚构账号。登录后的私有部署可以展示适配器实际返回的账号、来源 IP 和审计来源；如需演示环境，可设置 `redact_live_data: true`。无论该选项如何，常规仪表盘响应都不会包含完整订阅 URL、Token、上游 API Secret、配置文件、私钥或明文密码。完整订阅地址只在管理员主动复制或生成二维码时由受保护端点按需返回。
 
 ### 快速预览
 
@@ -118,7 +112,7 @@ tests/                  前端边界测试
 
 ## English
 
-### What v1.4 fixes
+### v1.4: trustworthy data states
 
 - Neutral loading state before the first backend response; demo metrics no longer flash during production startup
 - Explicit stale-snapshot state after a backend disconnect, including the last successful timestamp
@@ -129,21 +123,15 @@ tests/                  前端边界测试
 
 ### Main capabilities
 
-- Live overview for quota, forecast, CPU, memory, disk, load, and network rates
-- Guided integration cards with purpose, ordered steps, parameter forms, and verification state
-- Session-only form drafts that survive page navigation but disappear after a reload
-- Integration gates on every functional page; completed services move below pending setup items
-- Accounts, connections, traffic, subscriptions, network, services, alerts, and audit views
-- Concise capability explanations for every page
-- Setup visibility controls in both the sidebar and settings, light/dark/system modes, and ten color themes
-- Sidebar live-data status, network quality grades, and resilient service-version rendering
-- Read-only views omit controls that cannot perform a real backend operation
-- Responsive desktop, tablet, and mobile navigation
-- Authenticated upstream probes before an integration can become ready
-- Strict loopback-only management endpoints to block internal, public, and cloud-metadata targets
-- Server-config-only upstream Secrets, with no browser or SQLite persistence and automatic v1.2 cleanup
-- Persistent preview-mode labeling that never presents demo data as a live or verified server
-- Reproducible authenticated Nginx, systemd account/group, versioned-release, and rollback documentation
+- **Host overview:** CPU, memory, disk, load, uptime, interface rates, and a retained monthly traffic baseline.
+- **Protocol snapshots:** Hysteria2 Traffic Stats and sing-box Clash API data, limited to fields the cores actually return.
+- **Explicit state model:** loading, live snapshot, stale snapshot, preview data, configured, and runtime-error states.
+- **Network and services:** IPv4/IPv6 latency, jitter, loss, systemd, certificate, and automatic-update health.
+- **Operator views:** configured accounts, activity entries, traffic, subscription records, alerts, and audit events.
+- **Security boundary:** loopback-only management endpoints and server-config-only upstream Secrets.
+- **Authenticated readiness:** protocol adapters become ready only after bounded connectivity and authentication probes.
+- **Responsive UI:** desktop, tablet, and mobile navigation, accessible dialogs, keyboard support, and ten color themes.
+- **Rollback-ready deployment:** authenticated Nginx, a dedicated systemd identity, versioned releases, backups, and rollback guidance.
 
 ### Backend
 
@@ -151,7 +139,7 @@ The optional backend under `server/` uses only the Python standard library and S
 
 The API listens on loopback by default and is exposed only through the authenticated same-origin `/api/` reverse proxy. Upstream secrets, raw configuration files, private keys, and plaintext passwords are never returned to the browser.
 
-Repository examples and screenshots remain documentation-safe. A private authenticated deployment shows the real account, source IP, and audit identifiers returned by its adapters by default; operators can opt into presentation masking with `redact_live_data: true`. Subscription URLs and tokens remain excluded from the dashboard payload in both modes. A protected endpoint returns a URL only for an explicit copy or QR action, and the QR value is cleared from page memory when the dialog closes.
+Repository examples and the README hero remain documentation-safe and explicitly labeled as demo data. A private authenticated deployment can show the account, source IP, and audit identifiers actually returned by its adapters; operators can opt into presentation masking with `redact_live_data: true`. Subscription URLs and tokens remain excluded from the dashboard payload. A protected endpoint returns a URL only for an explicit copy or QR action, and the QR value is cleared from page memory when the dialog closes.
 
 ### Development
 
