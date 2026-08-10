@@ -21,6 +21,11 @@ from .config import AppConfig
 from .storage import Storage
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request: Any, fp: Any, code: int, msg: str, headers: Any, new_url: str) -> None:
+        return None
+
+
 def run(command: list[str], timeout: float = 2.5) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
@@ -141,15 +146,18 @@ class SystemCollector:
         }
 
 
-def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float = 2) -> Any:
+def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float = 2, strict: bool = False) -> Any:
     headers = {"Accept": "application/json"}
     if secret:
         headers["Authorization"] = f"Bearer {secret}" if bearer else secret
     request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = urllib.request.build_opener(_NoRedirect) if strict else urllib.request.build_opener()
+        with opener.open(request, timeout=timeout) as response:
             return json.load(response)
-    except (OSError, ValueError, urllib.error.URLError):
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        if strict:
+            raise ValueError("Integration endpoint validation failed") from error
         return None
 
 

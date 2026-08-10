@@ -2,23 +2,44 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest release on the default branch.
+Security fixes are applied to the latest release on the default branch. Operators should upgrade to the newest tagged version and keep a tested rollback release.
 
 ## Reporting a vulnerability
 
-Do not disclose a suspected vulnerability in a public issue. Contact the repository maintainer privately through the security advisory feature and include:
+Do not disclose a suspected vulnerability in a public issue. Use the repository's private security-advisory feature and include:
 
 - affected version or commit;
 - reproduction steps;
 - expected and observed impact;
 - a minimal proof of concept without real credentials or production data.
 
-## Scope and deployment warning
+## Security boundary
 
-CastoriceUI is a frontend project. It does not provide production authentication, authorization, secret storage, proxy-core isolation, or operating-system privilege separation. A production deployment must supply those controls in a trusted backend.
+CastoriceUI v1.3 includes a browser frontend and an optional Python backend. The backend collects local Linux metrics, queries loopback-only Hysteria2 and sing-box management APIs, and stores bounded operational history in SQLite. It is not an identity provider and must not be exposed directly to the internet.
 
-Never expose Hysteria2, sing-box, systemd, Docker, database, or provider APIs directly to a browser. Bind privileged APIs to loopback or a protected internal network, authenticate server-to-server requests, and return sanitized models only.
+The supported production boundary is:
 
-## Build dependency advisory
+1. Hysteria2 and sing-box management APIs listen on loopback and use separate random Secrets.
+2. `castoriceui-backend` listens on `127.0.0.1` only.
+3. Nginx provides TLS and authentication for both the static frontend and `/api/`.
+4. Multi-user deployments replace Basic Auth with an authentication proxy that provides secure sessions, CSRF protection, MFA, authorization, and rate limits.
 
-The current vinext build tool pins `image-size@2.0.2`. GitHub reviewed two denial-of-service advisories for malformed ICNS, JXL, and HEIF parsing on August 7, 2026; no patched npm release exists yet. CastoriceUI does not accept image uploads, does not use `next/image`, and deliberately does not expose vinext's image-optimization endpoint, so this parser is not reachable in the deployed application. `npm run audit:production` excludes build-only dependencies and must remain clean. Recheck the full development dependency audit when vinext or image-size publishes a patched release.
+The browser never receives upstream API Secrets, raw configuration files, private keys, stored passwords, or complete subscription URLs in the dashboard snapshot. Subscription URLs are returned only by a separate authenticated endpoint after an explicit copy or QR action.
+
+## Secret handling
+
+Upstream Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`, owned by `root:castoriceui` with mode `0640`. v1.3 does not accept those Secrets from the setup UI and does not persist them in SQLite. On startup, it removes any legacy v1.2 `secret` value found in the `integration_overrides` setting.
+
+The setup API accepts only loopback management endpoints, rejects embedded URL credentials, query strings, and fragments, and performs a real authenticated upstream request before reporting a ready state. Failed validation is not persisted.
+
+## Deployment requirements
+
+- Use the authenticated TLS Nginx example; do not publish the loopback backend port.
+- Keep `/etc/castoriceui/config.json` and certificate groups least-privileged.
+- Validate `systemd-analyze verify`, `nginx -t`, unauthenticated rejection, authenticated API access, and the loopback health endpoint before switching releases.
+- Back up the application config, SQLite database, service unit, Nginx site, and previous frontend release before upgrading.
+- Run `npm run check` and review the full development-dependency audit before each release.
+
+## Automated repository controls
+
+The default branch runs linting, type checking, frontend/backend tests, Python compilation, sensitive-content scanning, production builds, dependency audits, and CodeQL. GitHub secret scanning, push protection, Dependabot updates, and protected-branch checks complement these project checks; they do not replace deployment hardening or manual review.

@@ -1,6 +1,6 @@
 # Material-Design CastoriceUI
 
-![Version](https://img.shields.io/badge/version-1.2.0-6750A4)
+![Version](https://img.shields.io/badge/version-1.3.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -19,7 +19,7 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 
 ## 中文
 
-### v1.2 功能
+### v1.3 功能与修复
 
 - 总览：已用/剩余流量、预计耗尽、CPU、内存、磁盘、负载、实时上下行
 - 初始化向导：按服务展示配置目的、操作步骤、参数输入与验证结果
@@ -31,6 +31,11 @@ A lightweight Material Design 3 VPS proxy console with a responsive frontend, gu
 - 实时数据状态移动到侧栏底部；总览网络卡片改为质量等级、可达目标和真实平均值
 - 账号、连接、服务等只读页面不再展示无法真正执行的伪操作按钮
 - 桌面、平板、手机响应式布局与无障碍弹窗/键盘导航
+- 接入配置只有在真实上游鉴权请求成功后才会标记为就绪，失败配置不会持久化
+- Hysteria2 / sing-box 管理地址只接受 localhost 或回环 IP，阻止公网、内网和云元数据地址
+- 上游 Secret 仅从服务器 `0640` 配置读取，不经浏览器提交、不写入 SQLite；启动时清理 v1.2 遗留值
+- 预览模式使用持续可见的“示例数据”提示，演示状态不再伪装成真实运行或验证成功
+- Nginx、systemd、版本化目录、认证、用户/组和回滚文档已统一为可复现的安全部署流程
 
 ### 后端能力
 
@@ -58,7 +63,7 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5173`。未启动后端时会使用内置预览数据，向导和所有前端交互仍可测试。
+打开 `http://localhost:5173`。未启动后端时会使用带有持续提示的内置示例数据；向导可以演示交互，但不会声称已经保存或验证真实配置。
 
 ### 完整检查
 
@@ -70,26 +75,7 @@ npm run check
 
 ### 生产部署
 
-前端：
-
-```bash
-npm ci
-npm run build
-sudo rsync -a --delete dist/ /var/www/castorice-ui/
-```
-
-后端：
-
-```bash
-sudo install -d /opt/castoriceui/backend /etc/castoriceui /var/lib/castoriceui
-sudo cp -a server/. /opt/castoriceui/backend/
-sudo cp server/config.example.json /etc/castoriceui/config.json
-sudo cp deploy/castoriceui-backend.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now castoriceui-backend
-```
-
-编辑 `/etc/castoriceui/config.json` 时，只在服务器上填写 API Secret、订阅地址和真实路径；不要提交该文件。Nginx 配置见 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，完整步骤和回滚说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
+生产部署不是单条复制命令：必须先建立版本化回滚目录、专用用户与 `proxycert` 组、受限配置文件、TLS 和覆盖前端及 `/api/` 的认证。请完整执行 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)，并使用默认启用认证且指向 `current` 发布目录的 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)。升级时保留现有私有配置和数据库，不要用示例文件覆盖。
 
 ### 数据准确性边界
 
@@ -119,7 +105,7 @@ tests/                  前端边界测试
 
 ## English
 
-### What v1.2 includes
+### What v1.3 includes
 
 - Live overview for quota, forecast, CPU, memory, disk, load, and network rates
 - Guided integration cards with purpose, ordered steps, parameter forms, and verification state
@@ -131,6 +117,11 @@ tests/                  前端边界测试
 - Sidebar live-data status, network quality grades, and resilient service-version rendering
 - Read-only views omit controls that cannot perform a real backend operation
 - Responsive desktop, tablet, and mobile navigation
+- Authenticated upstream probes before an integration can become ready
+- Strict loopback-only management endpoints to block internal, public, and cloud-metadata targets
+- Server-config-only upstream Secrets, with no browser or SQLite persistence and automatic v1.2 cleanup
+- Persistent preview-mode labeling that never presents demo data as a live or verified server
+- Reproducible authenticated Nginx, systemd account/group, versioned-release, and rollback documentation
 
 ### Backend
 
@@ -149,7 +140,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. Without a backend, the UI starts in preview mode so the complete workflow remains testable.
+Open `http://localhost:5173`. Without a backend, the UI starts in clearly labeled preview mode. The workflow remains testable, but it does not claim to save or validate a real service.
 
 Run all checks and create the production build:
 
