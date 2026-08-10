@@ -5,9 +5,15 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Major toolchain upgrades need an explicit compatibility review instead
+      # of being bundled with routine patch and minor maintenance.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-maintenance:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
