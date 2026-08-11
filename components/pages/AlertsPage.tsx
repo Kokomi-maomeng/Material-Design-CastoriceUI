@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import type { AlertItem, IntegrationStatus } from "../../lib/types";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
@@ -9,23 +10,171 @@ import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 
-export function AlertsPage({ alerts, onAcknowledge, integration, onConfigure }: { alerts: AlertItem[]; onAcknowledge: (id: string) => void; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void }) {
+export function AlertsPage({
+  alerts,
+  onAcknowledge,
+  integration,
+  onConfigure,
+}: {
+  alerts: AlertItem[];
+  onAcknowledge: (id: string) => void;
+  onToast: (message: string) => void;
+  integration?: IntegrationStatus;
+  onConfigure: () => void;
+}) {
+  const { language, t } = useI18n();
   const [filter, setFilter] = useState<"active" | "all">("active");
-  const visible = useMemo(() => alerts.filter((item) => filter === "all" || !item.acknowledged), [alerts, filter]);
+  const visible = useMemo(
+    () => alerts.filter((item) => filter === "all" || !item.acknowledged),
+    [alerts, filter],
+  );
   const unacknowledged = alerts.filter((item) => !item.acknowledged).length;
   return (
     <div className="page-content page-enter">
-      <PageHeader eyebrow="主动监控" title="告警中心" description="在流量、服务、链路或证书出现风险时及时提醒。" />
-      <IntegrationGate status={integration} name="告警规则" description="设置流量、延迟、丢包和证书阈值后，异常会自动进入待处理列表。" onConfigure={onConfigure} />
+      <PageHeader
+        eyebrow={t("主动监控", "Proactive monitoring")}
+        title={t("告警中心", "Alerts")}
+        description={t(
+          "在真实流量、服务、链路或证书出现风险时提醒。",
+          "Receive alerts when real traffic, services, links, or certificates show risk.",
+        )}
+      />
+      <IntegrationGate
+        status={integration}
+        name="告警规则"
+        nameEn="Alert rules"
+        description="设置流量、延迟和丢包阈值后，异常会自动进入待处理列表。"
+        descriptionEn="Set traffic, latency, and packet-loss thresholds to place real anomalies in the active list."
+        onConfigure={onConfigure}
+      />
       <section className="alert-summary">
-        <Card variant="filled"><span className="alert-count alert-count--critical">{alerts.filter((item) => item.severity === "critical" && !item.acknowledged).length}</span><div><strong>严重</strong><p>需要尽快处理</p></div></Card>
-        <Card variant="filled"><span className="alert-count alert-count--warning">{alerts.filter((item) => item.severity === "warning" && !item.acknowledged).length}</span><div><strong>警告</strong><p>建议持续关注</p></div></Card>
-        <Card variant="filled"><span className="alert-count alert-count--info">{alerts.filter((item) => item.severity === "info" && !item.acknowledged).length}</span><div><strong>提醒</strong><p>一般信息通知</p></div></Card>
+        <Card variant="filled">
+          <span className="alert-count alert-count--critical">
+            {
+              alerts.filter(
+                (item) => item.severity === "critical" && !item.acknowledged,
+              ).length
+            }
+          </span>
+          <div>
+            <strong>{t("严重", "Critical")}</strong>
+            <p>{t("需要尽快处理", "Needs prompt attention")}</p>
+          </div>
+        </Card>
+        <Card variant="filled">
+          <span className="alert-count alert-count--warning">
+            {
+              alerts.filter(
+                (item) => item.severity === "warning" && !item.acknowledged,
+              ).length
+            }
+          </span>
+          <div>
+            <strong>{t("警告", "Warning")}</strong>
+            <p>{t("建议持续关注", "Monitor closely")}</p>
+          </div>
+        </Card>
+        <Card variant="filled">
+          <span className="alert-count alert-count--info">
+            {
+              alerts.filter(
+                (item) => item.severity === "info" && !item.acknowledged,
+              ).length
+            }
+          </span>
+          <div>
+            <strong>{t("提醒", "Info")}</strong>
+            <p>{t("一般信息通知", "General information")}</p>
+          </div>
+        </Card>
       </section>
       <Card variant="outlined" className="alert-panel">
-        <div className="table-toolbar"><div className="filter-chips"><Chip selected={filter === "active"} onClick={() => setFilter("active")}>待处理 {unacknowledged}</Chip><Chip selected={filter === "all"} onClick={() => setFilter("all")}>全部记录</Chip></div><Button variant="text" compact icon="done_all" disabled={unacknowledged === 0} onClick={() => alerts.filter((item) => !item.acknowledged).forEach((item) => onAcknowledge(item.id))}>全部确认</Button></div>
+        <div className="table-toolbar">
+          <div className="filter-chips">
+            <Chip
+              selected={filter === "active"}
+              onClick={() => setFilter("active")}
+            >
+              {t("待处理", "Active")} {unacknowledged}
+            </Chip>
+            <Chip selected={filter === "all"} onClick={() => setFilter("all")}>
+              {t("全部记录", "All records")}
+            </Chip>
+          </div>
+          <Button
+            variant="text"
+            compact
+            icon="done_all"
+            disabled={unacknowledged === 0}
+            onClick={() =>
+              alerts
+                .filter((item) => !item.acknowledged)
+                .forEach((item) => onAcknowledge(item.id))
+            }
+          >
+            {t("全部确认", "Acknowledge all")}
+          </Button>
+        </div>
         <div className="alert-list">
-          {visible.map((alert) => <div className={`alert-row alert-row--${alert.severity} ${alert.acknowledged ? "is-acknowledged" : ""}`} key={alert.id}><span className="alert-row__icon"><Icon name={alert.severity === "critical" ? "error" : alert.severity === "warning" ? "warning" : "info"} size={23} filled /></span><div className="alert-row__content"><div><strong>{alert.title}</strong><Chip staticChip>{alert.source}</Chip></div><p>{alert.description}</p><span>{alert.time}</span></div><div className="alert-row__actions">{!alert.acknowledged ? <Button variant="tonal" compact onClick={() => onAcknowledge(alert.id)}>确认</Button> : <Chip staticChip tone="success" icon="check">已确认</Chip>}</div></div>)}
+          {visible.map((alert) => (
+            <div
+              className={`alert-row alert-row--${alert.severity} ${alert.acknowledged ? "is-acknowledged" : ""}`}
+              key={alert.id}
+            >
+              <span className="alert-row__icon">
+                <Icon
+                  name={
+                    alert.severity === "critical"
+                      ? "error"
+                      : alert.severity === "warning"
+                        ? "warning"
+                        : "info"
+                  }
+                  size={23}
+                  filled
+                />
+              </span>
+              <div className="alert-row__content">
+                <div>
+                  <strong>
+                    {language === "zh"
+                      ? alert.titleZh || alert.title
+                      : alert.titleEn || alert.title}
+                  </strong>
+                  <Chip staticChip>
+                    {language === "zh"
+                      ? alert.sourceZh || alert.source
+                      : alert.sourceEn || alert.source}
+                  </Chip>
+                </div>
+                <p>
+                  {language === "zh"
+                    ? alert.descriptionZh || alert.description
+                    : alert.descriptionEn || alert.description}
+                </p>
+                <span>
+                  {language === "zh"
+                    ? alert.timeZh || alert.time
+                    : alert.timeEn || alert.time}
+                </span>
+              </div>
+              <div className="alert-row__actions">
+                {!alert.acknowledged ? (
+                  <Button
+                    variant="tonal"
+                    compact
+                    onClick={() => onAcknowledge(alert.id)}
+                  >
+                    {t("确认", "Acknowledge")}
+                  </Button>
+                ) : (
+                  <Chip staticChip tone="success" icon="check">
+                    {t("已确认", "Acknowledged")}
+                  </Chip>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </Card>
     </div>

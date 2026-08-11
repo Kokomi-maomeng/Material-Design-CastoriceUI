@@ -1,44 +1,47 @@
 import type { IntegrationId, PageId } from "./types";
 
+export interface LocalizedText { zh: string; en: string }
 export interface SetupField {
   id: string;
-  label: string;
+  label: LocalizedText;
   placeholder: string;
   type?: "text" | "password" | "number" | "textarea";
-  hint: string;
+  hint: LocalizedText;
   required?: boolean;
 }
-
 export interface IntegrationDefinition {
   id: IntegrationId;
-  name: string;
+  name: LocalizedText;
   icon: string;
   page?: PageId;
-  summary: string;
-  outcome: string;
-  steps: string[];
+  summary: LocalizedText;
+  outcome: LocalizedText;
+  steps: LocalizedText[];
   fields: SetupField[];
 }
 
+const text = (zh: string, en: string): LocalizedText => ({ zh, en });
+const singBoxFields: SetupField[] = [
+  { id: "endpoint", label: text("sing-box API 地址", "sing-box API endpoint"), placeholder: "http://127.0.0.1:19091", hint: text("只接受 localhost 或回环 IP；Secret 仅从服务器受限配置读取。", "Only localhost or loopback IPs are accepted. The secret is read only from protected server configuration."), required: true },
+  { id: "inboundTags", label: text("入站标签", "Inbound tags"), placeholder: "vless-in, vless-reality", hint: text("填写 sing-box 配置中的真实 inbound tag，用逗号分隔；连接只按这些显式标签归类。", "Enter real sing-box inbound tags separated by commas. Connections are classified only by these explicit tags."), required: true },
+];
+
 export const integrationDefinitions: IntegrationDefinition[] = [
-  { id: "system", name: "系统指标", icon: "memory", page: "overview", summary: "读取主机资源、运行时间和网卡累计计数器。", outcome: "总览获得真实运行快照和 1 小时至 7 天的进出流量趋势。", steps: ["确认后端只监听本机回环地址", "在设置中填写节点显示名称", "确认主网卡采样持续写入 SQLite"], fields: [] },
-  { id: "hysteria2", name: "Hysteria2", icon: "bolt", page: "services", summary: "通过官方 Traffic Stats API 获取账号累计流量、在线计数与活动流。", outcome: "账号身份按显式映射匹配；只有单账号单身份时才使用无歧义自动关联。", steps: ["在服务端启用仅回环监听的 Traffic Stats API", "把独立 API Secret 写入权限为 0640 的服务器配置", "多账号时在 managed_accounts 配置 trafficIdentities 映射"], fields: [{ id: "endpoint", label: "API 地址", placeholder: "http://127.0.0.1:19090", hint: "只接受 localhost 或回环 IP；Secret 不会通过网页提交或存入 SQLite。", required: true }] },
-  { id: "anytls", name: "AnyTLS / sing-box", icon: "encrypted", page: "services", summary: "连接 sing-box 的本机 Clash API，读取连接快照与累计上下行统计。", outcome: "只显示核心实际返回的连接、来源地址、累计流量和时间字段。", steps: ["让 Clash API 仅监听 127.0.0.1", "把 Bearer Secret 写入权限为 0640 的服务器配置", "保存回环地址并检查真实连接快照"], fields: [{ id: "endpoint", label: "Clash API 地址", placeholder: "http://127.0.0.1:19091", hint: "只接受 localhost 或回环 IP；Secret 仅从服务器受限配置读取。", required: true }] },
-  { id: "connections", name: "连接活动", icon: "lan", page: "connections", summary: "按协议、账号和来源 IP 聚合活动条目，并按需展开真实目标。", outcome: "持续时长取组内最早时间；速率仅由相邻累计字节快照计算。", steps: ["确认至少一个协议适配器已连接", "等待两个连续快照建立速率基线", "核对缺失来源 IP 的条目明确标为核心未提供"], fields: [] },
-  { id: "traffic", name: "流量采集", icon: "monitoring", page: "traffic", summary: "持久化网卡计数器，生成 1h、6h、24h、3 天和 7 天进出流量。", outcome: "总览和流量分析使用相邻真实计数器的非负增量。", steps: ["确认主网卡", "设置月度总额度", "等待至少两个采样点形成趋势"], fields: [{ id: "interface", label: "主网卡", placeholder: "eth0", hint: "通常由默认路由自动识别。" }, { id: "quotaGb", label: "月度额度（GB）", placeholder: "1000", type: "number", hint: "用于剩余流量、预计耗尽日期和告警。" }] },
-  { id: "subscriptions", name: "订阅配置", icon: "qr_code_2", page: "subscriptions", summary: "展示服务器受保护配置中的订阅记录，并校验所填基地址为 HTTPS 格式。", outcome: "可以按需从受保护端点读取已配置地址；不声称外部发布器已经连通。", steps: ["确认订阅发布服务已启用 TLS", "填写不会泄露真实凭据的公共基地址", "注意保存只校验格式，不探测发布器可达性"], fields: [{ id: "baseUrl", label: "订阅基地址", placeholder: "https://panel.example.com/subscription", hint: "不要在此字段中直接粘贴 Token；通过 HTTPS 格式校验不等于发布器已连通。", required: true }] },
-  { id: "network", name: "网络质量", icon: "network_check", page: "network", summary: "自定义 IPv4/IPv6 目标，计算延迟、抖动与丢包。", outcome: "保存后替换预设目标并立即清除旧探测缓存。", steps: ["每行填写地址，或使用 名称,地址", "最多配置 12 个可解析目标", "检查 ICMP 被禁时的不可达状态"], fields: [{ id: "targets", label: "自定义探测目标", placeholder: "Cloudflare,1.1.1.1\nGoogle IPv6,2001:4860:4860::8888", type: "textarea", hint: "每行使用“名称,IP/域名”或只填 IP/域名，最多 12 个。" }] },
-  { id: "alerts", name: "告警中心", icon: "notifications", page: "alerts", summary: "根据流量、服务、证书和网络质量自动产生可确认告警。", outcome: "异常状态不再依赖人工逐页检查。", steps: ["设置流量阈值", "设置延迟和丢包阈值", "确认告警确认记录可以写入"], fields: [{ id: "trafficPercent", label: "流量告警阈值（%）", placeholder: "80", type: "number", hint: "达到阈值时生成告警。" }, { id: "lossPercent", label: "丢包阈值（%）", placeholder: "5", type: "number", hint: "建议避免设置得过低造成噪声。" }] },
-  { id: "audit", name: "操作审计", icon: "history", page: "audit", summary: "记录配置更新、告警确认和后端生命周期等关键事件。", outcome: "重要变更具有时间、来源与结果记录。", steps: ["确认数据库目录权限", "由服务器配置保留周期", "验证密码、Token 和私钥不会进入审计详情"], fields: [] },
+  { id: "system", name: text("系统指标", "System metrics"), icon: "memory", page: "overview", summary: text("读取主机资源、运行时间与网卡累计计数器。", "Read host resources, uptime, and cumulative interface counters."), outcome: text("总览显示真实主机快照和节点名称。", "The overview shows a live host snapshot and node name."), steps: [text("确认后端仅监听回环地址", "Keep the backend bound to loopback"), text("设置节点显示名称", "Set the node display name"), text("验证 /proc 与文件系统可读", "Verify /proc and filesystem access")], fields: [{ id: "nodeName", label: text("节点显示名称", "Node display name"), placeholder: "Tokyo edge", hint: text("作为总览主标题显示，最长 80 字。", "Shown as the overview title, up to 80 characters."), required: true }] },
+  { id: "traffic", name: text("流量采集", "Traffic collection"), icon: "monitoring", page: "traffic", summary: text("每分钟持久化真实网卡计数器，并生成多时间范围趋势。", "Persist real interface counters every minute and build multiple time ranges."), outcome: text("总览、账号配置额度和告警共用同一流量额度。", "Overview, account quota labels, and alerts share one traffic quota."), steps: [text("确认主网卡", "Confirm the primary interface"), text("设置总流量额度", "Set the total traffic quota"), text("等待真实采样形成趋势", "Allow real samples to build a trend")], fields: [{ id: "interface", label: text("主网卡", "Primary interface"), placeholder: "eth0", hint: text("留空时按默认路由自动识别。", "Leave blank to detect it from the default route.") }, { id: "quotaGb", label: text("总流量额度（GB）", "Total traffic quota (GB)"), placeholder: "1000", type: "number", hint: text("作为总览和所有账号的统一配置额度。", "Used as the single configured quota across overview and accounts."), required: true }] },
+  { id: "hysteria2", name: text("Hysteria2", "Hysteria2"), icon: "bolt", page: "services", summary: text("通过官方 Traffic Stats API 读取累计流量、在线计数与活动流。", "Read cumulative traffic, online counts, and streams from the official Traffic Stats API."), outcome: text("账号身份只按显式映射匹配，缺失来源 IP 时明确标为核心未提供。", "Accounts use explicit identity mappings; missing source IPs remain marked as unavailable from the core."), steps: [text("启用仅回环监听的 Traffic Stats API", "Enable the loopback-only Traffic Stats API"), text("在服务器受限配置写入独立 Secret", "Store the dedicated secret in protected server configuration"), text("多账号时配置 trafficIdentities", "Configure trafficIdentities for multiple accounts")], fields: [{ id: "endpoint", label: text("API 地址", "API endpoint"), placeholder: "http://127.0.0.1:19090", hint: text("只接受 localhost 或回环 IP；网页不会提交 Secret。", "Only localhost or loopback IPs are accepted; the web UI never submits the secret."), required: true }] },
+  { id: "anytls", name: text("AnyTLS / sing-box", "AnyTLS / sing-box"), icon: "encrypted", page: "services", summary: text("连接本机 Clash API，读取 sing-box 的真实连接快照。", "Connect to the local Clash API for real sing-box connection snapshots."), outcome: text("只显示核心返回的来源、目标、累计字节和开始时间。", "Show only source, destination, cumulative bytes, and start time returned by the core."), steps: [text("让 Clash API 仅监听回环地址", "Bind the Clash API to loopback"), text("在服务器配置中保存 Bearer Secret", "Store the bearer secret in server configuration"), text("验证 /connections 返回真实快照", "Verify /connections returns real snapshots")], fields: [singBoxFields[0]] },
+  { id: "vless", name: text("VLESS", "VLESS"), icon: "route", page: "services", summary: text("把指定 sing-box 入站标签映射为 VLESS 连接。", "Map explicit sing-box inbound tags to VLESS connections."), outcome: text("只有标签匹配的真实连接会显示为 VLESS。", "Only real connections matching configured tags appear as VLESS."), steps: [text("确认 VLESS 由当前 sing-box 实例承载", "Confirm VLESS runs in this sing-box instance"), text("填写回环 Clash API", "Enter the loopback Clash API"), text("填写真实 inbound tag", "Enter real inbound tags")], fields: singBoxFields },
+  { id: "socks5", name: text("SOCKS5", "SOCKS5"), icon: "lan", page: "services", summary: text("把指定 sing-box 入站标签映射为 SOCKS5 连接。", "Map explicit sing-box inbound tags to SOCKS5 connections."), outcome: text("未配置或标签不匹配时保持未配置，不猜测协议。", "Remain unconfigured when tags are absent or unmatched; never guess the protocol."), steps: [text("确认 SOCKS5 入站已启用", "Confirm the SOCKS5 inbound is enabled"), text("填写回环 Clash API", "Enter the loopback Clash API"), text("填写真实 inbound tag", "Enter real inbound tags")], fields: singBoxFields },
+  { id: "shadowsocks", name: text("Shadowsocks", "Shadowsocks"), icon: "shield", page: "services", summary: text("把指定 sing-box 入站标签映射为 Shadowsocks 连接。", "Map explicit sing-box inbound tags to Shadowsocks connections."), outcome: text("连接归类基于服务器显式标签，不按端口或名称猜测。", "Connection classification uses explicit server tags, never port or name guesses."), steps: [text("确认 Shadowsocks 入站已启用", "Confirm the Shadowsocks inbound is enabled"), text("填写回环 Clash API", "Enter the loopback Clash API"), text("填写真实 inbound tag", "Enter real inbound tags")], fields: singBoxFields },
+  { id: "connections", name: text("连接活动", "Connection activity"), icon: "lan", page: "connections", summary: text("按协议、账号和来源 IP 聚合真实连接，并按需展开详情。", "Group real connections by protocol, account, and source IP with expandable details."), outcome: text("持续时长取最早时间；速率只由连续累计字节快照计算。", "Duration uses the earliest start; rates come only from consecutive cumulative-byte snapshots."), steps: [text("至少连接一个协议适配器", "Connect at least one protocol adapter"), text("等待连续快照建立速率", "Wait for consecutive snapshots to establish rates"), text("核对核心未提供的字段", "Review fields the core does not provide")], fields: [] },
+  { id: "network", name: text("网络质量", "Network quality"), icon: "network_check", page: "network", summary: text("自定义名称、IPv4/IPv6 地址和显示顺序。", "Customize names, IPv4/IPv6 addresses, and display order."), outcome: text("每次探测保存 8 个真实 ICMP 响应点，不插值业务数据。", "Each probe keeps eight real ICMP response points without inventing business data."), steps: [text("添加 1 至 12 个目标", "Add 1 to 12 targets"), text("设置名称、地址和排序", "Set name, address, and order"), text("检查 ICMP 被禁时的不可达状态", "Check unreachable results when ICMP is blocked")], fields: [{ id: "targets", label: text("探测目标", "Probe targets"), placeholder: "Cloudflare,1.1.1.1\nGoogle IPv6,2001:4860:4860::8888", type: "textarea", hint: text("每行使用“名称,地址”；网络质量页面还提供结构化编辑器。", "Use name,address per line. A structured editor is also available on the Network page."), required: true }] },
+  { id: "subscriptions", name: text("订阅配置", "Subscriptions"), icon: "qr_code_2", page: "subscriptions", summary: text("显示服务器受保护配置中已有的订阅记录。", "Show subscription records already present in protected server configuration."), outcome: text("完整地址只在管理员主动复制或生成二维码时读取。", "Full URLs are read only when an administrator explicitly copies or opens a QR code."), steps: [text("确认发布服务使用 TLS", "Confirm the publisher uses TLS"), text("填写不含 Token 的公共基地址", "Enter a public base URL without a token"), text("外部可达性需另行验证", "Verify external reachability separately")], fields: [{ id: "baseUrl", label: text("订阅基地址", "Subscription base URL"), placeholder: "https://panel.example.com/subscription", hint: text("HTTPS 格式校验不代表发布器已经连通。", "HTTPS format validation does not prove the publisher is reachable."), required: true }] },
+  { id: "alerts", name: text("告警中心", "Alerts"), icon: "notifications", page: "alerts", summary: text("根据真实流量、服务和网络探测计算本地告警。", "Evaluate local alerts from real traffic, service, and network probe data."), outcome: text("通知角标只在存在未确认告警时显示，最大 99+。", "The notification badge appears only for unacknowledged alerts and caps at 99+."), steps: [text("设置流量阈值", "Set the traffic threshold"), text("设置延迟与丢包阈值", "Set latency and packet-loss thresholds"), text("确认告警记录可写", "Verify acknowledgements can be stored")], fields: [{ id: "trafficPercent", label: text("流量阈值（%）", "Traffic threshold (%)"), placeholder: "80", type: "number", hint: text("达到阈值时产生告警。", "Create an alert when this threshold is reached.") }, { id: "latencyMs", label: text("延迟阈值（ms）", "Latency threshold (ms)"), placeholder: "150", type: "number", hint: text("超过阈值的目标进入告警。", "Targets above this threshold create an alert.") }, { id: "lossPercent", label: text("丢包阈值（%）", "Packet-loss threshold (%)"), placeholder: "5", type: "number", hint: text("避免设置过低造成噪声。", "Avoid values so low that they create noise.") }] },
+  { id: "audit", name: text("操作审计", "Audit log"), icon: "history", page: "audit", summary: text("记录登录、设置、告警确认和后端生命周期事件。", "Record sign-ins, settings, alert acknowledgements, and backend lifecycle events."), outcome: text("重要变更包含实际登录用户、来源与结果。", "Important changes include the actual signed-in user, source, and result."), steps: [text("确认数据库目录权限", "Confirm database directory permissions"), text("保留合适的日志周期", "Choose an appropriate retention period"), text("确保密码和 Token 不进入审计详情", "Keep passwords and tokens out of audit details")], fields: [] },
 ];
 
 export const pageIntegration: Partial<Record<PageId, IntegrationId>> = {
-  accounts: "hysteria2",
-  connections: "connections",
-  traffic: "traffic",
-  subscriptions: "subscriptions",
-  network: "network",
-  services: "system",
-  alerts: "alerts",
-  audit: "audit",
+  accounts: "hysteria2", connections: "connections", traffic: "traffic", subscriptions: "subscriptions",
+  network: "network", services: "system", alerts: "alerts", audit: "audit",
 };

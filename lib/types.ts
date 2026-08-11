@@ -1,4 +1,11 @@
-export type Protocol = "Hysteria2" | "AnyTLS" | "VLESS" | "TUIC";
+export type Protocol =
+  | "Hysteria2"
+  | "AnyTLS"
+  | "VLESS"
+  | "SOCKS5"
+  | "Shadowsocks"
+  | "sing-box"
+  | "TUIC";
 
 export type AccountStatus = "active" | "disabled" | "expiring";
 
@@ -60,12 +67,17 @@ export interface NetworkTarget {
   loss: number;
   status: "healthy" | "degraded" | "down";
   history: number[];
+  order?: number;
 }
 
 export interface ServiceStatus {
   id: string;
   name: string;
+  nameZh?: string;
+  nameEn?: string;
   detail: string;
+  detailZh?: string;
+  detailEn?: string;
   status: "running" | "warning" | "stopped";
   version: string;
   uptime?: string;
@@ -77,6 +89,9 @@ export type IntegrationId =
   | "system"
   | "hysteria2"
   | "anytls"
+  | "vless"
+  | "socks5"
+  | "shadowsocks"
   | "connections"
   | "traffic"
   | "subscriptions"
@@ -90,6 +105,8 @@ export interface IntegrationStatus {
   configured: boolean;
   status: "ready" | "pending" | "preview" | "error";
   summary: string;
+  summaryZh?: string;
+  summaryEn?: string;
 }
 
 export interface OverviewMetrics {
@@ -119,7 +136,7 @@ export interface TrafficBreakdown {
 }
 
 export interface DashboardPayload {
-  mode: "loading" | "live" | "preview" | "stale";
+  mode: "loading" | "live" | "stale";
   generatedAt: string;
   overview: OverviewMetrics;
   accounts: Account[];
@@ -137,16 +154,48 @@ export interface DashboardPayload {
   alerts: AlertItem[];
   auditEvents: AuditEvent[];
   integrations: IntegrationStatus[];
+  uiSettings: UiSettings;
+}
+
+export interface UiSettings {
+  showSetup: boolean;
+  visiblePanels: PageId[];
+}
+
+export interface LoginAppearance {
+  type: "default" | "url" | "server";
+  url: string;
+}
+
+export interface BootstrapState {
+  setupRequired: boolean;
+  bootstrapAvailable: boolean;
+  appearance: LoginAppearance;
+}
+
+export interface SessionState {
+  username: string;
+  csrfToken: string;
+  expiresAt: number;
+  setupComplete: boolean;
 }
 
 export interface AlertItem {
   id: string;
   severity: "critical" | "warning" | "info";
   title: string;
+  titleZh?: string;
+  titleEn?: string;
   description: string;
+  descriptionZh?: string;
+  descriptionEn?: string;
   time: string;
+  timeZh?: string;
+  timeEn?: string;
   acknowledged: boolean;
   source: string;
+  sourceZh?: string;
+  sourceEn?: string;
 }
 
 export interface AuditEvent {
@@ -185,7 +234,7 @@ export type PageId =
 
 export interface NavigationItem {
   id: PageId;
-  label: string;
+  labelZh: string;
+  labelEn: string;
   icon: string;
-  badge?: number;
 }

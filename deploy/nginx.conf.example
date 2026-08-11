@@ -19,15 +19,14 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    # Authentication is intentionally enabled in the safe default example.
-    auth_basic "CastoriceUI";
-    auth_basic_user_file /etc/nginx/.htpasswd-castorice-ui;
+    # v2.0 uses the application login page and HttpOnly session cookies.
+    # Do not add auth_basic here: it would restore the browser password prompt.
 
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "same-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
 
     location ^~ /api/ {
         proxy_pass http://127.0.0.1:18080;
@@ -46,6 +45,7 @@ server {
     }
 
     location / {
+        add_header Cache-Control "no-cache" always;
         try_files $uri $uri/ /index.html;
     }
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import http.cookiejar
 import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -15,8 +18,8 @@ sys.path.insert(0, str(SERVER_ROOT))
 from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.collectors import automatic_update_info, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
-from castoriceui.api import ApiHandler  # noqa: E402
-from castoriceui.security import normalize_https_base_url, normalize_loopback_endpoint, validate_probe_target  # noqa: E402
+from castoriceui.api import ApiHandler, ApiServer  # noqa: E402
+from castoriceui.security import normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 
 
@@ -101,6 +104,7 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(sum(item["download"] for item in traffic["ranges"]["1h"]), 110)
             self.assertEqual(sum(item["upload"] for item in traffic["ranges"]["1h"]), 50)
             self.assertEqual(set(traffic["ranges"]), {"1h", "6h", "24h", "3day", "7day"})
+            self.assertGreaterEqual(len(traffic["ranges"]["1h"]), 2)
 
     def test_named_network_targets_and_node_name_are_validated_and_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -112,6 +116,31 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(config.network_targets[0]["name"], "Cloudflare")
             self.assertEqual(config.network_targets[1]["ipVersion"], 6)
             self.assertEqual(config.node_name, "Custom edge")
+
+    def test_structured_network_targets_validate_order_and_persist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            storage = Storage(config.database_path)
+            dashboard = DashboardService(config, storage)
+            saved = dashboard.update_network_targets([
+                {"name": "Second", "address": "8.8.8.8", "order": 20},
+                {"name": "First", "address": "1.1.1.1", "order": 10},
+            ], "127.0.0.1", "tester")
+            self.assertEqual([item["name"] for item in saved], ["First", "Second"])
+            self.assertEqual([item["order"] for item in saved], [1, 2])
+            self.assertEqual(storage.get_setting("network_targets", [])[0]["address"], "1.1.1.1")
+            with self.assertRaisesRegex(ValueError, "unique"):
+                dashboard.update_network_targets([
+                    {"name": "One", "address": "1.1.1.1", "order": 1},
+                    {"name": "Duplicate", "address": "1.1.1.1", "order": 2},
+                ], "127.0.0.1", "tester")
+
+    def test_singbox_connections_use_explicit_protocol_tags_without_guessing(self) -> None:
+        payload = connection_snapshots({}, {"connections": [
+            {"id": "one", "metadata": {"inbound": "vless-in", "sourceIP": "203.0.113.7"}},
+            {"id": "two", "metadata": {"inbound": "unknown", "sourceIP": "203.0.113.8"}},
+        ]}, {"vless": {"inboundTags": ["vless-in"]}}, "sing-box")
+        self.assertEqual([item["protocol"] for item in payload], ["VLESS", "sing-box"])
 
     def test_configured_adapter_is_unavailable_when_requests_fail(self) -> None:
         config = AppConfig(hysteria_api={"url": "http://127.0.0.1:19090"}, singbox_api={"url": "http://127.0.0.1:19091"})
@@ -225,6 +254,24 @@ class BackendTests(unittest.TestCase):
             normalize_https_base_url("http://panel.example.com/subscription")
         with self.assertRaises(ValueError):
             validate_probe_target("-f")
+        self.assertEqual(normalize_https_image_url("https://images.example.test/panel.webp"), "https://images.example.test/panel.webp")
+        with self.assertRaises(ValueError):
+            normalize_https_image_url("http://127.0.0.1/private.png")
+        with self.assertRaises(ValueError):
+            normalize_https_image_url("https://images.example.test/panel.webp?token=secret")
+
+    def test_server_background_image_stays_in_allowed_directory_and_checks_magic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "valid.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"safe")
+            image, mime = safe_background_image(root, "valid.png")
+            self.assertEqual(image.name, "valid.png")
+            self.assertEqual(mime, "image/png")
+            with self.assertRaises(ValueError):
+                safe_background_image(root, "../valid.png")
+            (root / "fake.png").write_text("not an image", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                safe_background_image(root, "fake.png")
 
     def test_mutations_require_custom_request_guard(self) -> None:
         handler = object.__new__(ApiHandler)
@@ -236,6 +283,57 @@ class BackendTests(unittest.TestCase):
         handler.client_address = ("127.0.0.1", 12345)
         self.assertTrue(handler.require_mutation_header())
         self.assertEqual(handler.source_ip(), "203.0.113.42")
+
+    def test_application_login_initialization_session_csrf_and_logout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bootstrap_path = root / "bootstrap-token"
+            bootstrap_path.write_text("one-time-bootstrap-token\n", encoding="utf-8")
+            config = AppConfig(database_path=str(root / "state.db"), bootstrap_token_path=str(bootstrap_path), secure_cookies=False, listen_host="127.0.0.1", listen_port=0)
+            storage = Storage(config.database_path)
+            dashboard = MagicMock()
+            dashboard.snapshot.return_value = {"mode": "live", "generatedAt": "2026-08-11T00:00:00+00:00"}
+            server = ApiServer(config, storage, dashboard)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            cookies = http.cookiejar.CookieJar()
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
+
+            def call(path: str, method: str = "GET", payload: dict[str, object] | None = None, headers: dict[str, str] | None = None) -> tuple[int, dict[str, object]]:
+                data = json.dumps(payload).encode() if payload is not None else None
+                request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}{path}", data=data, method=method, headers={"Content-Type": "application/json", **(headers or {})})
+                try:
+                    with opener.open(request, timeout=5) as response:
+                        return response.status, json.loads(response.read())
+                except urllib.error.HTTPError as error:
+                    return error.code, json.loads(error.read())
+
+            try:
+                status, state = call("/api/v2/bootstrap")
+                self.assertEqual(status, 200)
+                self.assertTrue(state["setupRequired"])
+                status, _ = call("/api/v2/auth/initialize", "POST", {"bootstrapToken": "wrong", "username": "operator", "password": "Valid-Password-123"})
+                self.assertEqual(status, 403)
+                status, session = call("/api/v2/auth/initialize", "POST", {"bootstrapToken": "one-time-bootstrap-token", "username": "operator", "password": "Valid-Password-123"})
+                self.assertEqual(status, 201)
+                self.assertFalse(bootstrap_path.exists())
+                csrf = str(session["csrfToken"])
+                status, _ = call("/api/v2/dashboard")
+                self.assertEqual(status, 200)
+                status, _ = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 10_000_000_000}, {"X-CastoriceUI-Request": "1"})
+                self.assertEqual(status, 403)
+                guard = {"X-CastoriceUI-Request": "1", "X-CSRF-Token": csrf}
+                status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 10_000_000_000}, guard)
+                self.assertEqual(status, 200)
+                self.assertEqual(result["bytes"], 10_000_000_000)
+                status, _ = call("/api/v2/auth/logout", "POST", {}, guard)
+                self.assertEqual(status, 200)
+                status, _ = call("/api/v2/auth/session")
+                self.assertEqual(status, 401)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
     def test_strict_probe_authenticates_and_does_not_follow_redirects(self) -> None:
         class ProbeHandler(BaseHTTPRequestHandler):

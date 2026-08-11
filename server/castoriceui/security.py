@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -58,3 +59,51 @@ def validate_interface_name(value: str) -> str:
     if not _INTERFACE_NAME.fullmatch(candidate):
         raise ValueError("Network interface name is invalid")
     return candidate
+
+
+def normalize_https_image_url(value: str) -> str:
+    """Validate an image URL that will be loaded by the browser, never fetched by this backend."""
+    candidate = value.strip()
+    if not candidate or len(candidate) > 2048:
+        raise ValueError("Background image URL is empty or too long")
+    parsed = urlsplit(candidate)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Background image must use a plain HTTPS URL without credentials, query, or fragment")
+    return urlunsplit(("https", parsed.netloc, parsed.path or "/", "", ""))
+
+
+def safe_background_image(root: str | Path, filename: str, max_bytes: int = 5 * 1024 * 1024) -> tuple[Path, str]:
+    if not filename or filename != Path(filename).name or len(filename) > 180:
+        raise ValueError("Background image filename is invalid")
+    root_path = Path(root).resolve()
+    candidate = (root_path / filename).resolve()
+    if candidate.parent != root_path or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise ValueError("Background image is outside the allowed image directory")
+    if not candidate.is_file() or not 0 < candidate.stat().st_size <= max_bytes:
+        raise ValueError("Background image is unavailable or exceeds 5 MB")
+    with candidate.open("rb") as image:
+        header = image.read(16)
+    mime = ""
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        mime = "image/png"
+    elif header.startswith(b"\xff\xd8\xff"):
+        mime = "image/jpeg"
+    elif len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+        mime = "image/webp"
+    if not mime:
+        raise ValueError("Background image content is not PNG, JPEG, or WebP")
+    return candidate, mime
+
+
+def list_background_images(root: str | Path) -> list[str]:
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return []
+    result: list[str] = []
+    for candidate in sorted(root_path.iterdir(), key=lambda item: item.name.lower()):
+        try:
+            safe_background_image(root_path, candidate.name)
+        except ValueError:
+            continue
+        result.append(candidate.name)
+    return result[:100]

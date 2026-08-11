@@ -12,6 +12,7 @@ WorkingDirectory=/opt/castoriceui/backend
 ExecStart=/usr/bin/python3 /opt/castoriceui/backend/run.py --config /etc/castoriceui/config.json
 Restart=on-failure
 RestartSec=5s
+UMask=0077
 TimeoutStopSec=10s
 NoNewPrivileges=true
 PrivateTmp=true

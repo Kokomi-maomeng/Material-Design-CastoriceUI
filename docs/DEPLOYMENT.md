@@ -1,19 +1,20 @@
-# CastoriceUI v1.5 deployment / 部署配置手册
+# CastoriceUI v2.0 deployment / 部署手册
 
-This guide uses versioned frontend releases, a loopback backend, an authenticated TLS Nginx site, and explicit rollback points. Replace documentation domains only on the server. Never commit the resulting private configuration.
+This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
-本文采用版本化前端目录、回环后端、带认证的 TLS Nginx 和明确回滚点。真实域名、Secret、订阅地址和证书路径只保存在服务器。
+本手册采用版本化目录、回环后端、应用会话、TLS、备份和明确回滚点。真实域名、Secret、订阅内容、证书和 Bootstrap Token 只能保留在服务器。
 
-## 1. Requirements / 环境
+## 1. Requirements / 环境要求
 
 - Debian 12/13 or another systemd Linux distribution
 - Python 3.11+
-- Nginx with a valid TLS certificate
-- `apache2-utils` or another tool capable of creating an htpasswd file
+- Nginx and a valid TLS certificate
 - Node.js 20.19+ on the build machine
-- Optional Hysteria2 Traffic Stats and sing-box Clash APIs bound to loopback
+- Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
 
-## 2. Build and frontend release / 构建与前端发布
+Do not deploy the backend directly on a public address. The v2.0 login cookie is Secure by default and therefore requires HTTPS in production.
+
+## 2. Build and inspect / 构建与检查
 
 ```bash
 npm ci
@@ -21,21 +22,21 @@ npm run check
 npm run build
 ```
 
-Create the release first, then atomically switch `current`:
+Do not deploy when any check fails. Review the produced `dist/`, the staged backend, and the sensitive-content scan before copying files.
 
-```bash
-release=$(date -u +%Y%m%dT%H%M%SZ)
-sudo install -d "/var/www/castorice-ui/releases/$release"
-sudo cp -a dist/. "/var/www/castorice-ui/releases/$release/"
-sudo ln -sfn "/var/www/castorice-ui/releases/$release" /var/www/castorice-ui/current.next
-sudo mv -Tf /var/www/castorice-ui/current.next /var/www/castorice-ui/current
-```
+## 3. Back up before install or upgrade / 先备份
 
-The supplied Nginx example uses `root /var/www/castorice-ui/current`; keep that path aligned with this release layout.
+Record the current symlink targets and back up, when present:
 
-## 3. Backend account, certificate group, and files / 后端账户与文件
+- `/var/www/castorice-ui/current` and its release directory;
+- `/opt/castoriceui/backend`;
+- `/etc/castoriceui/config.json`;
+- `/var/lib/castoriceui/state.db`, `state.db-wal`, and `state.db-shm`;
+- the systemd unit and active Nginx site.
 
-The service unit expects both the dedicated account and `proxycert` group. Create them idempotently before installing the unit:
+For a live SQLite database, stop `castoriceui-backend` briefly before copying the database files, or use SQLite's online backup API. Never copy only `state.db` while ignoring an active WAL.
+
+## 4. Service identity and protected files / 服务账号与文件
 
 ```bash
 getent group proxycert >/dev/null || sudo groupadd --system proxycert
@@ -44,22 +45,21 @@ sudo usermod -aG proxycert castoriceui
 sudo install -d -m 0755 /opt/castoriceui/backend
 sudo install -d -m 0750 -o root -g castoriceui /etc/castoriceui
 sudo install -d -m 0750 -o castoriceui -g castoriceui /var/lib/castoriceui
+sudo install -d -m 0700 -o castoriceui -g castoriceui /var/lib/castoriceui/login-backgrounds
 sudo cp -a server/. /opt/castoriceui/backend/
 ```
 
-For a first installation only:
+First installation only:
 
 ```bash
 sudo install -m 0640 -o root -g castoriceui server/config.example.json /etc/castoriceui/config.json
 ```
 
-For an upgrade, back up and retain the existing `/etc/castoriceui/config.json`; never replace it with the example. Put Hysteria2 and sing-box Secrets only in this `0640 root:castoriceui` file. The browser setup form intentionally does not accept or store them.
+On upgrades, merge new keys manually into the existing protected config. Never overwrite it with `config.example.json`. Set the real interface name, quota, certificate path, subscription provider, account mappings, and loopback API Secrets only on the server.
 
-Configure the interface, quota, certificate path, probe targets, subscriptions, and loopback API endpoints. Keep all management listeners on `127.0.0.1` or `::1`.
+## 5. Protocol statistics / 协议统计
 
-## 4. Protocol statistics / 协议统计
-
-Hysteria2 server configuration:
+Hysteria2 example:
 
 ```yaml
 trafficStats:
@@ -67,7 +67,7 @@ trafficStats:
   secret: generate-a-long-random-secret-on-the-server
 ```
 
-sing-box configuration:
+sing-box example:
 
 ```json
 {
@@ -82,9 +82,9 @@ sing-box configuration:
 }
 ```
 
-Back up and validate each protocol configuration with its own binary. Restart one service at a time and verify its authenticated loopback endpoint before configuring CastoriceUI.
+Validate each core with its own binary, restart one service at a time, then test its authenticated loopback endpoint. VLESS, SOCKS5, and Shadowsocks classification additionally requires explicit inbound tags in `protocol_adapters`; see [`INTEGRATION.md`](INTEGRATION.md).
 
-## 5. systemd
+## 6. systemd and Bootstrap Token
 
 ```bash
 sudo cp deploy/castoriceui-backend.service /etc/systemd/system/
@@ -92,69 +92,103 @@ sudo systemd-analyze verify /etc/systemd/system/castoriceui-backend.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now castoriceui-backend
 sudo systemctl status castoriceui-backend --no-pager
-curl -fsS http://127.0.0.1:18080/api/v1/health
+curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected health version for this release is `1.5.0`. The unit uses a dedicated account, `NoNewPrivileges`, read-only system protection, bounded memory, and a writable SQLite directory only.
+Expected version: `2.0.0`.
 
-## 6. Nginx TLS and authentication / TLS 与认证
-
-Create a password file before enabling the site. The command prompts without placing the password in shell history:
+For a new database, generate the first-admin token once:
 
 ```bash
-sudo htpasswd -cB /etc/nginx/.htpasswd-castorice-ui admin
-sudo chown root:www-data /etc/nginx/.htpasswd-castorice-ui
-sudo chmod 0640 /etc/nginx/.htpasswd-castorice-ui
+sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/backend/run.py \
+  --config /etc/castoriceui/config.json --generate-bootstrap
+sudo stat -c '%a %U:%G %n' /var/lib/castoriceui/bootstrap-token
 ```
 
-Copy [`deploy/nginx.conf.example`](../deploy/nginx.conf.example), then replace the documentation domain and certificate paths. Authentication is already enabled for the whole server, covering both static assets and `/api/`.
+Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected administrator terminal and enter it only on the first-run page. It is consumed after the administrator is created. Do not put it into shell history, logs, chat, screenshots, Git, or Nginx configuration. If no user exists and the token was lost, stop the service, remove only the exact token file after verifying its path, generate a new one, then restart.
+
+## 7. Frontend release / 前端版本目录
+
+```bash
+release=v2.0.0
+sudo install -d "/var/www/castorice-ui/releases/$release"
+sudo cp -a dist/. "/var/www/castorice-ui/releases/$release/"
+sudo ln -sfn "/var/www/castorice-ui/releases/$release" /var/www/castorice-ui/current.next
+sudo mv -Tf /var/www/castorice-ui/current.next /var/www/castorice-ui/current
+```
+
+The supplied Nginx example uses `root /var/www/castorice-ui/current` and SPA fallback routing.
+
+## 8. Nginx, TLS, and application login / Nginx、TLS 与登录
+
+Copy [`../deploy/nginx.conf.example`](../deploy/nginx.conf.example), replace only the documentation domain/certificate paths on the server, then run:
 
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Validate both rejection and authenticated access:
+Do **not** enable `auth_basic`. v2.0 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out.
+
+Recommended validation before using a browser:
 
 ```bash
-curl -I https://panel.example.com/                         # expect 401
-curl -I https://panel.example.com/api/v1/health            # expect 401
-curl -u admin https://panel.example.com/api/v1/health      # expect 200 and 1.5.0
-curl -u admin https://panel.example.com/api/v1/dashboard   # expect mode: live
+curl -fsS http://127.0.0.1:18080/api/v2/health
+curl -fsS https://panel.example.com/api/v2/health
+curl -fsS https://panel.example.com/api/v2/bootstrap
+curl -i https://panel.example.com/api/v2/dashboard   # expect 401 without session
+curl -I https://panel.example.com/                   # expect 200, never a Basic Auth challenge
 ```
 
-Do not put a password directly on a shared command line; the abbreviated examples above prompt interactively. For automation, use a protected credential source appropriate to the deployment system.
+The public health and bootstrap-state endpoints contain no credentials. Dashboard and mutation endpoints require an authenticated session. Mutations also require the session CSRF token and `X-CastoriceUI-Request: 1`.
 
-Basic Auth is suitable only for a single administrator over TLS. Multi-user deployments need an authentication proxy with secure sessions, CSRF protection, MFA, authorization, and rate limits.
+## 9. First browser use / 首次浏览器使用
 
-## 7. Upgrade and rollback / 升级与回滚
+1. Open the HTTPS panel in a private browser window.
+2. Confirm the CastoriceUI sign-in/initialization page appears, not a browser password dialog.
+3. Enter the one-time token, a 3-64 character username, and a password of at least 12 characters using three character classes.
+4. Save the required node display name and traffic quota.
+5. Configure only protocol integrations whose loopback endpoint and server Secret are already ready.
+6. Complete initialization and verify Overview uses the saved name/quota.
+7. Sign out and confirm the protected dashboard cannot be reopened with the old page history.
 
-Before an upgrade, back up:
+For an existing v1.5 database, v2.0 reports setup required until a v2.0 administrator is created. Existing operational history/configuration is retained; a new application user is still required because v1.5 relied on Nginx Basic Auth and had no compatible password database.
 
-- the current frontend release target and `current` link;
-- `/opt/castoriceui/backend`;
-- `/etc/castoriceui/config.json`;
-- `/var/lib/castoriceui/state.db` plus its WAL/SHM files when present;
-- the systemd unit and Nginx site.
+## 10. Login backgrounds / 登录背景
 
-After staging the new backend, run Python compilation and tests before replacing files. Restart only `castoriceui-backend`; switching static frontend files does not require an Nginx reload when its configuration is unchanged.
+Server images must be PNG, JPEG, or WebP, no larger than 5 MB, and stored directly inside the configured `login_background_directory`. The backend rejects path traversal, symlinks outside that directory, unsupported magic bytes, and nested paths. External backgrounds must use HTTPS and are fetched directly by the browser; the backend does not proxy or fetch them. Restrict the Nginx CSP further to trusted image hosts if your deployment does not need arbitrary HTTPS images.
 
-Rollback sequence:
+## 11. Upgrade and rollback / 升级与回滚
 
-1. Point `/var/www/castorice-ui/current` to the previous release.
-2. Restore the previous backend directory, service unit, config, and database backup if the schema or behavior requires it.
-3. Run `systemd-analyze verify` and `nginx -t`.
-4. Restart `castoriceui-backend`; reload Nginx only if its configuration changed.
-5. Verify loopback health, unauthenticated 401, authenticated dashboard access, and the proxy services.
+Upgrade sequence:
 
-## 8. Security checklist / 安全检查
+1. Back up the protected config, database/WAL, current frontend target, backend, service unit, and Nginx site.
+2. Stage and test the new backend in a separate directory.
+3. Stop the backend only for the final database-safe replacement window.
+4. Install the new backend and unit; preserve private config and state.
+5. Start the backend, verify loopback health, then switch the frontend symlink atomically.
+6. Verify TLS, login/session/CSRF, dashboard truthfulness, protocol status, and logs.
+7. Keep the prior release and backup until post-restart validation passes.
 
-- backend and protocol controllers listen on loopback only
-- TLS and authentication cover both frontend and API
-- Nginx root matches `/var/www/castorice-ui/current`
-- `proxycert` exists and includes `castoriceui` only when certificate access requires it
-- config is `0640 root:castoriceui`; state directory is `0750 castoriceui:castoriceui`
-- upstream Secrets exist only in the protected server config, not SQLite or browser payloads
-- invalid/non-loopback endpoints fail validation and are not persisted
-- no real secrets or server addresses are present in the Git repository
-- `npm run check`, CodeQL, production browser regression, and rollback checks pass before release
+Rollback:
+
+1. Restore the previous frontend symlink and backend directory.
+2. Restore the matching database/config backup if the previous backend cannot read the upgraded state.
+3. Restore the previous unit/Nginx file when changed.
+4. Run `systemd-analyze verify` and `nginx -t`.
+5. Restart the backend, reload Nginx only if its config changed, and repeat health/auth/protocol checks.
+
+## 12. Restart recovery and release checklist / 重启恢复与发布检查
+
+- `systemctl is-enabled castoriceui-backend` returns `enabled`
+- `systemctl restart castoriceui-backend` returns to `active`
+- loopback and HTTPS health report `2.0.0`
+- `/api/v2/dashboard` rejects an unauthenticated request
+- the application login works and logout invalidates the session
+- first-run setup is required only when appropriate
+- config is `0640 root:castoriceui`; state/background directories are restricted
+- backend, Hysteria2, and sing-box controllers listen on loopback only
+- dashboard, Accounts, and Traffic use consistent real values
+- unavailable protocol/source/rate fields remain unavailable instead of zero/fabricated
+- Nginx root resolves to the intended versioned release
+- `npm run check`, CodeQL, responsive/browser checks, sensitive scan, backup, and rollback review pass

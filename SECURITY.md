@@ -2,44 +2,59 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest release on the default branch. Operators should upgrade to the newest tagged version and keep a tested rollback release.
+Security fixes are applied to the latest release on the default branch. Operators should upgrade to the newest tag while retaining and testing a rollback release.
 
 ## Reporting a vulnerability
 
-Do not disclose a suspected vulnerability in a public issue. Use the repository's private security-advisory feature and include:
+Do not open a public issue for a suspected vulnerability. Use GitHub's private security-advisory feature and include the affected version/commit, reproduction steps, expected and observed impact, and a minimal proof of concept without real credentials or production data.
 
-- affected version or commit;
-- reproduction steps;
-- expected and observed impact;
-- a minimal proof of concept without real credentials or production data.
+## Supported production boundary
 
-## Security boundary
+CastoriceUI v2.0 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
 
-CastoriceUI v1.5 includes a browser frontend and an optional Python backend. The backend collects local Linux metrics, queries loopback-only Hysteria2 and sing-box management APIs, and stores bounded operational history in SQLite. It is not an identity provider and must not be exposed directly to the internet.
+1. Nginx terminates valid TLS and serves both the frontend and same-origin `/api/`.
+2. `castoriceui-backend` listens only on `127.0.0.1` or `::1`.
+3. Hysteria2 and sing-box management APIs listen only on loopback and use separate random Secrets.
+4. The browser authenticates through the CastoriceUI login page; Nginx `auth_basic` is not used.
+5. Protected config is `0640 root:castoriceui`; SQLite, bootstrap token, and login image state are restricted to the service identity.
 
-The supported production boundary is:
+The backend is not designed for direct public exposure. v2.0 does not implement MFA, password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
 
-1. Hysteria2 and sing-box management APIs listen on loopback and use separate random Secrets.
-2. `castoriceui-backend` listens on `127.0.0.1` only.
-3. Nginx provides TLS and authentication for both the static frontend and `/api/`.
-4. Multi-user deployments replace Basic Auth with an authentication proxy that provides secure sessions, CSRF protection, MFA, authorization, and rate limits.
+## Authentication and sessions
 
-The browser never receives upstream API Secrets, raw configuration files, private keys, stored passwords, or complete subscription URLs in the dashboard snapshot. Subscription URLs are returned only by a separate authenticated endpoint after an explicit copy or QR action.
+- First administrator creation requires a server-generated, one-time Bootstrap Token stored with mode `0600`.
+- Passwords require at least 12 characters and three character classes and are stored as salted scrypt hashes.
+- Session identifiers are random, stored only as hashes server-side, time-limited, HttpOnly, SameSite=Strict, and Secure by default.
+- Mutations require an in-memory CSRF token plus the custom-request header.
+- Login failures are rate-limited and expensive password checks are serialized to protect small VPS memory/CPU.
+- Logout deletes the server session and expires the cookie.
 
-## Secret handling
+Do not set `secure_cookies: false` in production. Do not log Bootstrap Tokens, session cookies, CSRF values, passwords, or upstream Secrets.
 
-Upstream Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`, owned by `root:castoriceui` with mode `0640`. v1.5 does not accept those Secrets from the setup UI and does not persist them in SQLite. On startup, it removes any legacy v1.2 `secret` value found in the `integration_overrides` setting.
+## Secret and privacy handling
 
-The setup API accepts only loopback management endpoints, rejects embedded URL credentials, query strings, and fragments, and performs a real authenticated upstream request before reporting a ready state. Failed validation is not persisted.
+Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`. The setup UI accepts loopback endpoints and tag mappings but never accepts or persists the upstream Secret in SQLite. Failed authenticated probes are not saved as ready configurations.
+
+Dashboard payloads exclude password hashes, session values, CSRF values other than the current authenticated session response, upstream Secrets, raw configs, private keys, and full subscription URLs. Complete subscription URLs are returned only by a separate authenticated endpoint after an explicit copy/QR action.
+
+When `redact_live_data` is false, a private authenticated panel may display real adapter-provided account names, source IPs, destinations, and audit sources. Enable redaction for screenshots or shared demonstrations; it is not a substitute for access control.
+
+## URL, SSRF, command, and file boundaries
+
+- Protocol endpoints are restricted to loopback and strict no-redirect authenticated requests.
+- Network probe targets undergo separate hostname/IP validation and are passed as subprocess arguments without a shell.
+- HTTPS login-background URLs are stored but fetched directly by the browser, never by the backend.
+- Server login images must stay within the configured directory, pass size/extension/magic validation, and cannot use nested traversal paths.
+- The panel does not expose arbitrary shell execution. Protocol account writes, credential rotation, and service control require a separately designed and audited adapter.
 
 ## Deployment requirements
 
-- Use the authenticated TLS Nginx example; do not publish the loopback backend port.
-- Keep `/etc/castoriceui/config.json` and certificate groups least-privileged.
-- Validate `systemd-analyze verify`, `nginx -t`, unauthenticated rejection, authenticated API access, and the loopback health endpoint before switching releases.
-- Back up the application config, SQLite database, service unit, Nginx site, and previous frontend release before upgrading.
-- Run `npm run check` and review the full development-dependency audit before each release.
+- Use the supplied TLS Nginx and hardened systemd examples.
+- Keep prior releases and verified config/database backups before upgrades.
+- Validate unit/Nginx configuration, loopback health, unauthenticated dashboard rejection, application login, CSRF mutation rejection, logout invalidation, protocol probes, and restart recovery.
+- Restrict the Content Security Policy image source to known hosts when external login backgrounds are not needed.
+- Run `npm run check` and review CI/CodeQL before every release.
 
-## Automated repository controls
+## Repository controls
 
-The default branch runs linting, type checking, frontend/backend tests, Python compilation, sensitive-content scanning, production builds, dependency audits, and CodeQL. GitHub secret scanning, push protection, Dependabot updates, and protected-branch checks complement these project checks; they do not replace deployment hardening or manual review.
+CI runs linting, type checking, frontend/backend tests, Python compilation, sensitive-content scanning, production builds, dependency audits, and CodeQL. Secret scanning, push protection, Dependabot, protected branches, manual code review, and deployment verification remain complementary controls.
