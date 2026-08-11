@@ -19,7 +19,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    # v2.0 uses the application login page and HttpOnly session cookies.
+    # v2.2 uses the application login page and HttpOnly session cookies.
     # Do not add auth_basic here: it would restore the browser password prompt.
 
     add_header X-Content-Type-Options "nosniff" always;

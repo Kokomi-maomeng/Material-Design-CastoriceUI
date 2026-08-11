@@ -1,6 +1,6 @@
 # Material-Design CastoriceUI
 
-![Version](https://img.shields.io/badge/version-2.1.0-6750A4)
+![Version](https://img.shields.io/badge/version-2.2.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -18,7 +18,11 @@ A lightweight Material Design 3 VPS traffic and proxy observability console with
 
 ## 中文
 
-### v2.1 重点更新
+### v2.2 重点更新
+
+- 告警确认现在绑定到当前告警周期；状态恢复后再次触发会创建新周期并重新通知，接口写入失败不会在界面上显示为成功。
+- 审计日志使用服务端筛选与 30/50 条分页，不再随每 5 秒仪表盘刷新传输大批历史记录。
+- 发布包由干净的生产构建生成，附带 SHA-256 清单并拒绝重复的逻辑前端资源。
 
 - 新增 Material Design 登录页、HttpOnly 会话、CSRF 防护、登录限速和真实登录用户名菜单；注销后回到登录页。
 - 首次部署必须使用服务器生成的一次性 Bootstrap Token 创建管理员，再完成节点名称与流量额度配置；未完成前不能进入总览。
@@ -32,7 +36,7 @@ A lightweight Material Design 3 VPS traffic and proxy observability console with
 - 流量、占比和网络延迟图表提供即时 Material 数据浮层；审计默认 30 条，展开后每页 50 条，支持折叠页码与直接跳页。
 - 通知为零时只有图标，不留下红点；提示消息重复触发也会独立计时并自动消失。右上时间更清晰，点击可显示 `YYYYMMDD` 日期。
 
-完整修复清单见 [`docs/RELEASE_NOTES_v2.1.0.md`](docs/RELEASE_NOTES_v2.1.0.md)。
+完整修复清单见 [`docs/RELEASE_NOTES_v2.2.0.md`](docs/RELEASE_NOTES_v2.2.0.md)。
 
 ### 数据真实性边界
 
@@ -60,7 +64,7 @@ npm run dev
 
 ### 生产部署
 
-生产环境需要 systemd Linux、Python 3.11+、Nginx 与有效 TLS 证书。后端和所有协议管理接口只能监听回环地址。v2.1 使用应用内登录，不要在 Nginx 增加 `auth_basic`，否则浏览器密码框会覆盖登录体验。
+生产环境需要 systemd Linux、Python 3.11+、Nginx 与有效 TLS 证书。后端和所有协议管理接口只能监听回环地址。v2.2 使用应用内登录，不要在 Nginx 增加 `auth_basic`，否则浏览器密码框会覆盖登录体验。
 
 请完整执行 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)，首次启动生成一次性 Token：
 
@@ -82,7 +86,11 @@ Token 文件权限必须为 `0600`，创建首个管理员后会被消费。升�
 
 ## English
 
-### v2.1 highlights
+### v2.2 highlights
+
+- Alert acknowledgement is scoped to the current alert episode. A recovered condition can notify again, and a failed API write is never presented as success.
+- Audit records use server-side filtering and bounded 30/50-row pages instead of riding in the five-second dashboard refresh payload.
+- Release archives come from a clean production build, include a SHA-256 manifest, and reject duplicate logical frontend assets.
 
 - Material Design sign-in, HttpOnly server sessions, CSRF protection, login throttling, the actual username menu, and sign-out routing.
 - A protected first run: generate a one-time Bootstrap Token on the server, create the first administrator, then save the required node name and traffic quota before Overview becomes available.
@@ -96,7 +104,7 @@ Token 文件权限必须为 `0600`，创建首个管理员后会被消费。升�
 - Immediate Material tooltips for traffic, donut, and latency charts; 30-row audit defaults with 50-row pagination and direct page jumps.
 - Zero notifications render only the icon, repeated toasts expire correctly, and the larger snapshot time opens a `YYYYMMDD` date pill.
 
-See [`docs/RELEASE_NOTES_v2.1.0.md`](docs/RELEASE_NOTES_v2.1.0.md) for the complete public change log.
+See [`docs/RELEASE_NOTES_v2.2.0.md`](docs/RELEASE_NOTES_v2.2.0.md) for the complete public change log.
 
 ### Truthful data model
 
@@ -124,7 +132,7 @@ npm run dev
 
 ### Production
 
-Use a systemd Linux host, Python 3.11+, Nginx, and valid TLS. Keep the backend and protocol management endpoints on loopback. v2.1 uses application authentication; do not add Nginx `auth_basic`, which would bring back the browser credential prompt.
+Use a systemd Linux host, Python 3.11+, Nginx, and valid TLS. Keep the backend and protocol management endpoints on loopback. v2.2 uses application authentication; do not add Nginx `auth_basic`, which would bring back the browser credential prompt.
 
 Follow [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) from start to finish. Generate the one-time first-admin token on the server:
 

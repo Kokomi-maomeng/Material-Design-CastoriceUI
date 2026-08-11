@@ -1,4 +1,4 @@
-# CastoriceUI v2.1 deployment / 部署手册
+# CastoriceUI v2.2 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -12,7 +12,7 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 - Node.js 20.19+ on the build machine
 - Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
 
-Do not deploy the backend directly on a public address. The v2.1 login cookie is Secure by default and therefore requires HTTPS in production.
+Do not deploy the backend directly on a public address. The v2.2 login cookie is Secure by default and therefore requires HTTPS in production.
 
 ## 2. Build and inspect / 构建与检查
 
@@ -95,7 +95,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `2.1.0`.
+Expected version: `2.2.0`.
 
 For a new database, generate the first-admin token once:
 
@@ -110,7 +110,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v2.1.0
+release=v2.2.0
 sudo install -d "/var/www/castorice-ui/releases/$release"
 sudo cp -a dist/. "/var/www/castorice-ui/releases/$release/"
 sudo ln -sfn "/var/www/castorice-ui/releases/$release" /var/www/castorice-ui/current.next
@@ -128,7 +128,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Do **not** enable `auth_basic`. v2.1 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out.
+Do **not** enable `auth_basic`. v2.2 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out.
 
 Recommended validation before using a browser:
 
@@ -182,7 +182,7 @@ Rollback:
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `2.1.0`
+- loopback and HTTPS health report `2.2.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate

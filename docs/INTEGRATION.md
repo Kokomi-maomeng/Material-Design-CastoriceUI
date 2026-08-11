@@ -1,4 +1,4 @@
-# CastoriceUI v2.1 backend integration guide
+# CastoriceUI v2.2 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -31,6 +31,7 @@ Authenticated endpoints:
 | GET | `/api/v2/auth/session` | Username, setup state, CSRF token, and session expiry |
 | POST | `/api/v2/auth/logout` | Invalidate the current session |
 | GET | `/api/v2/dashboard` | Bounded real/stale operational snapshot |
+| GET | `/api/v2/audits` | Server-filtered audit records with bounded 30/50-row pagination |
 | PUT | `/api/v2/settings/traffic-limit` | Update the single quota shared by Overview and Accounts |
 | PUT | `/api/v2/integrations/:id` | Validate and persist an integration override |
 | PUT | `/api/v2/settings/network-targets` | Replace validated name/address/order probe targets |

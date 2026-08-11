@@ -390,13 +390,28 @@ class DashboardService:
         for target in network:
             if target["status"] == "down" or target["latency"] >= latency_threshold or target["loss"] >= loss_threshold:
                 alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "titleEn": f"{target['name']} network quality degraded", "titleZh": f"{target['name']} 网络质量下降", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionEn": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionZh": f"延迟 {target['latency']} ms · 丢包 {target['loss']}%", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测"})
-        acknowledged = self.storage.acknowledged()
+        episodes = self.storage.reconcile_alerts([str(alert["id"]) for alert in alerts])
         for alert in alerts:
-            alert["acknowledged"] = alert["id"] in acknowledged
+            episode = episodes[str(alert["id"])]
+            alert.update(episode)
         return alerts
 
-    def audit_events(self) -> list[dict[str, Any]]:
-        return [{"id": f"audit-{row['id']}", "action": row["action"], "category": row["category"], "actor": self._mask_identity(row["actor"]) if self.config.redact_live_data else row["actor"], "ip": self._mask_ip(row["source_ip"]) if self.config.redact_live_data else row["source_ip"], "time": row["created_at"], "result": row["result"], "detail": row["detail"]} for row in self.storage.audits()]
+    def audit_page(self, page: int, page_size: int, search: str = "", category: str = "") -> dict[str, Any]:
+        result = self.storage.audit_page(page, page_size, search, category)
+        result["items"] = [
+            {
+                "id": f"audit-{row['id']}",
+                "action": row["action"],
+                "category": row["category"],
+                "actor": self._mask_identity(row["actor"]) if self.config.redact_live_data else row["actor"],
+                "ip": self._mask_ip(row["source_ip"]) if self.config.redact_live_data else row["source_ip"],
+                "time": row["created_at"],
+                "result": row["result"],
+                "detail": row["detail"],
+            }
+            for row in result["items"]
+        ]
+        return result
 
     @staticmethod
     def _mask_identity(value: Any) -> str:
@@ -524,7 +539,6 @@ class DashboardService:
             "networkTargets": network,
             "services": services,
             "alerts": self.alerts(system, services, network),
-            "auditEvents": self.audit_events(),
             "integrations": integrations,
             "uiSettings": self.storage.get_setting("ui_settings", {"showSetup": True, "visiblePanels": ["accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"]}),
         }

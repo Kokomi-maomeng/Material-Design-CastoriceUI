@@ -10,7 +10,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from . import __version__
 from .config import AppConfig
@@ -136,7 +136,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         return {"type": "default", "url": ""}
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path.rstrip("/")
+        parsed_request = urlparse(self.path)
+        path = parsed_request.path.rstrip("/")
         if path in {"/api/v1/health", "/api/v2/health"}:
             self.send_json(HTTPStatus.OK, {"status": "ok", "version": __version__, "setupRequired": not self.app.storage.has_users()})
             return
@@ -173,6 +174,20 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if path in {"/api/v1/dashboard", "/api/v2/dashboard"}:
             self.send_json(HTTPStatus.OK, self.app.dashboard.snapshot())
+        elif path == "/api/v2/audits":
+            try:
+                query = parse_qs(parsed_request.query, keep_blank_values=True)
+                page = int(query.get("page", ["1"])[0])
+                page_size = int(query.get("pageSize", ["30"])[0])
+                if page < 1 or page > 100_000 or page_size not in {30, 50}:
+                    raise ValueError("Invalid audit pagination")
+                search = query.get("search", [""])[0].strip()
+                category = query.get("category", [""])[0].strip()
+                if len(search) > 200 or category not in {"", "认证", "账号", "配置", "系统"}:
+                    raise ValueError("Invalid audit filter")
+                self.send_json(HTTPStatus.OK, self.app.dashboard.audit_page(page, page_size, search, category))
+            except (TypeError, ValueError) as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
         elif path.startswith("/api/v1/subscriptions/") and path.endswith("/url") or path.startswith("/api/v2/subscriptions/") and path.endswith("/url"):
             subscription_id = path.split("/")[-2]
             value = self.app.dashboard.subscription_url(subscription_id)
@@ -316,7 +331,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if (path.startswith("/api/v1/alerts/") or path.startswith("/api/v2/alerts/")) and path.endswith("/ack"):
             alert_id = path.split("/")[-2]
-            self.app.storage.acknowledge(alert_id)
+            if not self.app.storage.acknowledge(alert_id):
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "active_alert_not_found"})
+                return
             self.app.storage.add_audit("确认告警", "系统", f"告警 {alert_id} 已确认", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
