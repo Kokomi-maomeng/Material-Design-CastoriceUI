@@ -1,6 +1,6 @@
 {
   "name": "material-design-castorice-ui",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": false,
   "engines": {
     "node": ">=20.19.0"
@@ -9,6 +9,7 @@
     "dev": "vite",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && vite build",
+    "release:package": "node scripts/package-release.mjs",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs && python -m compileall -q server && python -m unittest discover -s server/tests -p test_*.py -v",
     "scan:sensitive": "node scripts/sensitive-scan.mjs",

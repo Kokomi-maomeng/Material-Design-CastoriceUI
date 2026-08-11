@@ -1,4 +1,4 @@
-import type { BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, UiSettings } from "./types";
+import type { AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, UiSettings } from "./types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
@@ -58,6 +58,13 @@ export function completeInitialization() {
 
 export function fetchDashboard(signal?: AbortSignal) {
   return request<DashboardPayload>("/api/v2/dashboard", { signal });
+}
+
+export function fetchAudits(options: { page: number; pageSize: 30 | 50; search?: string; category?: string; signal?: AbortSignal }) {
+  const query = new URLSearchParams({ page: String(options.page), pageSize: String(options.pageSize) });
+  if (options.search) query.set("search", options.search);
+  if (options.category) query.set("category", options.category);
+  return request<AuditPageResponse>(`/api/v2/audits?${query}`, { signal: options.signal });
 }
 
 export function fetchSubscriptionUrl(id: string) {

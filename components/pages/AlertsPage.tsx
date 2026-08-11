@@ -17,7 +17,7 @@ export function AlertsPage({
   onConfigure,
 }: {
   alerts: AlertItem[];
-  onAcknowledge: (id: string) => void;
+  onAcknowledge: (id: string) => Promise<void>;
   onToast: (message: string) => void;
   integration?: IntegrationStatus;
   onConfigure: () => void;
@@ -109,7 +109,7 @@ export function AlertsPage({
             onClick={() =>
               alerts
                 .filter((item) => !item.acknowledged)
-                .forEach((item) => onAcknowledge(item.id))
+                .forEach((item) => void onAcknowledge(item.id))
             }
           >
             {t("全部确认", "Acknowledge all")}
@@ -163,7 +163,7 @@ export function AlertsPage({
                   <Button
                     variant="tonal"
                     compact
-                    onClick={() => onAcknowledge(alert.id)}
+                    onClick={() => void onAcknowledge(alert.id)}
                   >
                     {t("确认", "Acknowledge")}
                   </Button>

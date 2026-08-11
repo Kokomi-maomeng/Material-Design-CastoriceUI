@@ -65,6 +65,13 @@ class Storage:
                     alert_id TEXT PRIMARY KEY,
                     acknowledged_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS alert_state (
+                    alert_id TEXT PRIMARY KEY,
+                    episode_id TEXT NOT NULL,
+                    active INTEGER NOT NULL,
+                    started_at TEXT NOT NULL,
+                    acknowledged_at TEXT
+                );
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -82,6 +89,7 @@ class Storage:
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
+                CREATE INDEX IF NOT EXISTS audits_category_id ON audits(category, id DESC);
                 """
             )
 
@@ -119,19 +127,91 @@ class Storage:
                 (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
             )
 
-    def audits(self, limit: int = 5000) -> list[dict[str, Any]]:
+    def audit_page(self, page: int = 1, page_size: int = 30, search: str = "", category: str = "") -> dict[str, Any]:
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 100))
+        search = search.strip()[:200]
+        category = category.strip()[:32]
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if category:
+            clauses.append("category = ?")
+            parameters.append(category)
+        if search:
+            clauses.append("(action LIKE ? OR actor LIKE ? OR source_ip LIKE ? OR detail LIKE ?)")
+            pattern = f"%{search}%"
+            parameters.extend([pattern, pattern, pattern, pattern])
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.connect() as connection:
-            rows = connection.execute("SELECT * FROM audits ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-        return [dict(row) for row in rows]
+            total = int(connection.execute(f"SELECT COUNT(*) FROM audits{where}", parameters).fetchone()[0])
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, total_pages)
+            rows = connection.execute(
+                f"SELECT * FROM audits{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+                [*parameters, page_size, (page - 1) * page_size],
+            ).fetchall()
+        return {
+            "items": [dict(row) for row in rows],
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": total_pages,
+        }
 
-    def acknowledge(self, alert_id: str) -> None:
+    def reconcile_alerts(self, alert_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Track alert episodes so a recovered condition can notify again later."""
+        current_ids = list(dict.fromkeys(str(value)[:160] for value in alert_ids if value))
+        now = utc_now()
         with self.lock, self.connect() as connection:
-            connection.execute("INSERT OR REPLACE INTO acknowledgements VALUES (?, ?)", (alert_id, utc_now()))
+            connection.execute("BEGIN IMMEDIATE")
+            if current_ids:
+                placeholders = ",".join("?" for _ in current_ids)
+                connection.execute(
+                    f"UPDATE alert_state SET active=0 WHERE active=1 AND alert_id NOT IN ({placeholders})",
+                    current_ids,
+                )
+            else:
+                connection.execute("UPDATE alert_state SET active=0 WHERE active=1")
+            for alert_id in current_ids:
+                row = connection.execute(
+                    "SELECT active FROM alert_state WHERE alert_id=?", (alert_id,)
+                ).fetchone()
+                if row is None:
+                    connection.execute(
+                        "INSERT INTO alert_state(alert_id,episode_id,active,started_at,acknowledged_at) VALUES(?,?,?,?,NULL)",
+                        (alert_id, secrets.token_urlsafe(18), 1, now),
+                    )
+                elif not bool(row["active"]):
+                    connection.execute(
+                        "UPDATE alert_state SET episode_id=?,active=1,started_at=?,acknowledged_at=NULL WHERE alert_id=?",
+                        (secrets.token_urlsafe(18), now, alert_id),
+                    )
+            rows = connection.execute(
+                "SELECT alert_id,episode_id,started_at,acknowledged_at FROM alert_state WHERE active=1"
+            ).fetchall()
+        return {
+            str(row["alert_id"]): {
+                "episodeId": str(row["episode_id"]),
+                "startedAt": str(row["started_at"]),
+                "acknowledged": row["acknowledged_at"] is not None,
+            }
+            for row in rows
+        }
+
+    def acknowledge(self, alert_id: str) -> bool:
+        with self.lock, self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE alert_state SET acknowledged_at=? WHERE alert_id=? AND active=1",
+                (utc_now(), alert_id),
+            )
+        return cursor.rowcount == 1
 
     def acknowledged(self) -> set[str]:
         with self.connect() as connection:
-            rows = connection.execute("SELECT alert_id FROM acknowledgements").fetchall()
-        return {row["alert_id"] for row in rows}
+            rows = connection.execute(
+                "SELECT alert_id FROM alert_state WHERE active=1 AND acknowledged_at IS NOT NULL"
+            ).fetchall()
+        return {str(row["alert_id"]) for row in rows}
 
     def has_users(self) -> bool:
         with self.connect() as connection:
