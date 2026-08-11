@@ -25,7 +25,6 @@ class AppConfig:
     listen_port: int = 18080
     database_path: str = "/var/lib/castoriceui/state.db"
     node_name: str = "VPS node"
-    node_region: str = "Configured region"
     interface: str = ""
     traffic_limit_bytes: int = 1_000_000_000_000
     certificate_path: str = ""

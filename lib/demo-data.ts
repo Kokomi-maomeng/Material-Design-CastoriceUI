@@ -15,6 +15,7 @@ const gb = 1024 ** 3;
 
 export const navigation: NavigationItem[] = [
   { id: "overview", label: "总览", icon: "space_dashboard" },
+  { id: "setup", label: "初始化向导", icon: "checklist" },
   { id: "accounts", label: "账号管理", icon: "group" },
   { id: "connections", label: "在线连接", icon: "lan", badge: 8 },
   { id: "traffic", label: "流量分析", icon: "monitoring" },
@@ -77,11 +78,11 @@ export const initialAccounts: Account[] = [
 ];
 
 export const initialConnections: Connection[] = [
-  { id: "con-1", protocol: "Hysteria2", account: "castorice", sourceIp: "203.0.113.42", ipVersion: 4, connections: 18, uploadBps: 418000, downloadBps: 4832000, connectedAt: "2026-08-07T19:21:08+08:00" },
-  { id: "con-2", protocol: "AnyTLS", account: "castorice", sourceIp: "2001:db8:8a2e::27", ipVersion: 6, connections: 7, uploadBps: 129000, downloadBps: 1640000, connectedAt: "2026-08-07T18:46:41+08:00" },
-  { id: "con-3", protocol: "Hysteria2", account: "silver-wolf", sourceIp: "198.51.100.86", ipVersion: 4, connections: 12, uploadBps: 87000, downloadBps: 2180000, connectedAt: "2026-08-07T20:02:17+08:00" },
-  { id: "con-4", protocol: "VLESS", account: "silver-wolf", sourceIp: "203.0.113.119", ipVersion: 4, connections: 5, uploadBps: 44000, downloadBps: 690000, connectedAt: "2026-08-07T19:56:29+08:00" },
-  { id: "con-5", protocol: "AnyTLS", account: "firefly", sourceIp: "2001:db8:4d12::91", ipVersion: 6, connections: 9, uploadBps: 178000, downloadBps: 2960000, connectedAt: "2026-08-07T20:11:03+08:00" },
+  { id: "con-1", protocol: "Hysteria2", account: "castorice", sourceIp: "协议核心未提供", ipVersion: null, connections: 18, uploadBps: 418000, downloadBps: 4832000, connectedAt: "2026-08-07T19:21:08+08:00", details: [{ id: "stream-1", destination: "example.test:443", uploadBps: 418000, downloadBps: 4832000, connectedAt: "2026-08-07T19:21:08+08:00" }] },
+  { id: "con-2", protocol: "AnyTLS", account: "castorice", sourceIp: "2001:db8:8a2e::27", ipVersion: 6, connections: 7, uploadBps: 129000, downloadBps: 1640000, connectedAt: "2026-08-07T18:46:41+08:00", details: [{ id: "connection-1", destination: "example.test:443", uploadBps: 129000, downloadBps: 1640000, connectedAt: "2026-08-07T18:46:41+08:00" }] },
+  { id: "con-3", protocol: "Hysteria2", account: "silver-wolf", sourceIp: "协议核心未提供", ipVersion: null, connections: 12, uploadBps: 87000, downloadBps: 2180000, connectedAt: "2026-08-07T20:02:17+08:00", details: [] },
+  { id: "con-4", protocol: "VLESS", account: "silver-wolf", sourceIp: "203.0.113.119", ipVersion: 4, connections: 5, uploadBps: 44000, downloadBps: 690000, connectedAt: "2026-08-07T19:56:29+08:00", details: [] },
+  { id: "con-5", protocol: "AnyTLS", account: "firefly", sourceIp: "2001:db8:4d12::91", ipVersion: 6, connections: 9, uploadBps: 178000, downloadBps: 2960000, connectedAt: "2026-08-07T20:11:03+08:00", details: [] },
 ];
 
 export const hourlyTraffic: TrafficPoint[] = [
@@ -112,6 +113,8 @@ export const accountTraffic = [
   { name: "firefly", value: 77.2 },
   { name: "march-7th", value: 28.5 },
 ];
+
+const toBytes = (item: TrafficPoint): TrafficPoint => ({ ...item, upload: item.upload * gb, download: item.download * gb });
 
 export const networkTargets: NetworkTarget[] = [
   { id: "net-1", name: "Google", provider: "Google", address: "dns.google", ipVersion: 4, latency: 2.8, jitter: 0.6, loss: 0, status: "healthy", history: [3.2, 2.7, 2.9, 3.1, 2.6, 2.8, 2.7, 2.8] },
@@ -154,19 +157,11 @@ export const initialSubscriptions: Subscription[] = [
   { id: "sub-4", account: "march-7th", tokenHint: "wR55••••B2qa", protocols: ["Hysteria2"], updatedAt: "1个月前", lastFetchedAt: "从未", enabled: false },
 ];
 
-export const resourceHistory = [
-  { label: "-30m", cpu: 21, memory: 48 }, { label: "-25m", cpu: 28, memory: 49 },
-  { label: "-20m", cpu: 17, memory: 49 }, { label: "-15m", cpu: 34, memory: 51 },
-  { label: "-10m", cpu: 26, memory: 52 }, { label: "-5m", cpu: 42, memory: 53 },
-  { label: "现在", cpu: 31, memory: 54 },
-];
-
 export const previewDashboard: DashboardPayload = {
   mode: "preview",
   generatedAt: new Date().toISOString(),
   overview: {
-    nodeName: "Tokyo edge",
-    nodeRegion: "Tokyo · NRT",
+    nodeName: "自定义 VPS 节点",
     cpuPercent: 31,
     cpuCores: 4,
     memoryPercent: 54,
@@ -186,7 +181,7 @@ export const previewDashboard: DashboardPayload = {
   },
   accounts: initialAccounts,
   connections: initialConnections,
-  traffic: { hourly: hourlyTraffic, daily: dailyTraffic, protocol: protocolTraffic.map((item) => ({ name: item.name, value: item.value * gb })), account: accountTraffic.map((item) => ({ ...item, value: item.value * gb })) },
+  traffic: { ranges: { "1h": hourlyTraffic.slice(-6).map(toBytes), "6h": hourlyTraffic.slice(-8).map(toBytes), "24h": hourlyTraffic.map(toBytes), "3day": dailyTraffic.slice(-6).map(toBytes), "7day": dailyTraffic.slice(-7).map(toBytes) }, hourly: hourlyTraffic.map(toBytes), daily: dailyTraffic.map(toBytes), protocol: protocolTraffic.map((item) => ({ name: item.name, value: item.value * gb })), account: accountTraffic.map((item) => ({ ...item, value: item.value * gb })) },
   subscriptions: initialSubscriptions,
   networkTargets,
   services,
@@ -203,7 +198,6 @@ export const previewDashboard: DashboardPayload = {
     { id: "alerts", enabled: true, configured: true, status: "preview", summary: "告警界面演示，未启用规则" },
     { id: "audit", enabled: true, configured: true, status: "preview", summary: "审计界面演示，未写入记录" },
   ],
-  resourceHistory,
 };
 
 export const emptyDashboard: DashboardPayload = {
@@ -211,7 +205,6 @@ export const emptyDashboard: DashboardPayload = {
   generatedAt: new Date(0).toISOString(),
   overview: {
     nodeName: "正在连接后端",
-    nodeRegion: "尚未取得服务器数据",
     cpuPercent: 0,
     cpuCores: 0,
     memoryPercent: 0,
@@ -231,12 +224,11 @@ export const emptyDashboard: DashboardPayload = {
   },
   accounts: [],
   connections: [],
-  traffic: { hourly: [], daily: [], protocol: [], account: [] },
+  traffic: { ranges: { "1h": [], "6h": [], "24h": [], "3day": [], "7day": [] }, hourly: [], daily: [], protocol: [], account: [] },
   subscriptions: [],
   networkTargets: [],
   services: [],
   alerts: [],
   auditEvents: [],
   integrations: [],
-  resourceHistory: [],
 };

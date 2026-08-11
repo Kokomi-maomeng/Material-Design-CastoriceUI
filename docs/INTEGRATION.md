@@ -16,12 +16,12 @@ Hysteria2 / sing-box / systemd / provider API
 
 The browser must never receive an upstream API secret, raw configuration file, private key, full stored password, or privileged command capability.
 
-## Included v1.4 endpoints
+## Included v1.5 endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/health` | Lightweight service health |
-| GET | `/api/v1/dashboard` | Bounded aggregate snapshot for all nine pages |
+| GET | `/api/v1/dashboard` | Bounded aggregate snapshot for all dashboard pages |
 | PUT | `/api/v1/settings/traffic-limit` | Persist the monthly quota |
 | PUT | `/api/v1/integrations/:id` | Validate and save an integration configuration |
 | POST | `/api/v1/alerts/:id/ack` | Persist acknowledgement and an audit event |
@@ -36,15 +36,23 @@ Query the Traffic Stats API from the backend only. Authenticate it, bind it to l
 
 The Secret is read only from the protected server config. The setup API accepts a loopback endpoint but never accepts or persists the Secret. It calls the authenticated `/traffic` endpoint before marking the integration ready; invalid authentication or an unreachable endpoint leaves the previous configuration unchanged.
 
+Account display names are not assumed to equal protocol auth identities. For multiple accounts, add an explicit mapping to each protected `managed_accounts` record:
+
+```json
+{"id":"account-1","name":"Display name","trafficIdentities":{"hysteria2":["protocol-auth-identity"]}}
+```
+
+When and only when exactly one managed account and one Hysteria2 identity exist, v1.5 maps them automatically. Ambiguous unmatched identities remain unattributed instead of being assigned to the wrong account.
+
 ### sing-box / AnyTLS
 
-Keep the Clash API on loopback with a strong secret. v1.4 reads `/connections` and its cumulative totals; it intentionally does not treat the streaming `/traffic` endpoint as a finite JSON response. The protected server config is the only Secret source, and a successful authenticated `/connections` request is required before the integration becomes ready. Never proxy the management API or its authorization header to the browser.
+Keep the Clash API on loopback with a strong secret. v1.5 reads `/connections` and its cumulative totals; it intentionally does not treat the streaming `/traffic` endpoint as a finite JSON response. Source and destination fields come from connection metadata. Rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing counters. The protected server config is the only Secret source, and a successful authenticated `/connections` request is required before the integration becomes ready. Never proxy the management API or its authorization header to the browser.
 
 ## Endpoint validation and legacy cleanup
 
 Hysteria2 and sing-box endpoints accept only `http` or `https` URLs whose host is `localhost` or a loopback IP. Embedded credentials, queries, fragments, non-loopback IPs, host names, and cloud metadata addresses are rejected before a request is attempted. Network probe targets use separate strict IP/hostname validation and cannot begin with command-line option characters.
 
-At v1.4 startup, the backend removes any legacy `secret` field stored by v1.2 inside SQLite `integration_overrides`. Configure upstream Secrets in `/etc/castoriceui/config.json` with `0640 root:castoriceui` permissions before using the setup validation flow.
+At v1.5 startup, the backend removes any legacy `secret` field stored by v1.2 inside SQLite `integration_overrides`. Configure upstream Secrets in `/etc/castoriceui/config.json` with `0640 root:castoriceui` permissions before using the setup validation flow.
 
 ### Other protocols
 
@@ -54,7 +62,11 @@ Normalize protocol names into the `Protocol` field. Extend the union or move to 
 
 - Use secure, HTTP-only session cookies and server-side authorization.
 - Require CSRF protection for state-changing requests.
-- v1.4 state-changing browser requests include `X-CastoriceUI-Request: 1`; the backend rejects mutations without it, preventing ordinary cross-origin form submissions from reusing Basic Auth credentials.
+- v1.5 state-changing browser requests include `X-CastoriceUI-Request: 1`; the backend rejects mutations without it, preventing ordinary cross-origin form submissions from reusing Basic Auth credentials.
+
+## Traffic and network settings
+
+Interface traffic ranges are derived from adjacent retained `/sys/class/net` counter samples. Counter decreases are treated as resets and never converted into negative usage. Network targets accept up to 12 lines in either `name,address` or plain-address form; validation occurs before the previous target list is replaced.
 - Rate-limit login, password reset, Token rotation, and service actions.
 - Re-authenticate or require TOTP for destructive changes.
 - Write the audit event on the server in the same transaction as the mutation.

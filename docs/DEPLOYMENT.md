@@ -1,4 +1,4 @@
-# CastoriceUI v1.4 deployment / 部署配置手册
+# CastoriceUI v1.5 deployment / 部署配置手册
 
 This guide uses versioned frontend releases, a loopback backend, an authenticated TLS Nginx site, and explicit rollback points. Replace documentation domains only on the server. Never commit the resulting private configuration.
 
@@ -95,7 +95,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v1/health
 ```
 
-Expected health version for this release is `1.4.0`. The unit uses a dedicated account, `NoNewPrivileges`, read-only system protection, bounded memory, and a writable SQLite directory only.
+Expected health version for this release is `1.5.0`. The unit uses a dedicated account, `NoNewPrivileges`, read-only system protection, bounded memory, and a writable SQLite directory only.
 
 ## 6. Nginx TLS and authentication / TLS 与认证
 
@@ -119,7 +119,7 @@ Validate both rejection and authenticated access:
 ```bash
 curl -I https://panel.example.com/                         # expect 401
 curl -I https://panel.example.com/api/v1/health            # expect 401
-curl -u admin https://panel.example.com/api/v1/health      # expect 200 and 1.4.0
+curl -u admin https://panel.example.com/api/v1/health      # expect 200 and 1.5.0
 curl -u admin https://panel.example.com/api/v1/dashboard   # expect mode: live
 ```
 

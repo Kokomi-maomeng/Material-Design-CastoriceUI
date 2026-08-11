@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
-import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Card, CardHeader } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -21,9 +20,8 @@ export function NetworkPage({ targets, integration, onConfigure }: { targets: Ne
 
   return (
     <div className="page-content page-enter">
-      <PageHeader eyebrow="链路可观测性" title="网络质量" description="持续观测常用大厂与自定义目标的延迟、抖动和丢包。" actions={<Chip staticChip tone="success" icon="sync">自动探测</Chip>} />
+      <PageHeader eyebrow="链路可观测性" title="网络质量" description="持续观测你配置的 IPv4 / IPv6 目标延迟、抖动和丢包。" actions={<Chip staticChip tone="success" icon="sync">自动探测</Chip>} />
       <IntegrationGate status={integration} name="网络探测" description="设置 IPv4 / IPv6 目标后，后端会周期计算延迟、抖动和丢包。" onConfigure={onConfigure} />
-      <FeatureIntro items={[{ icon: "timer", title: "延迟", description: "比较不同服务商与线路的往返时间。" }, { icon: "ssid_chart", title: "抖动", description: "识别平均延迟正常但体验不稳定的路径。" }, { icon: "signal_disconnected", title: "丢包", description: "以独立阈值发现链路拥塞或不可达。" }]} />
       <div className="network-overview">
         <Card variant="elevated" className="network-score-card"><div className="network-grade"><span>{grade}</span></div><div><small>综合质量等级</small><strong>{quality}</strong><p>{available} / {filtered.length} 个 IPv4 / IPv6 目标可达</p></div></Card>
         <NetworkMetric icon="timer" label="平均延迟" value={`${avgLatency.toFixed(1)} ms`} state="较低" />

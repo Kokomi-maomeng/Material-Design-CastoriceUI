@@ -48,6 +48,71 @@ class BackendTests(unittest.TestCase):
         self.assertIsNone(payload[1]["ipVersion"])
         self.assertIsNone(payload[1]["connectedAt"])
 
+    def test_single_account_single_hysteria_identity_is_mapped_without_guessing_between_multiple_users(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            dashboard = DashboardService(config, Storage(config.database_path))
+            accounts = [{"id": "display-id", "name": "Display name"}]
+            mapped = dashboard.account_metrics(accounts, {"traffic": {"protocol-user": {"tx": 7, "rx": 5}}, "online": {"protocol-user": 2}})
+            self.assertEqual(mapped[0]["usedBytes"], 12)
+            self.assertEqual(mapped[0]["onlineDevices"], 2)
+            ambiguous = dashboard.account_metrics([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], {"traffic": {"u1": {"tx": 9, "rx": 0}, "u2": {"tx": 8, "rx": 0}}, "online": {}})
+            self.assertEqual([item["usedBytes"] for item in ambiguous], [0, 0])
+
+    def test_explicit_hysteria_identity_mapping_supports_multiple_accounts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            dashboard = DashboardService(config, Storage(config.database_path))
+            accounts = [{"id": "a", "name": "A", "trafficIdentities": {"hysteria2": ["u1"]}}, {"id": "b", "name": "B", "trafficIdentities": ["u2"]}]
+            mapped = dashboard.account_metrics(accounts, {"traffic": {"u1": {"tx": 9, "rx": 1}, "u2": {"tx": 8, "rx": 2}}, "online": {"u1": 1, "u2": 3}})
+            self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(10, 1), (10, 3)])
+
+    def test_connections_group_by_source_and_calculate_rates_from_consecutive_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            dashboard = DashboardService(config, Storage(config.database_path))
+            raw = [
+                {"id": "one", "protocol": "AnyTLS", "account": "user", "sourceIp": "203.0.113.1", "ipVersion": 4, "uploadedBytes": 100, "downloadedBytes": 200, "connectedAt": "2026-08-11T00:01:00Z", "destination": "one.test:443"},
+                {"id": "two", "protocol": "AnyTLS", "account": "user", "sourceIp": "203.0.113.1", "ipVersion": 4, "uploadedBytes": 300, "downloadedBytes": 400, "connectedAt": "2026-08-11T00:00:00Z", "destination": "two.test:443"},
+            ]
+            with patch("castoriceui.dashboard.time.monotonic", side_effect=[10.0, 20.0]):
+                first = dashboard.aggregate_connections(raw)
+                updated = [{**item, "uploadedBytes": item["uploadedBytes"] + 100, "downloadedBytes": item["downloadedBytes"] + 200} for item in raw]
+                second = dashboard.aggregate_connections(updated)
+            self.assertEqual(len(first), 1)
+            self.assertEqual(first[0]["connections"], 2)
+            self.assertEqual(first[0]["connectedAt"], "2026-08-11T00:00:00Z")
+            self.assertIsNone(first[0]["uploadBps"])
+            self.assertEqual(second[0]["uploadBps"], 20)
+            self.assertEqual(second[0]["downloadBps"], 40)
+            self.assertEqual(len(second[0]["details"]), 2)
+
+    def test_traffic_ranges_use_counter_deltas_and_do_not_merge_days_by_hour_label(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            storage = Storage(config.database_path)
+            now = 2_000_000_000
+            storage.record_sample(now - 600, 100, 200, 1, 1)
+            storage.record_sample(now - 300, 160, 230, 1, 1)
+            storage.record_sample(now, 210, 250, 1, 1)
+            dashboard = DashboardService(config, storage)
+            with patch("castoriceui.dashboard.time.time", return_value=now):
+                traffic = dashboard.traffic_series()
+            self.assertEqual(sum(item["download"] for item in traffic["ranges"]["1h"]), 110)
+            self.assertEqual(sum(item["upload"] for item in traffic["ranges"]["1h"]), 50)
+            self.assertEqual(set(traffic["ranges"]), {"1h", "6h", "24h", "3day", "7day"})
+
+    def test_named_network_targets_and_node_name_are_validated_and_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            storage = Storage(config.database_path)
+            dashboard = DashboardService(config, storage)
+            dashboard.configure_integration("network", {"values": {"targets": "Cloudflare,1.1.1.1\n2606:4700:4700::1111"}})
+            dashboard.configure_integration("system", {"values": {"nodeName": "Custom edge"}})
+            self.assertEqual(config.network_targets[0]["name"], "Cloudflare")
+            self.assertEqual(config.network_targets[1]["ipVersion"], 6)
+            self.assertEqual(config.node_name, "Custom edge")
+
     def test_configured_adapter_is_unavailable_when_requests_fail(self) -> None:
         config = AppConfig(hysteria_api={"url": "http://127.0.0.1:19090"}, singbox_api={"url": "http://127.0.0.1:19091"})
         with patch("castoriceui.collectors.http_json", return_value=None):

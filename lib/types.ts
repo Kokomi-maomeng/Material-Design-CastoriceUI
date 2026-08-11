@@ -27,6 +27,18 @@ export interface Connection {
   connectedAt: string | null;
   uploadedBytes?: number;
   downloadedBytes?: number;
+  destination?: string | null;
+  details: ConnectionDetail[];
+}
+
+export interface ConnectionDetail {
+  id: string;
+  destination?: string | null;
+  uploadBps: number | null;
+  downloadBps: number | null;
+  uploadedBytes?: number;
+  downloadedBytes?: number;
+  connectedAt: string | null;
 }
 
 export interface TrafficPoint {
@@ -34,6 +46,8 @@ export interface TrafficPoint {
   upload: number;
   download: number;
 }
+
+export type TrafficRange = "1h" | "6h" | "24h" | "3day" | "7day";
 
 export interface NetworkTarget {
   id: string;
@@ -80,7 +94,6 @@ export interface IntegrationStatus {
 
 export interface OverviewMetrics {
   nodeName: string;
-  nodeRegion: string;
   cpuPercent: number;
   cpuCores: number;
   memoryPercent: number;
@@ -112,6 +125,7 @@ export interface DashboardPayload {
   accounts: Account[];
   connections: Connection[];
   traffic: {
+    ranges: Record<TrafficRange, TrafficPoint[]>;
     hourly: TrafficPoint[];
     daily: TrafficPoint[];
     protocol: TrafficBreakdown[];
@@ -123,7 +137,6 @@ export interface DashboardPayload {
   alerts: AlertItem[];
   auditEvents: AuditEvent[];
   integrations: IntegrationStatus[];
-  resourceHistory: Array<{ label: string; cpu: number; memory: number }>;
 }
 
 export interface AlertItem {
@@ -160,6 +173,7 @@ export interface Subscription {
 
 export type PageId =
   | "overview"
+  | "setup"
   | "accounts"
   | "connections"
   | "traffic"
