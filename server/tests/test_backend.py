@@ -47,9 +47,7 @@ class BackendTests(unittest.TestCase):
         self.assertIsNone(payload[0]["uploadBps"])
         self.assertIsNone(payload[0]["downloadBps"])
         self.assertIsNone(payload[0]["connectedAt"])
-        self.assertEqual(payload[1]["account"], "bob")
-        self.assertIsNone(payload[1]["ipVersion"])
-        self.assertIsNone(payload[1]["connectedAt"])
+        self.assertEqual(len(payload), 1, "untagged sing-box connections must remain hidden")
 
     def test_single_account_single_hysteria_identity_is_mapped_without_guessing_between_multiple_users(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -139,8 +137,14 @@ class BackendTests(unittest.TestCase):
         payload = connection_snapshots({}, {"connections": [
             {"id": "one", "metadata": {"inbound": "vless-in", "sourceIP": "203.0.113.7"}},
             {"id": "two", "metadata": {"inbound": "unknown", "sourceIP": "203.0.113.8"}},
-        ]}, {"vless": {"inboundTags": ["vless-in"]}}, "sing-box")
-        self.assertEqual([item["protocol"] for item in payload], ["VLESS", "sing-box"])
+        ]}, {"vless": {"inboundTags": ["vless-in"]}})
+        self.assertEqual([item["protocol"] for item in payload], ["VLESS"])
+
+    def test_vless_security_profile_is_reflected_without_inventing_a_protocol(self) -> None:
+        payload = connection_snapshots({}, {"connections": [
+            {"id": "one", "metadata": {"inbound": "reality-in", "sourceIP": "203.0.113.7"}},
+        ]}, {"vless": {"inboundTags": ["reality-in"], "securityProfile": "xtls-vision-reality"}})
+        self.assertEqual(payload[0]["protocol"], "VLESS · XTLS Vision · Reality")
 
     def test_configured_adapter_is_unavailable_when_requests_fail(self) -> None:
         config = AppConfig(hysteria_api={"url": "http://127.0.0.1:19090"}, singbox_api={"url": "http://127.0.0.1:19091"})

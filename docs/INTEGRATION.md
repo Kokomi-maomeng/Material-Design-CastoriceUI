@@ -1,4 +1,4 @@
-# CastoriceUI v2.0 backend integration guide
+# CastoriceUI v2.1 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -61,23 +61,29 @@ Display names are not assumed to equal protocol authentication identities. For m
 
 Only the unambiguous one-account/one-identity case is automatically associated. Unknown or ambiguous identities remain unattributed rather than assigned to the wrong account. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
 
-## sing-box, AnyTLS, VLESS, SOCKS5, and Shadowsocks
+## sing-box protocol adapters
 
 The backend calls the protected Clash `/connections` endpoint and uses only returned connection metadata and cumulative counters. It does not consume the streaming `/traffic` endpoint as finite JSON.
 
-AnyTLS may be used as the default sing-box label only when AnyTLS is the sole configured sing-box integration. VLESS, SOCKS5, and Shadowsocks require exact inbound-tag lists:
+AnyTLS, VLESS, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC require exact inbound-tag lists. The panel never treats an unmatched connection as a generic protocol:
 
 ```json
 {
   "protocol_adapters": {
-    "vless": {"inboundTags": ["vless-in", "vless-reality"]},
+    "anytls": {"inboundTags": ["anytls-in"]},
+    "vless": {"inboundTags": ["vless-in", "vless-reality"], "securityProfile": "xtls-vision-reality"},
     "socks5": {"inboundTags": ["socks-in"]},
-    "shadowsocks": {"inboundTags": ["ss-in"]}
+    "shadowsocks": {"inboundTags": ["ss-in"]},
+    "vmess": {"inboundTags": ["vmess-in"]},
+    "trojan": {"inboundTags": ["trojan-in"]},
+    "tuic": {"inboundTags": ["tuic-in"]}
   }
 }
 ```
 
-Tags are matched case-insensitively against sing-box connection metadata. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Unknown tags remain `sing-box` combined data. Each browser setup action for these protocols also performs an authenticated loopback `/connections` request before saving.
+Tags are matched case-insensitively against sing-box connection metadata. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Unknown or unconfigured tags are omitted from Active connections. Each browser setup action also performs an authenticated loopback `/connections` request before saving.
+
+For VLESS, `securityProfile` accepts `standard`, `xtls-vision`, `reality`, or `xtls-vision-reality`. This is display/mapping metadata: XTLS Vision corresponds to the official `xtls-rprx-vision` user flow, while Reality belongs to the inbound TLS configuration. CastoriceUI does not rewrite the sing-box configuration.
 
 ## Traffic samples and account totals
 
