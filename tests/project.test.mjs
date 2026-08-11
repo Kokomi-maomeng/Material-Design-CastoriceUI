@@ -13,7 +13,7 @@ test("production entry contains metadata, viewport, and mount point", async () =
   assert.match(html, /name="viewport"/i);
 });
 
-test("v2.1 production UI never falls back to fabricated dashboard data", async () => {
+test("v2.2 production UI never falls back to fabricated dashboard data", async () => {
   const [app, empty] = await Promise.all([read("components/CastoriceApp.tsx"), read("lib/empty-dashboard.ts")]);
   assert.doesNotMatch(app, /previewDashboard|mode === "preview"|示例数据模式/);
   assert.match(app, /没有显示任何示例数据/);
@@ -22,7 +22,7 @@ test("v2.1 production UI never falls back to fabricated dashboard data", async (
   await assert.rejects(read("lib/demo-data.ts"));
 });
 
-test("v2.1 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
+test("v2.2 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
   const [client, server, nginx, backendPackage] = await Promise.all([
     read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"),
   ]);
@@ -32,7 +32,7 @@ test("v2.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "2\.1\.0"/);
+  assert.match(backendPackage, /__version__ = "2\.2\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -126,7 +126,7 @@ test("common sing-box protocols are explicit and unmatched connections stay hidd
   assert.match(definitions, /Reality/);
 });
 
-test("v2.1 detail interactions avoid native or stale UI artifacts", async () => {
+test("v2.2 detail interactions avoid native or stale UI artifacts", async () => {
   const [app, styles, audit, traffic, donut, login] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("app/globals.css"), read("components/pages/AuditPage.tsx"),
     read("components/charts/TrafficChart.tsx"), read("components/charts/DonutChart.tsx"), read("components/auth/AuthPage.tsx"),
@@ -137,12 +137,28 @@ test("v2.1 detail interactions avoid native or stale UI artifacts", async () => 
   assert.match(app, /const dismissToast = useCallback/);
   assert.doesNotMatch(app, /onDismiss=\{\(\) => setToast\(null\)\}/);
   assert.match(app, /snapshot-date/);
-  assert.match(audit, /slice\(0, 30\)/);
-  assert.match(audit, /\/ 50/);
+  assert.match(audit, /fetchAudits/);
+  assert.match(audit, /pageSize: expanded \? 50 : 30/);
   assert.match(audit, /pageItems/);
   assert.match(traffic, /chart-inspector/);
   assert.doesNotMatch(`${traffic}\n${donut}`, /<title>/);
   assert.doesNotMatch(login, /凭据只发送到当前面板后端|Use your panel account to access live server data/);
+});
+
+test("v2.2 scopes alert acknowledgement and audit history on the server", async () => {
+  const [app, client, dashboard, storage, packageJson, packager] = await Promise.all([
+    read("components/CastoriceApp.tsx"), read("lib/api.ts"), read("server/castoriceui/dashboard.py"),
+    read("server/castoriceui/storage.py"), read("package.json"), read("scripts/package-release.mjs"),
+  ]);
+  assert.match(app, /await acknowledgeAlert\(id\)/);
+  assert.match(app, /Unable to acknowledge the alert/);
+  assert.match(client, /\/api\/v2\/audits\?/);
+  assert.doesNotMatch(dashboard, /"auditEvents"/);
+  assert.match(storage, /def reconcile_alerts/);
+  assert.match(storage, /acknowledged_at=NULL/);
+  assert.match(packageJson, /"release:package"/);
+  assert.match(packager, /Duplicate logical frontend asset/);
+  assert.match(packager, /SHA256SUMS\.txt/);
 });
 
 test("backend examples remain loopback-only and secret-free", async () => {
