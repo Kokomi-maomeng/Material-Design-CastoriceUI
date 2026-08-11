@@ -5,6 +5,7 @@ const HEIGHT = 270;
 const PLOT = { x: 48, y: 16, width: 612, height: 210 };
 
 export function TrafficChart({ data }: { data: TrafficPoint[] }) {
+  if (data.length === 0) return <div className="chart-empty" role="status">该时间范围正在建立真实采样数据</div>;
   const rawMax = data.reduce((current, item) => Math.max(current, item.download, item.upload), 1);
   const max = Math.ceil(rawMax / 10) * 10;
   const point = (value: number, index: number) => ({

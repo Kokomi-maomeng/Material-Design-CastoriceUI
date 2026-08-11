@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { AuditEvent, IntegrationStatus } from "../../lib/types";
-import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -17,7 +16,6 @@ export function AuditPage({ events, integration, onConfigure }: { events: AuditE
     <div className="page-content page-enter">
       <PageHeader eyebrow="安全与追溯" title="操作审计" description="记录登录、账号、配置、熔断与恢复等关键操作。" />
       <IntegrationGate status={integration} name="操作审计" description="启用后记录配置更新、告警确认和服务生命周期事件。" onConfigure={onConfigure} />
-      <FeatureIntro items={[{ icon: "history", title: "关键时间线", description: "按时间还原配置和状态变化。" }, { icon: "fingerprint", title: "来源追踪", description: "保留操作者、来源地址与结果。" }, { icon: "shield_lock", title: "敏感脱敏", description: "密码、Token 和私钥永不写入审计详情。" }]} />
       <div className="audit-retention"><Icon name="policy" size={23} /><div><strong>审计保留策略</strong><span>保留周期由服务器配置管理；密码、Token 和私钥不会写入详情，记录不能从面板删除。</span></div><Chip staticChip tone="success">策略生效</Chip></div>
       <Card variant="outlined" className="table-panel">
         <div className="table-toolbar table-toolbar--wrap"><label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索操作、账号或 IP" aria-label="搜索审计记录" /></label><div className="filter-chips">{(["全部", "认证", "账号", "配置", "系统"] as const).map((item) => <Chip key={item} selected={category === item} onClick={() => setCategory(item)}>{item}</Chip>)}</div></div>

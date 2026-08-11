@@ -1,15 +1,16 @@
 "use client";
 
+import { useState } from "react";
+
 import { formatBytes, percent } from "../../lib/format";
-import type { Connection, IntegrationId, IntegrationStatus, NetworkTarget, OverviewMetrics, ServiceStatus } from "../../lib/types";
-import { ResourceChart } from "../charts/ResourceChart";
+import type { Connection, DashboardPayload, NetworkTarget, OverviewMetrics, ServiceStatus, TrafficRange } from "../../lib/types";
+import { TrafficChart } from "../charts/TrafficChart";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
-import { SetupPanel } from "../setup/SetupPanel";
 
 export function OverviewPage({
   mode,
@@ -17,10 +18,7 @@ export function OverviewPage({
   connections,
   services,
   networkTargets,
-  integrations,
-  resourceHistory,
-  showSetup,
-  onOpenSetup,
+  traffic,
   onEditQuota,
   onRefresh,
   onViewServices,
@@ -30,14 +28,12 @@ export function OverviewPage({
   connections: Connection[];
   services: ServiceStatus[];
   networkTargets: NetworkTarget[];
-  integrations: IntegrationStatus[];
-  resourceHistory: Array<{ label: string; cpu: number; memory: number }>;
-  showSetup: boolean;
-  onOpenSetup: (id: IntegrationId) => void;
+  traffic: DashboardPayload["traffic"];
   onEditQuota: () => void;
   onRefresh: () => void;
   onViewServices: () => void;
 }) {
+  const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const preview = mode === "preview";
   const stale = mode === "stale";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
@@ -55,13 +51,10 @@ export function OverviewPage({
   return (
     <div className="page-content page-enter">
       <PageHeader
-        eyebrow={metrics.nodeRegion}
         title={metrics.nodeName}
         description={preview ? "当前展示内置示例数据，用于体验布局和交互；没有连接任何服务器。" : stale ? "当前是最后一次成功快照，后端连接已中断；这些值不是当前实时状态。" : "服务器资源来自后端当前快照；协议与网络字段按各数据源实际能力展示。"}
         actions={<Button variant="tonal" icon="refresh" onClick={onRefresh}>刷新数据</Button>}
       />
-
-      {showSetup ? <SetupPanel statuses={integrations} onOpen={onOpenSetup} preview={preview} /> : null}
 
       <section className="overview-hero-grid" aria-label="关键运行指标">
         <Card className="traffic-hero" variant="elevated">
@@ -88,11 +81,12 @@ export function OverviewPage({
       <section className="content-grid content-grid--dashboard">
         <Card className="resource-panel" variant="outlined">
           <CardHeader
-            title="系统资源"
-            description={preview ? "示例趋势 · 不代表真实采样" : "最近 30 分钟 · 后端持续采样"}
-            action={<div className="legend-inline"><span className="dot dot--primary" />CPU<span className="dot dot--tertiary" />内存</div>}
+            title="近期进出流量"
+            description={preview ? "示例趋势 · 不代表真实采样" : "主网卡累计计数器的相邻采样增量"}
+            action={<RangeControl value={trafficRange} onChange={setTrafficRange} />}
           />
-          <ResourceChart data={resourceHistory} />
+          <div className="legend-inline legend-inline--chart"><span className="dot dot--primary" />下载<span className="dot dot--secondary" />上传</div>
+          <TrafficChart data={(traffic.ranges?.[trafficRange] ?? []).map((item) => ({ ...item, upload: item.upload / 1024 ** 3, download: item.download / 1024 ** 3 }))} />
         </Card>
 
         <Card className="live-summary" variant="filled">
@@ -134,6 +128,10 @@ export function OverviewPage({
       </section>
     </div>
   );
+}
+
+function RangeControl({ value, onChange }: { value: TrafficRange; onChange: (value: TrafficRange) => void }) {
+  return <div className="segmented-control traffic-range-control">{(["1h", "6h", "24h", "3day", "7day"] as const).map((item) => <button key={item} className={value === item ? "is-selected" : ""} onClick={() => onChange(item)}>{item === "3day" ? "3天" : item === "7day" ? "7天" : item}</button>)}</div>;
 }
 
 function MetricCard({ icon, label, value, detail, trend }: { icon: string; label: string; value: string; detail: string; trend: string }) {

@@ -135,7 +135,6 @@ class SystemCollector:
         load = os.getloadavg()
         return {
             "nodeName": self.config.node_name,
-            "nodeRegion": self.config.node_region,
             "cpuPercent": cpu,
             "cpuCores": os.cpu_count() or 1,
             "memoryPercent": memory_pct,
@@ -302,13 +301,17 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[s
         address_text = " ".join(str(stream.get(key, "")) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
         ip_match = re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?!\d)|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){2,}[0-9A-Fa-f:]+", address_text)
         source_ip = ip_match.group(0) if ip_match else "协议核心未提供"
-        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started})
+        destination = str(stream.get("hooked_req_addr") or stream.get("req_addr") or "").strip() or None
+        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started, "destination": destination})
     for index, connection in enumerate(sb.get("connections", [])):
         metadata = connection.get("metadata", {})
         source_ip = str(metadata.get("sourceIP") or "协议核心未提供")
         ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
         account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "AnyTLS 用户")
-        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start")})
+        destination_host = str(metadata.get("host") or metadata.get("destinationIP") or "").strip()
+        destination_port = metadata.get("destinationPort")
+        destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None
+        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start"), "destination": destination})
     return connections
 
 

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { formatBytes, formatDate, percent } from "../../lib/format";
 import type { Account, IntegrationStatus } from "../../lib/types";
-import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -36,7 +35,6 @@ export function AccountsPage({ accounts, integration, onConfigure }: AccountsPag
       />
 
       <IntegrationGate status={integration} name="账号统计数据源" description="账号清单、状态和额度来自受保护的服务器配置；协议适配器只补充核心实际返回的累计用量与在线计数。" onConfigure={onConfigure} />
-      <FeatureIntro items={[{ icon: "manage_accounts", title: "统一生命周期", description: "集中处理启用状态、到期时间、额度和备注。" }, { icon: "vpn_key", title: "凭据边界", description: "浏览器只触发重置流程，不读取协议明文密码。" }, { icon: "data_usage", title: "账号用量", description: "将协议统计映射到账号，快速定位高用量主体。" }]} />
       <div className="read-only-notice"><Icon name="info" size={20} /><span><strong>当前为只读同步</strong>账号的创建、密码和启停状态由代理核心认证配置决定；面板会在后端配置变更后自动更新，不展示无法真实执行的操作按钮。</span></div>
 
       <Card variant="outlined" className="table-panel">
@@ -55,7 +53,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: AccountsPag
 
         <div className="responsive-table accounts-table">
           <table>
-            <thead><tr><th>账号</th><th>状态</th><th>协议</th><th>流量</th><th>到期时间</th><th>备注</th></tr></thead>
+            <thead><tr><th>账号</th><th>状态</th><th>协议</th><th>核心累计流量</th><th>到期时间</th><th>备注</th></tr></thead>
             <tbody>
               {filtered.map((account) => {
                 const usage = percent(account.usedBytes, account.quotaBytes);
@@ -64,7 +62,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: AccountsPag
                     <td data-label="账号"><div className="account-cell"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><div><strong>{account.name}</strong><span>{account.email}</span></div></div></td>
                     <td data-label="状态"><StatusChip status={account.status} devices={account.onlineDevices} /></td>
                     <td data-label="协议"><div className="protocol-list">{account.protocols.map((protocol) => <Chip staticChip key={protocol}>{protocol}</Chip>)}</div></td>
-                    <td data-label="流量"><div className="quota-cell"><div><span>{formatBytes(account.usedBytes)}</span><small>/ {formatBytes(account.quotaBytes)}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
+                    <td data-label="核心累计流量"><div className="quota-cell"><div><span>{formatBytes(account.usedBytes)}</span><small>/ 配置额度 {formatBytes(account.quotaBytes)}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
                     <td data-label="到期时间"><span className={account.status === "expiring" ? "text-warning" : ""}>{formatDate(account.expiresAt)}</span></td>
                     <td data-label="备注"><span className="muted">{account.note || "—"}</span></td>
                   </tr>
@@ -73,7 +71,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: AccountsPag
             </tbody>
           </table>
         </div>
-        <div className="table-footer"><span>显示 {filtered.length} / {accounts.length} 个账号</span><span>数据随协议认证配置自动同步</span></div>
+        <div className="table-footer"><span>显示 {filtered.length} / {accounts.length} 个账号</span><span>用量来自 Hysteria2 核心当前累计值，不自动等同于月度账期</span></div>
       </Card>
     </div>
   );

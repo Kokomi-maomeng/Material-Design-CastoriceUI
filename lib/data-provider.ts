@@ -7,6 +7,7 @@ import type {
   ServiceStatus,
   Subscription,
   TrafficPoint,
+  TrafficRange,
 } from "./types";
 
 /**
@@ -18,7 +19,7 @@ import type {
 export interface CastoriceDataProvider {
   getAccounts(): Promise<Account[]>;
   getConnections(): Promise<Connection[]>;
-  getTraffic(range: "day" | "month"): Promise<TrafficPoint[]>;
+  getTraffic(range: TrafficRange): Promise<TrafficPoint[]>;
   getSubscriptions(): Promise<Subscription[]>;
   getNetworkTargets(): Promise<NetworkTarget[]>;
   getServices(): Promise<ServiceStatus[]>;

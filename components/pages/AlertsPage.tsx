@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import type { AlertItem, IntegrationStatus } from "../../lib/types";
-import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -18,7 +17,6 @@ export function AlertsPage({ alerts, onAcknowledge, integration, onConfigure }: 
     <div className="page-content page-enter">
       <PageHeader eyebrow="主动监控" title="告警中心" description="在流量、服务、链路或证书出现风险时及时提醒。" />
       <IntegrationGate status={integration} name="告警规则" description="设置流量、延迟、丢包和证书阈值后，异常会自动进入待处理列表。" onConfigure={onConfigure} />
-      <FeatureIntro items={[{ icon: "notifications_active", title: "统一事件", description: "汇总流量、服务、网络和证书风险。" }, { icon: "rule", title: "阈值清晰", description: "每条告警展示触发来源与判断依据。" }, { icon: "done_all", title: "确认闭环", description: "确认状态写入后端并保留审计记录。" }]} />
       <section className="alert-summary">
         <Card variant="filled"><span className="alert-count alert-count--critical">{alerts.filter((item) => item.severity === "critical" && !item.acknowledged).length}</span><div><strong>严重</strong><p>需要尽快处理</p></div></Card>
         <Card variant="filled"><span className="alert-count alert-count--warning">{alerts.filter((item) => item.severity === "warning" && !item.acknowledged).length}</span><div><strong>警告</strong><p>建议持续关注</p></div></Card>
