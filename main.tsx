@@ -4,6 +4,7 @@ import "@fontsource-variable/roboto";
 import "@material-symbols/font-400/rounded.css";
 import "./app/globals.css";
 import { CastoriceApp } from "./components/CastoriceApp";
+import { I18nProvider } from "./lib/i18n";
 
 const root = document.getElementById("root");
 
@@ -13,6 +14,6 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <CastoriceApp />
+    <I18nProvider><CastoriceApp /></I18nProvider>
   </StrictMode>,
 );

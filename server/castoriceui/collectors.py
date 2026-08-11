@@ -275,26 +275,34 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
         service_id, name, _unit, icon, _command = definition
         adapter = hy2 if service_id == "hysteria2" else sb if service_id == "anytls" else None
         if active != "active":
-            status, detail = "stopped", "systemd reports the service is not active"
+            status, detail, detail_zh = "stopped", "systemd reports the service is not active", "systemd 报告服务未运行"
         elif adapter is None:
-            status, detail = "running", "systemd reports active"
+            status, detail, detail_zh = "running", "systemd reports active", "systemd 报告服务正在运行"
         elif adapter.get("available"):
-            status, detail = "running", "systemd active · statistics adapter responding"
+            status, detail, detail_zh = "running", "systemd active · statistics adapter responding", "systemd 正常 · 统计适配器响应正常"
         else:
-            status, detail = "warning", "systemd active · statistics adapter unavailable"
-        services.append({"id": service_id, "name": name, "detail": detail, "status": status, "version": version, "uptimeSeconds": uptime, "icon": icon})
+            status, detail, detail_zh = "warning", "systemd active · statistics adapter unavailable", "systemd 正常 · 统计适配器当前不可用"
+        services.append({"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version, "uptimeSeconds": uptime, "icon": icon})
     cert = certificate_info(config.certificate_path)
     updates = automatic_update_info()
+    certificate_zh = "未配置证书路径" if not config.certificate_path else f"证书剩余 {cert['days']} 天" if cert.get("days") else "无法读取证书"
+    updates_zh = "无人值守更新与定时器已启用" if updates["status"] == "running" else "自动更新服务或定时器未完全启用"
     services.extend([
-        {"id": "kernel", "name": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
-        {"id": "certificate", "name": "TLS certificate", "detail": cert["detail"], "status": cert["status"], "version": "TLS", "uptimeSeconds": 0, "icon": "verified_user"},
-        {"id": "updates", "name": "Automatic updates", "detail": updates["detail"], "status": updates["status"], "version": updates["version"], "uptimeSeconds": 0, "icon": "system_update"},
+        {"id": "kernel", "name": "Linux kernel", "nameZh": "Linux 内核", "nameEn": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "detailZh": f"{system['cpuCores']} 核 CPU · 负载 {system['load'][0]}", "detailEn": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
+        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "version": "TLS", "uptimeSeconds": 0, "icon": "verified_user"},
+        {"id": "updates", "name": "Automatic updates", "nameZh": "自动更新", "nameEn": "Automatic updates", "detail": updates["detail"], "detailZh": updates_zh, "detailEn": updates["detail"], "status": updates["status"], "version": updates["version"], "uptimeSeconds": 0, "icon": "system_update"},
     ])
     return services
 
 
-def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
+def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapters: dict[str, dict[str, Any]] | None = None, default_singbox_protocol: str = "AnyTLS") -> list[dict[str, Any]]:
     connections: list[dict[str, Any]] = []
+    tag_protocols: dict[str, str] = {}
+    labels = {"vless": "VLESS", "socks5": "SOCKS5", "shadowsocks": "Shadowsocks"}
+    for adapter_id, adapter in (protocol_adapters or {}).items():
+        for tag in adapter.get("inboundTags", []) if isinstance(adapter, dict) else []:
+            if str(tag).strip() and adapter_id in labels:
+                tag_protocols[str(tag).strip().casefold()] = labels[adapter_id]
     for index, stream in enumerate(hy2.get("streams", [])):
         started = stream.get("initial_at")
         account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "协议核心未提供")
@@ -311,14 +319,16 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[s
         destination_host = str(metadata.get("host") or metadata.get("destinationIP") or "").strip()
         destination_port = metadata.get("destinationPort")
         destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None
-        connections.append({"id": str(connection.get("id", f"anytls-{index}")), "protocol": "AnyTLS", "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start"), "destination": destination})
+        inbound_tag = str(metadata.get("inbound") or metadata.get("inboundTag") or "").strip()
+        protocol = tag_protocols.get(inbound_tag.casefold(), default_singbox_protocol)
+        connections.append({"id": str(connection.get("id", f"singbox-{index}")), "protocol": protocol, "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start"), "destination": destination})
     return connections
 
 
 def ping_target(target: dict[str, Any]) -> dict[str, Any]:
     address = str(target.get("address", ""))
     version = int(target.get("ipVersion", 4))
-    command = ["ping", "-6" if version == 6 else "-4", "-c", "3", "-W", "1", address]
+    command = ["ping", "-6" if version == 6 else "-4", "-c", "8", "-i", "0.2", "-W", "1", address]
     output = run(command, timeout=4)
     values = [float(value) for value in re.findall(r"time[=<]([0-9.]+)\s*ms", output)]
     loss_match = re.search(r"([0-9.]+)% packet loss", output)
@@ -326,7 +336,7 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
     latency = round(statistics.mean(values), 1) if values else 0.0
     jitter = round(statistics.pstdev(values), 1) if len(values) > 1 else 0.0
     status = "down" if not values else "degraded" if loss >= 5 or latency >= 150 else "healthy"
-    return {"id": str(target.get("id", address)), "name": str(target.get("name", address)), "provider": str(target.get("provider", "Custom")), "address": address, "ipVersion": version, "latency": latency, "jitter": jitter, "loss": loss, "status": status, "history": values or [0]}
+    return {"id": str(target.get("id", address)), "name": str(target.get("name", address)), "provider": str(target.get("provider", "Custom")), "address": address, "ipVersion": version, "order": int(target.get("order", 0)), "latency": latency, "jitter": jitter, "loss": loss, "status": status, "history": values}
 
 
 def network_snapshots(config: AppConfig) -> list[dict[str, Any]]:

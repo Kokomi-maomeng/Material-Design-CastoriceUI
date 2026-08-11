@@ -2,6 +2,10 @@
   "listen_host": "127.0.0.1",
   "listen_port": 18080,
   "database_path": "/var/lib/castoriceui/state.db",
+  "bootstrap_token_path": "/var/lib/castoriceui/bootstrap-token",
+  "login_background_directory": "/var/lib/castoriceui/login-backgrounds",
+  "secure_cookies": true,
+  "session_lifetime_seconds": 43200,
   "node_name": "My VPS node",
   "interface": "eth0",
   "traffic_limit_bytes": 1000000000000,
@@ -20,12 +24,20 @@
   "integrations": {
     "hysteria2": {"enabled": false, "configured": false, "summary": "Add a loopback Traffic Stats API"},
     "anytls": {"enabled": false, "configured": false, "summary": "Add a loopback Clash API"},
+    "vless": {"enabled": false, "configured": false, "summary": "Map explicit sing-box VLESS inbound tags"},
+    "socks5": {"enabled": false, "configured": false, "summary": "Map explicit sing-box SOCKS5 inbound tags"},
+    "shadowsocks": {"enabled": false, "configured": false, "summary": "Map explicit sing-box Shadowsocks inbound tags"},
     "subscriptions": {"enabled": false, "configured": false, "summary": "Add a subscription provider"}
   },
+  "protocol_adapters": {
+    "vless": {"inboundTags": []},
+    "socks5": {"inboundTags": []},
+    "shadowsocks": {"inboundTags": []}
+  },
   "network_targets": [
-    {"id": "cloudflare-v4", "name": "Cloudflare IPv4", "provider": "Cloudflare", "address": "1.1.1.1", "ipVersion": 4},
-    {"id": "google-v4", "name": "Google IPv4", "provider": "Google", "address": "8.8.8.8", "ipVersion": 4},
-    {"id": "cloudflare-v6", "name": "Cloudflare IPv6", "provider": "Cloudflare", "address": "2606:4700:4700::1111", "ipVersion": 6}
+    {"id": "cloudflare-v4", "name": "Cloudflare IPv4", "provider": "Cloudflare", "address": "1.1.1.1", "ipVersion": 4, "order": 1},
+    {"id": "google-v4", "name": "Google IPv4", "provider": "Google", "address": "8.8.8.8", "ipVersion": 4, "order": 2},
+    {"id": "cloudflare-v6", "name": "Cloudflare IPv6", "provider": "Cloudflare", "address": "2606:4700:4700::1111", "ipVersion": 6, "order": 3}
   ],
   "managed_accounts": [],
   "subscriptions": []

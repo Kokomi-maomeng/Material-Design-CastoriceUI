@@ -1,77 +1,129 @@
-# Backend integration guide
+# CastoriceUI v2.0 backend integration guide
 
-CastoriceUI deliberately separates presentation from protocol and infrastructure control. The canonical browser-safe models live in `lib/types.ts`; the provider contract lives in `lib/data-provider.ts`.
-
-## Recommended flow
+CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
 ```text
-Hysteria2 / sing-box / systemd / provider API
-                    ↓ loopback or private network
-            trusted backend adapters
-                    ↓ authorization + redaction
-              CastoriceUI JSON API
-                    ↓ HTTPS / WebSocket
-                  browser
+Linux counters / Hysteria2 / sing-box / systemd / certificates
+                              ↓ loopback access + server-only Secrets
+                      CastoriceUI backend
+                              ↓ same-origin HTTPS + session + CSRF
+                           browser UI
 ```
 
-The browser must never receive an upstream API secret, raw configuration file, private key, full stored password, or privileged command capability.
+The browser must never receive an upstream Secret, raw configuration, private key, stored password hash, complete subscription token, or privileged command capability.
 
-## Included v1.5 endpoints
+## v2 API surface
+
+Public, intentionally credential-free endpoints:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/v1/health` | Lightweight service health |
-| GET | `/api/v1/dashboard` | Bounded aggregate snapshot for all dashboard pages |
-| PUT | `/api/v1/settings/traffic-limit` | Persist the monthly quota |
-| PUT | `/api/v1/integrations/:id` | Validate and save an integration configuration |
-| POST | `/api/v1/alerts/:id/ack` | Persist acknowledgement and an audit event |
+| GET | `/api/v2/health` | Backend health and release version |
+| GET | `/api/v2/bootstrap` | Whether the first administrator is required and the configured login background |
+| GET | `/api/v2/auth/background` | Validated server-hosted login image, when configured |
+| POST | `/api/v2/auth/initialize` | Create the first administrator using the one-time Bootstrap Token |
+| POST | `/api/v2/auth/login` | Start an application session |
 
-The aggregate endpoint keeps the first paint simple and reduces round trips on small VPS instances. Add narrower endpoints or a WebSocket stream when the account or connection volume requires it.
+Authenticated endpoints:
 
-## Adapter guidance
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/v2/auth/session` | Username, setup state, CSRF token, and session expiry |
+| POST | `/api/v2/auth/logout` | Invalidate the current session |
+| GET | `/api/v2/dashboard` | Bounded real/stale operational snapshot |
+| PUT | `/api/v2/settings/traffic-limit` | Update the single quota shared by Overview and Accounts |
+| PUT | `/api/v2/integrations/:id` | Validate and persist an integration override |
+| PUT | `/api/v2/settings/network-targets` | Replace validated name/address/order probe targets |
+| PUT | `/api/v2/settings/ui` | Persist Setup visibility and optional panel visibility |
+| GET | `/api/v2/settings/background-options` | List allowed server images and current background setting |
+| PUT | `/api/v2/settings/login-background` | Save default, server-image, or HTTPS-URL background |
+| POST | `/api/v2/initialization/complete` | Finish first-run only after required settings exist |
+| POST | `/api/v2/alerts/:id/ack` | Acknowledge an alert and record the acting username |
+| GET | `/api/v2/subscriptions/:id/url` | Return one complete subscription URL only after explicit action |
 
-### Hysteria2
+All authenticated mutations require both the session CSRF token and `X-CastoriceUI-Request: 1`. Session cookies are HttpOnly, SameSite=Strict, path `/`, and Secure when `secure_cookies` is enabled. Login uses a bounded failure window and serialized scrypt verification to limit CPU/memory amplification on small VPS instances.
 
-Query the Traffic Stats API from the backend only. Authenticate it, bind it to loopback, and map `/traffic`, `/online`, and `/dump/streams` responses into the shared account and connection shapes. The frontend should not know the API secret or management port.
+## Hysteria2
 
-The Secret is read only from the protected server config. The setup API accepts a loopback endpoint but never accepts or persists the Secret. It calls the authenticated `/traffic` endpoint before marking the integration ready; invalid authentication or an unreachable endpoint leaves the previous configuration unchanged.
+The backend calls the authenticated Traffic Stats API on loopback. It maps `/traffic`, `/online`, and `/dump/streams` into account and activity shapes. The browser never receives the management port Secret.
 
-Account display names are not assumed to equal protocol auth identities. For multiple accounts, add an explicit mapping to each protected `managed_accounts` record:
+Display names are not assumed to equal protocol authentication identities. For multiple accounts, configure mappings in the protected `managed_accounts` records:
 
 ```json
-{"id":"account-1","name":"Display name","trafficIdentities":{"hysteria2":["protocol-auth-identity"]}}
+{
+  "id": "account-1",
+  "name": "Display name",
+  "trafficIdentities": {
+    "hysteria2": ["protocol-auth-identity"]
+  }
+}
 ```
 
-When and only when exactly one managed account and one Hysteria2 identity exist, v1.5 maps them automatically. Ambiguous unmatched identities remain unattributed instead of being assigned to the wrong account.
+Only the unambiguous one-account/one-identity case is automatically associated. Unknown or ambiguous identities remain unattributed rather than assigned to the wrong account. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
 
-### sing-box / AnyTLS
+## sing-box, AnyTLS, VLESS, SOCKS5, and Shadowsocks
 
-Keep the Clash API on loopback with a strong secret. v1.5 reads `/connections` and its cumulative totals; it intentionally does not treat the streaming `/traffic` endpoint as a finite JSON response. Source and destination fields come from connection metadata. Rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing counters. The protected server config is the only Secret source, and a successful authenticated `/connections` request is required before the integration becomes ready. Never proxy the management API or its authorization header to the browser.
+The backend calls the protected Clash `/connections` endpoint and uses only returned connection metadata and cumulative counters. It does not consume the streaming `/traffic` endpoint as finite JSON.
 
-## Endpoint validation and legacy cleanup
+AnyTLS may be used as the default sing-box label only when AnyTLS is the sole configured sing-box integration. VLESS, SOCKS5, and Shadowsocks require exact inbound-tag lists:
 
-Hysteria2 and sing-box endpoints accept only `http` or `https` URLs whose host is `localhost` or a loopback IP. Embedded credentials, queries, fragments, non-loopback IPs, host names, and cloud metadata addresses are rejected before a request is attempted. Network probe targets use separate strict IP/hostname validation and cannot begin with command-line option characters.
+```json
+{
+  "protocol_adapters": {
+    "vless": {"inboundTags": ["vless-in", "vless-reality"]},
+    "socks5": {"inboundTags": ["socks-in"]},
+    "shadowsocks": {"inboundTags": ["ss-in"]}
+  }
+}
+```
 
-At v1.5 startup, the backend removes any legacy `secret` field stored by v1.2 inside SQLite `integration_overrides`. Configure upstream Secrets in `/etc/castoriceui/config.json` with `0640 root:castoriceui` permissions before using the setup validation flow.
+Tags are matched case-insensitively against sing-box connection metadata. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Unknown tags remain `sing-box` combined data. Each browser setup action for these protocols also performs an authenticated loopback `/connections` request before saving.
 
-### Other protocols
+## Traffic samples and account totals
 
-Normalize protocol names into the `Protocol` field. Extend the union or move to server-defined strings when plugin discovery is introduced; do not duplicate the page for every protocol.
+The backend sampler runs independently of browser refreshes. It stores bounded adjacent interface-counter snapshots, derives non-negative deltas, and treats counter decreases as resets. The `1h`, `6h`, `24h`, `3 day`, and `7 day` views use real retained buckets with denser points than v1.5.
 
-## Authentication and mutation safety
+Host-interface traffic and protocol-account traffic are different sources:
 
-- Use secure, HTTP-only session cookies and server-side authorization.
-- Require CSRF protection for state-changing requests.
-- v1.5 state-changing browser requests include `X-CastoriceUI-Request: 1`; the backend rejects mutations without it, preventing ordinary cross-origin form submissions from reusing Basic Auth credentials.
+- Overview/Traffic time series: selected host interface counter deltas;
+- account usage/rankings: protocol cumulative totals after explicit identity mapping;
+- account quota and Overview quota: one shared backend traffic-limit setting.
 
-## Traffic and network settings
+Do not claim that protocol cumulative values are billing-cycle usage unless the upstream core resets on that exact cycle.
 
-Interface traffic ranges are derived from adjacent retained `/sys/class/net` counter samples. Counter decreases are treated as resets and never converted into negative usage. Network targets accept up to 12 lines in either `name,address` or plain-address form; validation occurs before the previous target list is replaced.
-- Rate-limit login, password reset, Token rotation, and service actions.
-- Re-authenticate or require TOTP for destructive changes.
-- Write the audit event on the server in the same transaction as the mutation.
-- Use idempotency keys for retries where duplicate actions are dangerous.
+## Connection aggregation and rates
 
-## Streaming and performance
+Connection groups use protocol, account, and real source IP. The earliest active entry establishes group duration and expandable children retain the actual destinations and ports returned by adapters. When a protocol omits source IP, the value remains unavailable and must not be made copyable.
 
-Send an initial snapshot, then compact upsert/remove events. A one-second UI update is enough for operator visibility; avoid repainting large tables on every network packet. Aggregate traffic history server-side and return bounded time series.
+Upload/download rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing cumulative counters. A first observation, missing ID, counter reset, or disappeared/recreated connection has no rate. The frontend hides rate columns when no group has a valid rate.
+
+## Network probes
+
+Operators may store up to 12 targets with unique validated names/addresses and explicit display order. Targets accept IP literals or conservative hostnames and cannot start with option characters. Probe execution uses argument arrays, not a shell. Each cached probe can contain up to eight real ICMP replies; unreachable targets return an empty history and loss state rather than an invented `0 ms` sample.
+
+Changing the list clears the probe cache so old values are not attributed to new targets.
+
+## Endpoint and image validation
+
+- Hysteria2/sing-box URLs allow only `http` or `https` with `localhost` or loopback IP hosts.
+- Embedded credentials, query strings, fragments, remote/private hostnames, and metadata addresses are rejected before requests.
+- Strict authenticated probes use short timeouts and do not follow redirects.
+- Subscription base URLs and external login backgrounds require HTTPS.
+- External backgrounds are never fetched by the backend, preventing a background setting from becoming an SSRF proxy.
+- Server images must remain in the configured directory, be no larger than 5 MB, and have PNG/JPEG/WebP magic bytes.
+
+## Initialization requirements
+
+Before Overview is reachable, first run requires:
+
+1. a valid server-generated, one-time Bootstrap Token;
+2. a unique administrator username and strong password;
+3. a saved non-empty node display name;
+4. a saved traffic quota of at least 1 GB;
+5. explicit completion through `/api/v2/initialization/complete`.
+
+Protocol adapters are optional and remain visibly unconfigured when skipped. Their Secrets must already exist in `/etc/castoriceui/config.json`; the browser never accepts them. This prevents a visually “successful” setup when the backend cannot authenticate the actual core.
+
+## Legacy compatibility
+
+v1 endpoint aliases remain for dashboard, traffic-limit, integration, subscription URL, alert acknowledgement, and health requests during a staged frontend/backend switch. New authentication, first-run, UI settings, structured network targets, and background functions are v2-only. v2 startup still removes legacy v1.2 Secrets from SQLite overrides and disables invalid non-loopback legacy endpoints.

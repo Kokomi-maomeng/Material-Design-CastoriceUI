@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from .auth import dummy_password_check, hash_password, token_hash, validate_password, validate_username, verify_password
 
 
 def utc_now() -> str:
@@ -61,6 +65,23 @@ class Storage:
                     alert_id TEXT PRIMARY KEY,
                     acknowledged_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    csrf_token TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
                 """
             )
 
@@ -91,11 +112,11 @@ class Storage:
                 (key, json.dumps(value, ensure_ascii=False), utc_now()),
             )
 
-    def add_audit(self, action: str, category: str, detail: str, source_ip: str = "127.0.0.1", result: str = "成功") -> None:
+    def add_audit(self, action: str, category: str, detail: str, source_ip: str = "127.0.0.1", result: str = "成功", actor: str = "system") -> None:
         with self.lock, self.connect() as connection:
             connection.execute(
                 "INSERT INTO audits(action,category,actor,source_ip,result,detail,created_at) VALUES(?,?,?,?,?,?,?)",
-                (action, category, "admin", source_ip, result, detail[:500], utc_now()),
+                (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
             )
 
     def audits(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -111,3 +132,71 @@ class Storage:
         with self.connect() as connection:
             rows = connection.execute("SELECT alert_id FROM acknowledgements").fetchall()
         return {row["alert_id"] for row in rows}
+
+    def has_users(self) -> bool:
+        with self.connect() as connection:
+            return connection.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+
+    def create_initial_user(self, username: str, password: str) -> int:
+        username = validate_username(username)
+        password = validate_password(password)
+        with self.lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None:
+                raise ValueError("Initial administrator already exists")
+            cursor = connection.execute(
+                "INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)",
+                (username, hash_password(password), utc_now()),
+            )
+        return int(cursor.lastrowid)
+
+    def authenticate(self, username: str, password: str) -> tuple[int, str] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT id,username,password_hash FROM users WHERE username=? COLLATE NOCASE",
+                (username.strip(),),
+            ).fetchone()
+        if row is None:
+            dummy_password_check(password)
+            return None
+        if not verify_password(password, str(row["password_hash"])):
+            return None
+        with self.lock, self.connect() as connection:
+            connection.execute("UPDATE users SET last_login_at=? WHERE id=?", (utc_now(), int(row["id"])))
+        return int(row["id"]), str(row["username"])
+
+    def create_session(self, user_id: int, lifetime_seconds: int) -> tuple[str, str, int]:
+        token = secrets.token_urlsafe(48)
+        csrf_token = secrets.token_urlsafe(32)
+        expires_at = int(time.time()) + max(900, min(int(lifetime_seconds), 30 * 86400))
+        now = utc_now()
+        with self.lock, self.connect() as connection:
+            connection.execute("DELETE FROM sessions WHERE expires_at<=?", (int(time.time()),))
+            connection.execute(
+                "INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,created_at,last_seen_at) VALUES(?,?,?,?,?,?)",
+                (token_hash(token), user_id, csrf_token, expires_at, now, now),
+            )
+        return token, csrf_token, expires_at
+
+    def session(self, token: str) -> dict[str, Any] | None:
+        if not token:
+            return None
+        now = int(time.time())
+        with self.lock, self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT sessions.user_id,users.username,sessions.csrf_token,sessions.expires_at
+                FROM sessions JOIN users ON users.id=sessions.user_id
+                WHERE sessions.token_hash=? AND sessions.expires_at>?
+                """,
+                (token_hash(token), now),
+            ).fetchone()
+            if row is not None:
+                connection.execute("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", (utc_now(), token_hash(token)))
+        return dict(row) if row is not None else None
+
+    def delete_session(self, token: str) -> None:
+        if not token:
+            return
+        with self.lock, self.connect() as connection:
+            connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
