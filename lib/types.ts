@@ -2,9 +2,13 @@ export type Protocol =
   | "Hysteria2"
   | "AnyTLS"
   | "VLESS"
+  | "VLESS · XTLS Vision"
+  | "VLESS · Reality"
+  | "VLESS · XTLS Vision · Reality"
   | "SOCKS5"
   | "Shadowsocks"
-  | "sing-box"
+  | "VMess"
+  | "Trojan"
   | "TUIC";
 
 export type AccountStatus = "active" | "disabled" | "expiring";
@@ -92,6 +96,9 @@ export type IntegrationId =
   | "vless"
   | "socks5"
   | "shadowsocks"
+  | "vmess"
+  | "trojan"
+  | "tuic"
   | "connections"
   | "traffic"
   | "subscriptions"
