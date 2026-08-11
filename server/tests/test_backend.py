@@ -191,7 +191,40 @@ class BackendTests(unittest.TestCase):
             storage.add_audit("test", "system", "safe detail")
             self.assertEqual(storage.samples_since(0)[0]["rx_bytes"], 20)
             self.assertEqual(storage.get_setting("traffic_limit_bytes", 0), 123)
-            self.assertEqual(storage.audits()[0]["detail"], "safe detail")
+            self.assertEqual(storage.audit_page()["items"][0]["detail"], "safe detail")
+
+    def test_audit_records_are_filtered_and_paginated_on_the_server(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            for index in range(75):
+                storage.add_audit(
+                    f"action-{index}",
+                    "认证" if index % 2 else "系统",
+                    f"detail-{index}",
+                    actor="operator",
+                )
+            first = storage.audit_page(page=1, page_size=30)
+            second = storage.audit_page(page=2, page_size=50)
+            filtered = storage.audit_page(page=1, page_size=50, search="detail-7", category="认证")
+            self.assertEqual((len(first["items"]), first["total"], first["totalPages"]), (30, 75, 3))
+            self.assertEqual((len(second["items"]), second["page"], second["totalPages"]), (25, 2, 2))
+            self.assertTrue(filtered["items"])
+            self.assertTrue(all(item["category"] == "认证" and "detail-7" in item["detail"] for item in filtered["items"]))
+
+    def test_alert_acknowledgement_is_scoped_to_one_active_episode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            first = storage.reconcile_alerts(["service-nginx"])["service-nginx"]
+            self.assertFalse(first["acknowledged"])
+            self.assertTrue(storage.acknowledge("service-nginx"))
+            acknowledged = storage.reconcile_alerts(["service-nginx"])["service-nginx"]
+            self.assertTrue(acknowledged["acknowledged"])
+            self.assertEqual(acknowledged["episodeId"], first["episodeId"])
+            storage.reconcile_alerts([])
+            recurring = storage.reconcile_alerts(["service-nginx"])["service-nginx"]
+            self.assertFalse(recurring["acknowledged"])
+            self.assertNotEqual(recurring["episodeId"], first["episodeId"])
+            self.assertFalse(storage.acknowledge("service-unknown"))
 
     def test_integration_is_ready_only_after_authenticated_probe(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -297,6 +330,7 @@ class BackendTests(unittest.TestCase):
             storage = Storage(config.database_path)
             dashboard = MagicMock()
             dashboard.snapshot.return_value = {"mode": "live", "generatedAt": "2026-08-11T00:00:00+00:00"}
+            dashboard.audit_page.return_value = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1}
             server = ApiServer(config, storage, dashboard)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -324,12 +358,21 @@ class BackendTests(unittest.TestCase):
                 csrf = str(session["csrfToken"])
                 status, _ = call("/api/v2/dashboard")
                 self.assertEqual(status, 200)
+                status, audits = call("/api/v2/audits?page=1&pageSize=30")
+                self.assertEqual(status, 200)
+                self.assertEqual(audits["total"], 0)
+                dashboard.audit_page.assert_called_once_with(1, 30, "", "")
                 status, _ = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 10_000_000_000}, {"X-CastoriceUI-Request": "1"})
                 self.assertEqual(status, 403)
                 guard = {"X-CastoriceUI-Request": "1", "X-CSRF-Token": csrf}
                 status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 10_000_000_000}, guard)
                 self.assertEqual(status, 200)
                 self.assertEqual(result["bytes"], 10_000_000_000)
+                storage.reconcile_alerts(["service-nginx"])
+                status, _ = call("/api/v2/alerts/service-nginx/ack", "POST", {}, guard)
+                self.assertEqual(status, 200)
+                status, _ = call("/api/v2/alerts/service-unknown/ack", "POST", {}, guard)
+                self.assertEqual(status, 404)
                 status, _ = call("/api/v2/auth/logout", "POST", {}, guard)
                 self.assertEqual(status, 200)
                 status, _ = call("/api/v2/auth/session")

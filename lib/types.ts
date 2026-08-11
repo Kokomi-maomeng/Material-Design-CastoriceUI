@@ -159,7 +159,6 @@ export interface DashboardPayload {
   networkTargets: NetworkTarget[];
   services: ServiceStatus[];
   alerts: AlertItem[];
-  auditEvents: AuditEvent[];
   integrations: IntegrationStatus[];
   uiSettings: UiSettings;
 }
@@ -200,6 +199,8 @@ export interface AlertItem {
   timeZh?: string;
   timeEn?: string;
   acknowledged: boolean;
+  episodeId: string;
+  startedAt: string;
   source: string;
   sourceZh?: string;
   sourceEn?: string;
@@ -214,6 +215,14 @@ export interface AuditEvent {
   time: string;
   result: "成功" | "失败";
   detail: string;
+}
+
+export interface AuditPageResponse {
+  items: AuditEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface Subscription {

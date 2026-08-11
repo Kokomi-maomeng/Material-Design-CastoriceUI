@@ -578,14 +578,18 @@ export function CastoriceApp() {
             alerts={alerts}
             integration={integrationFor("alerts")}
             onConfigure={() => configurePage("alerts")}
-            onAcknowledge={(id) => {
-              setAlerts((current) =>
-                current.map((item) =>
-                  item.id === id ? { ...item, acknowledged: true } : item,
-                ),
-              );
-              void acknowledgeAlert(id).catch(() => undefined);
-              showToast(t("告警已确认", "Alert acknowledged"));
+            onAcknowledge={async (id) => {
+              try {
+                await acknowledgeAlert(id);
+                setAlerts((current) =>
+                  current.map((item) =>
+                    item.id === id ? { ...item, acknowledged: true } : item,
+                  ),
+                );
+                showToast(t("告警已确认", "Alert acknowledged"));
+              } catch {
+                showToast(t("告警确认失败，请重试", "Unable to acknowledge the alert. Try again."));
+              }
             }}
             onToast={showToast}
           />
@@ -593,7 +597,6 @@ export function CastoriceApp() {
       case "audit":
         return (
           <AuditPage
-            events={dashboard.auditEvents}
             integration={integrationFor("audit")}
             onConfigure={() => configurePage("audit")}
           />

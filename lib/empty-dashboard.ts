@@ -13,6 +13,6 @@ export const emptyDashboard: DashboardPayload = {
   },
   accounts: [], connections: [],
   traffic: { ranges: emptyRanges, hourly: [], daily: [], protocol: [], account: [] },
-  subscriptions: [], networkTargets: [], services: [], alerts: [], auditEvents: [], integrations: [],
+  subscriptions: [], networkTargets: [], services: [], alerts: [], integrations: [],
   uiSettings: { showSetup: true, visiblePanels: [] },
 };
