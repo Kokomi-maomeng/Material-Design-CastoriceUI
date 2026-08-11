@@ -119,7 +119,7 @@ class Storage:
                 (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
             )
 
-    def audits(self, limit: int = 100) -> list[dict[str, Any]]:
+    def audits(self, limit: int = 5000) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM audits ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(row) for row in rows]

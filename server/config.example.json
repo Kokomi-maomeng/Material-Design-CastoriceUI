@@ -27,12 +27,19 @@
     "vless": {"enabled": false, "configured": false, "summary": "Map explicit sing-box VLESS inbound tags"},
     "socks5": {"enabled": false, "configured": false, "summary": "Map explicit sing-box SOCKS5 inbound tags"},
     "shadowsocks": {"enabled": false, "configured": false, "summary": "Map explicit sing-box Shadowsocks inbound tags"},
+    "vmess": {"enabled": false, "configured": false, "summary": "Map explicit sing-box VMess inbound tags"},
+    "trojan": {"enabled": false, "configured": false, "summary": "Map explicit sing-box Trojan inbound tags"},
+    "tuic": {"enabled": false, "configured": false, "summary": "Map explicit sing-box TUIC inbound tags"},
     "subscriptions": {"enabled": false, "configured": false, "summary": "Add a subscription provider"}
   },
   "protocol_adapters": {
-    "vless": {"inboundTags": []},
+    "anytls": {"inboundTags": []},
+    "vless": {"inboundTags": [], "securityProfile": "standard"},
     "socks5": {"inboundTags": []},
-    "shadowsocks": {"inboundTags": []}
+    "shadowsocks": {"inboundTags": []},
+    "vmess": {"inboundTags": []},
+    "trojan": {"inboundTags": []},
+    "tuic": {"inboundTags": []}
   },
   "network_targets": [
     {"id": "cloudflare-v4", "name": "Cloudflare IPv4", "provider": "Cloudflare", "address": "1.1.1.1", "ipVersion": 4, "order": 1},

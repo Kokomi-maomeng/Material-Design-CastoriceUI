@@ -72,12 +72,13 @@ class DashboardService:
                 self.config.node_name = node_name
         elif integration_id == "hysteria2":
             self.config.hysteria_api.update({"url": values.get("endpoint", "")})
-        elif integration_id == "anytls":
-            self.config.singbox_api.update({"url": values.get("endpoint", "")})
-        elif integration_id in {"vless", "socks5", "shadowsocks"}:
+        elif integration_id in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic"}:
             self.config.singbox_api.update({"url": values.get("endpoint", "")})
             tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
-            self.config.protocol_adapters[integration_id] = {"inboundTags": tags}
+            adapter = {"inboundTags": tags}
+            if integration_id == "vless":
+                adapter["securityProfile"] = values.get("securityProfile", "standard")
+            self.config.protocol_adapters[integration_id] = adapter
         elif integration_id == "traffic":
             interface = values.get("interface", "").strip()
             if interface:
@@ -117,10 +118,13 @@ class DashboardService:
     def configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str = "127.0.0.1") -> dict[str, Any]:
         allowed_fields = {
             "hysteria2": {"endpoint"},
-            "anytls": {"endpoint"},
-            "vless": {"endpoint", "inboundTags"},
+            "anytls": {"endpoint", "inboundTags"},
+            "vless": {"endpoint", "inboundTags", "securityProfile"},
             "socks5": {"endpoint", "inboundTags"},
             "shadowsocks": {"endpoint", "inboundTags"},
+            "vmess": {"endpoint", "inboundTags"},
+            "trojan": {"endpoint", "inboundTags"},
+            "tuic": {"endpoint", "inboundTags"},
             "traffic": {"interface", "quotaGb"},
             "connections": set(),
             "subscriptions": {"baseUrl"},
@@ -138,10 +142,13 @@ class DashboardService:
         enabled = bool(payload.get("enabled", True))
         required = {
             "hysteria2": {"endpoint"},
-            "anytls": {"endpoint"},
-            "vless": {"endpoint", "inboundTags"},
+            "anytls": {"endpoint", "inboundTags"},
+            "vless": {"endpoint", "inboundTags", "securityProfile"},
             "socks5": {"endpoint", "inboundTags"},
             "shadowsocks": {"endpoint", "inboundTags"},
+            "vmess": {"endpoint", "inboundTags"},
+            "trojan": {"endpoint", "inboundTags"},
+            "tuic": {"endpoint", "inboundTags"},
             "subscriptions": {"baseUrl"},
         }
         configured = required.get(integration_id, set()).issubset({key for key, value in clean_values.items() if value.strip()})
@@ -156,6 +163,9 @@ class DashboardService:
             "vless": "sing-box endpoint and VLESS inbound tags validated",
             "socks5": "sing-box endpoint and SOCKS5 inbound tags validated",
             "shadowsocks": "sing-box endpoint and Shadowsocks inbound tags validated",
+            "vmess": "sing-box endpoint and VMess inbound tags validated",
+            "trojan": "sing-box endpoint and Trojan inbound tags validated",
+            "tuic": "sing-box endpoint and TUIC inbound tags validated",
             "subscriptions": "HTTPS URL format validated; publisher reachability is not probed",
             "network": "Probe targets saved; runtime reachability is reported separately",
             "traffic": "Traffic sampling settings saved",
@@ -182,20 +192,21 @@ class DashboardService:
                 raise ValueError("Configure the Hysteria2 Secret in the protected server config first")
             http_json(endpoint + "/traffic", secret, strict=True)
             values["endpoint"] = endpoint
-        elif integration_id in {"anytls", "vless", "socks5", "shadowsocks"}:
+        elif integration_id in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic"}:
             endpoint = normalize_loopback_endpoint(values["endpoint"])
             secret = str(self.config.singbox_api.get("secret", "")).strip()
             if not secret or secret == "replace-on-server":
                 raise ValueError("Configure the sing-box Secret in the protected server config first")
             http_json(endpoint + "/connections", secret, bearer=True, strict=True)
             values["endpoint"] = endpoint
-            if integration_id != "anytls":
-                tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
-                if not tags or len(tags) > 20 or any(len(tag) > 80 for tag in tags):
-                    raise ValueError("Provide 1-20 sing-box inbound tags, each at most 80 characters")
-                if len({tag.casefold() for tag in tags}) != len(tags):
-                    raise ValueError("Inbound tags must be unique")
-                values["inboundTags"] = ",".join(tags)
+            tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
+            if not tags or len(tags) > 20 or any(len(tag) > 80 for tag in tags):
+                raise ValueError("Provide 1-20 sing-box inbound tags, each at most 80 characters")
+            if len({tag.casefold() for tag in tags}) != len(tags):
+                raise ValueError("Inbound tags must be unique")
+            values["inboundTags"] = ",".join(tags)
+            if integration_id == "vless" and values.get("securityProfile") not in {"standard", "xtls-vision", "reality", "xtls-vision-reality"}:
+                raise ValueError("Invalid VLESS security profile")
         elif integration_id == "subscriptions":
             values["baseUrl"] = normalize_https_base_url(values["baseUrl"])
         elif integration_id == "network" and values.get("targets", "").strip():
@@ -434,9 +445,9 @@ class DashboardService:
         hy2_configured = bool(str(self.config.hysteria_api.get("url", "")).strip())
         sb_configured = bool(str(self.config.singbox_api.get("url", "")).strip())
         update("hysteria2", configured=hy2_configured, ready=bool(hy2.get("available")), summary="Traffic Stats API is responding" if hy2.get("available") else "Traffic Stats API is not configured or not responding", summary_zh="Traffic Stats API 响应正常" if hy2.get("available") else "Traffic Stats API 未配置或当前无响应")
-        anytls_configured = bool(sb_configured and self.config.integrations.get("anytls", {}).get("configured"))
+        anytls_configured = bool(sb_configured and self.config.protocol_adapters.get("anytls", {}).get("inboundTags"))
         update("anytls", configured=anytls_configured, ready=bool(anytls_configured and singbox.get("available")), summary="sing-box connections API is responding for AnyTLS" if anytls_configured and singbox.get("available") else "AnyTLS is not configured or the sing-box API is unavailable", summary_zh="AnyTLS 的 sing-box 连接 API 响应正常" if anytls_configured and singbox.get("available") else "AnyTLS 未配置或 sing-box API 当前不可用")
-        for integration_id, label in (("vless", "VLESS"), ("socks5", "SOCKS5"), ("shadowsocks", "Shadowsocks")):
+        for integration_id, label in (("vless", "VLESS"), ("socks5", "SOCKS5"), ("shadowsocks", "Shadowsocks"), ("vmess", "VMess"), ("trojan", "Trojan"), ("tuic", "TUIC")):
             adapter = self.config.protocol_adapters.get(integration_id, {})
             configured = bool(sb_configured and adapter.get("inboundTags"))
             update(integration_id, configured=configured, ready=bool(configured and singbox.get("available")), summary=f"{label} inbound tags are mapped to the sing-box connection API" if configured and singbox.get("available") else f"{label} is not configured or the sing-box API is unavailable", summary_zh=f"{label} 入站标签已映射到 sing-box 连接 API" if configured and singbox.get("available") else f"{label} 未配置或 sing-box API 当前不可用")
@@ -477,8 +488,7 @@ class DashboardService:
             singbox = singbox_future.result()
             network = network_future.result()
         services = service_snapshots(self.config, system, hy2, singbox)
-        default_singbox_protocol = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") else "sing-box"
-        connections = self.aggregate_connections(connection_snapshots(hy2, singbox, self.config.protocol_adapters, default_singbox_protocol))
+        connections = self.aggregate_connections(connection_snapshots(hy2, singbox, self.config.protocol_adapters))
         integrations = self.runtime_integrations(hy2, singbox, network)
         if self.config.redact_live_data:
             for connection in connections:

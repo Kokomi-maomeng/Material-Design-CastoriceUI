@@ -295,14 +295,17 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     return services
 
 
-def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapters: dict[str, dict[str, Any]] | None = None, default_singbox_protocol: str = "AnyTLS") -> list[dict[str, Any]]:
+def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapters: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     connections: list[dict[str, Any]] = []
     tag_protocols: dict[str, str] = {}
-    labels = {"vless": "VLESS", "socks5": "SOCKS5", "shadowsocks": "Shadowsocks"}
+    labels = {"anytls": "AnyTLS", "vless": "VLESS", "socks5": "SOCKS5", "shadowsocks": "Shadowsocks", "vmess": "VMess", "trojan": "Trojan", "tuic": "TUIC"}
     for adapter_id, adapter in (protocol_adapters or {}).items():
+        label = labels.get(adapter_id)
+        if adapter_id == "vless":
+            label = {"xtls-vision": "VLESS · XTLS Vision", "reality": "VLESS · Reality", "xtls-vision-reality": "VLESS · XTLS Vision · Reality"}.get(str(adapter.get("securityProfile", "standard")), "VLESS")
         for tag in adapter.get("inboundTags", []) if isinstance(adapter, dict) else []:
-            if str(tag).strip() and adapter_id in labels:
-                tag_protocols[str(tag).strip().casefold()] = labels[adapter_id]
+            if str(tag).strip() and label:
+                tag_protocols[str(tag).strip().casefold()] = label
     for index, stream in enumerate(hy2.get("streams", [])):
         started = stream.get("initial_at")
         account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "协议核心未提供")
@@ -315,12 +318,14 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
         metadata = connection.get("metadata", {})
         source_ip = str(metadata.get("sourceIP") or "协议核心未提供")
         ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
-        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "AnyTLS 用户")
+        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "协议核心未提供")
         destination_host = str(metadata.get("host") or metadata.get("destinationIP") or "").strip()
         destination_port = metadata.get("destinationPort")
         destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None
         inbound_tag = str(metadata.get("inbound") or metadata.get("inboundTag") or "").strip()
-        protocol = tag_protocols.get(inbound_tag.casefold(), default_singbox_protocol)
+        protocol = tag_protocols.get(inbound_tag.casefold())
+        if not protocol:
+            continue
         connections.append({"id": str(connection.get("id", f"singbox-{index}")), "protocol": protocol, "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start"), "destination": destination})
     return connections
 

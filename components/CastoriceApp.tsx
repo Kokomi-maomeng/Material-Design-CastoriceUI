@@ -157,6 +157,7 @@ export function CastoriceApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const [quotaSaving, setQuotaSaving] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
@@ -169,7 +170,7 @@ export function CastoriceApp() {
   const [backendOnline, setBackendOnline] = useState(false);
   const [draftLimit, setDraftLimit] = useState("1");
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [connections, setConnections] = useState(emptyDashboard.connections);
   const [selectedSetup, setSelectedSetup] = useState<IntegrationId | null>(
@@ -179,6 +180,7 @@ export function CastoriceApp() {
     Record<string, Record<string, string>>
   >({});
   const hasLiveData = useRef(false);
+  const toastSequence = useRef(0);
 
   const start = useCallback(async () => {
     try {
@@ -327,7 +329,10 @@ export function CastoriceApp() {
     const timer = window.setTimeout(() => navigate("overview"), 0);
     return () => window.clearTimeout(timer);
   }, [navigate, page, visibleNavigation]);
-  const showToast = useCallback((message: string) => setToast(message), []);
+  const showToast = useCallback((message: string) => {
+    toastSequence.current += 1;
+    setToast({ id: toastSequence.current, message });
+  }, []);
   const integrationFor = useCallback(
     (id: IntegrationId) =>
       dashboard.integrations.find((item) => item.id === id),
@@ -491,7 +496,7 @@ export function CastoriceApp() {
           onClose={() => setSelectedSetup(null)}
           onSave={saveIntegration}
         />
-        <Toast message={toast} onDismiss={() => setToast(null)} />
+        <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={() => setToast(null)} />
       </>
     );
 
@@ -674,16 +679,12 @@ export function CastoriceApp() {
           </div>
           <div aria-hidden="true" />
           <div className="top-actions">
-            <time
-              className={`snapshot-time ${backendOnline ? "" : "is-stale"}`}
-              dateTime={dashboard.generatedAt}
-            >
-              {dashboard.mode === "stale" ? t("停止更新", "Stale") : ""}{" "}
-              {new Date(dashboard.generatedAt).toLocaleTimeString(
-                language === "zh" ? "zh-CN" : "en",
-                { hour: "2-digit", minute: "2-digit" },
-              )}
-            </time>
+            <div className="snapshot-time-wrap">
+              <button className={`snapshot-time ${backendOnline ? "" : "is-stale"}`} onClick={() => setDateOpen((open) => !open)} aria-expanded={dateOpen} aria-label={t("显示快照日期", "Show snapshot date")}>
+                <time dateTime={dashboard.generatedAt}>{dashboard.mode === "stale" ? t("停止更新", "Stale") : ""}{" "}{new Date(dashboard.generatedAt).toLocaleTimeString(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time>
+              </button>
+              {dateOpen ? <div className="snapshot-date" role="status">{new Date(dashboard.generatedAt).toLocaleDateString("en-CA").replaceAll("-", "")}</div> : null}
+            </div>
             <button
               className="notification-button"
               onClick={() => navigate("alerts")}
@@ -694,7 +695,7 @@ export function CastoriceApp() {
             >
               <Icon name="notifications" />
               {unacknowledgedAlerts > 0 ? (
-                <span>
+                <span className="notification-badge">
                   {unacknowledgedAlerts > 99 ? "99+" : unacknowledgedAlerts}
                 </span>
               ) : null}
@@ -868,7 +869,7 @@ export function CastoriceApp() {
           )}
         </p>
       </Dialog>
-      <Toast message={toast} onDismiss={() => setToast(null)} />
+      <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={() => setToast(null)} />
     </div>
   );
 }
@@ -1024,11 +1025,9 @@ function SettingsDialog({
             </small>
           </span>
         </span>
-        <span
-          className={`md-switch ${uiSettings.showSetup ? "is-on" : ""}`}
-          aria-hidden="true"
-        >
-          <span />
+        <span className="settings-switch-control" aria-hidden="true">
+          <small>{uiSettings.showSetup ? t("开启", "On") : t("关闭", "Off")}</small>
+          <span className={`md-switch ${uiSettings.showSetup ? "is-on" : ""}`}><span /></span>
         </span>
       </button>
       <details className="settings-disclosure">
@@ -1045,7 +1044,7 @@ function SettingsDialog({
               </small>
             </span>
           </span>
-          <Icon name="expand_more" />
+          <span className="disclosure-status"><small>{t(`已显示 ${uiSettings.visiblePanels.length} 项`, `${uiSettings.visiblePanels.length} shown`)}</small><Icon name="expand_more" /></span>
         </summary>
         <div className="panel-toggle-list">
           {PANEL_IDS.map((id) => {
@@ -1068,8 +1067,9 @@ function SettingsDialog({
                   <Icon name={item.icon} />
                   {t(item.labelZh, item.labelEn)}
                 </span>
-                <span className={`md-switch ${checked ? "is-on" : ""}`}>
-                  <span />
+                <span className="settings-switch-control" aria-hidden="true">
+                  <small>{checked ? t("显示", "Shown") : t("隐藏", "Hidden")}</small>
+                  <span className={`md-switch ${checked ? "is-on" : ""}`}><span /></span>
                 </span>
               </button>
             );
