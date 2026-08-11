@@ -445,6 +445,7 @@ function Sparkline({
   values: number[];
   degraded: boolean;
 }) {
+  const [active, setActive] = useState<number | null>(null);
   const safeValues = values.filter(Number.isFinite);
   if (safeValues.length === 0)
     return (
@@ -474,7 +475,8 @@ function Sparkline({
         }));
   const stroke = degraded ? "var(--warning)" : "var(--primary)";
   return (
-    <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
+    <>
+    <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true" onPointerLeave={() => setActive(null)}>
       <path
         d={smoothPath(points)}
         fill="none"
@@ -483,8 +485,13 @@ function Sparkline({
         strokeLinecap="round"
       />
       {points.map((point, index) => (
-        <circle key={index} cx={point.x} cy={point.y} r="1.8" fill={stroke} />
+        <g key={index} onPointerEnter={() => setActive(Math.min(index, safeValues.length - 1))} onPointerDown={() => setActive(Math.min(index, safeValues.length - 1))}>
+          <circle cx={point.x} cy={point.y} r={active === index ? "2.8" : "1.8"} fill={stroke} />
+          <circle cx={point.x} cy={point.y} r="6" fill="transparent" />
+        </g>
       ))}
     </svg>
+    {active !== null ? <span className="sparkline-tooltip" style={{ left: `${points[active].x}%` }}>{safeValues[Math.min(active, safeValues.length - 1)].toFixed(1)} ms</span> : null}
+    </>
   );
 }

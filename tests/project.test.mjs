@@ -13,7 +13,7 @@ test("production entry contains metadata, viewport, and mount point", async () =
   assert.match(html, /name="viewport"/i);
 });
 
-test("v2.0 production UI never falls back to fabricated dashboard data", async () => {
+test("v2.1 production UI never falls back to fabricated dashboard data", async () => {
   const [app, empty] = await Promise.all([read("components/CastoriceApp.tsx"), read("lib/empty-dashboard.ts")]);
   assert.doesNotMatch(app, /previewDashboard|mode === "preview"|示例数据模式/);
   assert.match(app, /没有显示任何示例数据/);
@@ -22,7 +22,7 @@ test("v2.0 production UI never falls back to fabricated dashboard data", async (
   await assert.rejects(read("lib/demo-data.ts"));
 });
 
-test("v2.0 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
+test("v2.1 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
   const [client, server, nginx, backendPackage] = await Promise.all([
     read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"),
   ]);
@@ -32,7 +32,7 @@ test("v2.0 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "2\.0\.0"/);
+  assert.match(backendPackage, /__version__ = "2\.1\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -85,7 +85,7 @@ test("connections group honestly, copy source IPs, and omit explanatory footer c
   assert.match(page, /copyText\(item\.sourceIp\)/);
   assert.doesNotMatch(page, /同协议、账号和来源 IP 自动合并/);
   assert.doesNotMatch(page, /速率由相邻真实累计字节快照计算/);
-  assert.match(collector, /default_singbox_protocol/);
+  assert.match(collector, /if not protocol:\s+continue/);
   assert.match(collector, /inboundTags/);
   assert.match(dashboard, /aggregate_connections/);
 });
@@ -118,11 +118,29 @@ test("optional account expiry values cannot crash the account page", async () =>
   assert.match(format, /return "—"/);
 });
 
-test("additional protocols are explicit and unconfigured state remains visible", async () => {
+test("common sing-box protocols are explicit and unmatched connections stay hidden", async () => {
   const [types, definitions, backend] = await Promise.all([read("lib/types.ts"), read("lib/integrations.ts"), read("server/castoriceui/config.py")]);
-  for (const protocol of ["VLESS", "SOCKS5", "Shadowsocks"]) assert.match(`${types}\n${definitions}`, new RegExp(protocol));
-  for (const id of ["vless", "socks5", "shadowsocks"]) assert.match(backend, new RegExp(`"${id}"`));
-  assert.match(definitions, /未配置/);
+  for (const protocol of ["VLESS", "SOCKS5", "Shadowsocks", "VMess", "Trojan", "TUIC"]) assert.match(`${types}\n${definitions}`, new RegExp(protocol));
+  for (const id of ["vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic"]) assert.match(backend, new RegExp(`"${id}"`));
+  assert.match(definitions, /xtls-rprx-vision/);
+  assert.match(definitions, /Reality/);
+});
+
+test("v2.1 detail interactions avoid native or stale UI artifacts", async () => {
+  const [app, styles, audit, traffic, donut, login] = await Promise.all([
+    read("components/CastoriceApp.tsx"), read("app/globals.css"), read("components/pages/AuditPage.tsx"),
+    read("components/charts/TrafficChart.tsx"), read("components/charts/DonutChart.tsx"), read("components/auth/AuthPage.tsx"),
+  ]);
+  assert.match(app, /notification-badge/);
+  assert.doesNotMatch(styles, /notification-button span:last-child/);
+  assert.match(app, /toastSequence/);
+  assert.match(app, /snapshot-date/);
+  assert.match(audit, /slice\(0, 30\)/);
+  assert.match(audit, /\/ 50/);
+  assert.match(audit, /pageItems/);
+  assert.match(traffic, /chart-inspector/);
+  assert.doesNotMatch(`${traffic}\n${donut}`, /<title>/);
+  assert.doesNotMatch(login, /凭据只发送到当前面板后端|Use your panel account to access live server data/);
 });
 
 test("backend examples remain loopback-only and secret-free", async () => {
