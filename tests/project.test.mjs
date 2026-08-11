@@ -134,6 +134,8 @@ test("v2.1 detail interactions avoid native or stale UI artifacts", async () => 
   assert.match(app, /notification-badge/);
   assert.doesNotMatch(styles, /notification-button span:last-child/);
   assert.match(app, /toastSequence/);
+  assert.match(app, /const dismissToast = useCallback/);
+  assert.doesNotMatch(app, /onDismiss=\{\(\) => setToast\(null\)\}/);
   assert.match(app, /snapshot-date/);
   assert.match(audit, /slice\(0, 30\)/);
   assert.match(audit, /\/ 50/);

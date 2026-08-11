@@ -333,6 +333,9 @@ export function CastoriceApp() {
     toastSequence.current += 1;
     setToast({ id: toastSequence.current, message });
   }, []);
+  const dismissToast = useCallback(() => {
+    setToast(null);
+  }, []);
   const integrationFor = useCallback(
     (id: IntegrationId) =>
       dashboard.integrations.find((item) => item.id === id),
@@ -496,7 +499,7 @@ export function CastoriceApp() {
           onClose={() => setSelectedSetup(null)}
           onSave={saveIntegration}
         />
-        <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={() => setToast(null)} />
+        <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={dismissToast} />
       </>
     );
 
@@ -869,7 +872,7 @@ export function CastoriceApp() {
           )}
         </p>
       </Dialog>
-      <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={() => setToast(null)} />
+      <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={dismissToast} />
     </div>
   );
 }
