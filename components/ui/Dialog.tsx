@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button";
+import { useI18n } from "../../lib/i18n";
 
 interface DialogProps {
   open: boolean;
@@ -21,6 +22,7 @@ export function Dialog({
   actions,
   size = "medium",
 }: DialogProps) {
+  const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const titleId = useId();
@@ -73,7 +75,7 @@ export function Dialog({
 
   return createPortal(
     <div className="md-dialog-layer">
-      <button className="md-dialog-scrim" type="button" aria-label="关闭对话框" onClick={onClose} />
+      <button className="md-dialog-scrim" type="button" aria-label={t("关闭对话框", "Close dialog")} onClick={onClose} />
       <div
         ref={dialogRef}
         className={`md-dialog md-dialog--${size}`}
@@ -88,7 +90,7 @@ export function Dialog({
           <h2 id={titleId}>{title}</h2>
           {description ? <p id={descriptionId}>{description}</p> : null}
         </div>
-        <Button variant="text" icon="close" aria-label="关闭" onClick={onClose} />
+        <Button variant="text" icon="close" aria-label={t("关闭", "Close")} onClick={onClose} />
       </div>
       <div className="md-dialog__content">{children}</div>
       {actions ? <div className="md-dialog__actions">{actions}</div> : null}

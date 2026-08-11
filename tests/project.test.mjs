@@ -1,147 +1,135 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
-test("production entry contains the application metadata and mount point", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+const root = new URL("../", import.meta.url);
+const read = (path) => readFile(new URL(path, root), "utf8");
+
+test("production entry contains metadata, viewport, and mount point", async () => {
+  const html = await read("index.html");
   assert.match(html, /<title>Material-Design CastoriceUI<\/title>/i);
   assert.match(html, /<div id="root"><\/div>/i);
   assert.match(html, /<script type="module" src="\/main\.tsx"><\/script>/i);
   assert.match(html, /name="viewport"/i);
 });
 
-test("keeps secrets out of documentation-safe demo data", async () => {
-  const demo = await readFile(new URL("../lib/demo-data.ts", import.meta.url), "utf8");
-  assert.match(demo, /example\.test/);
-  assert.match(demo, /203\.0\.113\.|198\.51\.100\.|2001:db8:/);
-  assert.doesNotMatch(demo, /BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY/);
-  assert.doesNotMatch(demo, /gh[pousr]_[A-Za-z0-9_]{20,}/);
-  assert.doesNotMatch(demo, /sk-[A-Za-z0-9]{20,}/);
+test("v2.0 production UI never falls back to fabricated dashboard data", async () => {
+  const [app, empty] = await Promise.all([read("components/CastoriceApp.tsx"), read("lib/empty-dashboard.ts")]);
+  assert.doesNotMatch(app, /previewDashboard|mode === "preview"|示例数据模式/);
+  assert.match(app, /没有显示任何示例数据/);
+  assert.match(app, /mode: "stale"/);
+  assert.doesNotMatch(empty, /example\.test|203\.0\.113\.|198\.51\.100\.|2001:db8:/);
+  await assert.rejects(read("lib/demo-data.ts"));
 });
 
-test("documents the backend security boundary", async () => {
-  const [readme, integration, provider] = await Promise.all([
-    readFile(new URL("../README.md", import.meta.url), "utf8"),
-    readFile(new URL("../docs/INTEGRATION.md", import.meta.url), "utf8"),
-    readFile(new URL("../lib/data-provider.ts", import.meta.url), "utf8"),
+test("v2.0 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
+  const [client, server, nginx, backendPackage] = await Promise.all([
+    read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"),
   ]);
-  assert.match(readme, /private keys.*plaintext passwords are never returned/is);
-  assert.match(integration, /browser must never receive/i);
-  assert.match(provider, /CastoriceDataProvider/);
+  assert.match(client, /X-CSRF-Token/);
+  assert.match(client, /\/api\/v2\/auth\/login/);
+  assert.match(server, /HttpOnly/);
+  assert.match(server, /SameSite=Strict/);
+  assert.match(server, /authentication_lock/);
+  assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
+  assert.match(backendPackage, /__version__ = "2\.0\.0"/);
 });
 
-test("v1.5 keeps setup drafts in React session state only", async () => {
-  const [app, wizard] = await Promise.all([
-    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
+test("first run is protected by a one-time token and requires basics before overview", async () => {
+  const [auth, firstRun, server, runner] = await Promise.all([
+    read("components/auth/AuthPage.tsx"), read("components/setup/FirstRunConfiguration.tsx"), read("server/castoriceui/api.py"), read("server/run.py"),
   ]);
-  assert.match(app, /setupDrafts/);
-  assert.doesNotMatch(app, /localStorage\.setItem\([^)]*setupDrafts/);
-  assert.match(wizard, /刷新浏览器后不会保留未提交内容/);
+  assert.match(auth, /bootstrapToken/);
+  assert.match(runner, /--generate-bootstrap/);
+  assert.match(server, /consume_bootstrap/);
+  assert.match(server, /basic_setup_required/);
+  assert.match(firstRun, /onSaveBasics/);
+  assert.match(firstRun, /onComplete/);
+  assert.match(firstRun, /不会写入示例数据/);
 });
 
-test("v1.5 distinguishes loading, preview, live, and stale state", async () => {
-  const [app, overview, setup, wizard] = await Promise.all([
-    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/pages/OverviewPage.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/setup/SetupPanel.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/setup/SetupWizard.tsx", import.meta.url), "utf8"),
+test("Chinese, English, and system language modes are available across UI modules", async () => {
+  const [i18n, app, integrations] = await Promise.all([read("lib/i18n.tsx"), read("components/CastoriceApp.tsx"), read("lib/integrations.ts")]);
+  assert.match(i18n, /"system" \| "zh" \| "en"/);
+  assert.match(i18n, /return "en"/);
+  assert.match(app, /Follow system/);
+  assert.match(integrations, /LocalizedText/);
+  const componentFiles = (await readdir(new URL("components/", root), { recursive: true })).filter((name) => /\.(?:ts|tsx)$/.test(name));
+  for (const name of componentFiles) {
+    const content = await read(`components/${name.replaceAll("\\", "/")}`);
+    const lines = content.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+      if (!/\p{Script=Han}/u.test(line)) continue;
+      const context = lines.slice(Math.max(0, index - 4), index + 5).join("\n");
+      const bilingualAuditMapping = name.endsWith("AuditPage.tsx") && (
+        /^\s*(?:"[^"]*[\p{Script=Han}][^"]*"|[\p{Script=Han}]+):\s*"[^"]+",?$/u.test(line) ||
+        /^\s*"[^"]*[\p{Script=Han}][^"]*":\s*$/u.test(line) && /^\s*"[^"]+",?$/u.test(lines[index + 1] ?? "") ||
+        /\.replace\(\/\^.*[\p{Script=Han}].*\$\/,\s*"[^"]+"\)/u.test(line)
+      );
+      assert.ok(bilingualAuditMapping || /\bt\(|nameEn=|descriptionEn=|\bzh:|category ===|result ===|useState<"全部"|AUDIT_(?:ACTION|DETAIL)_EN/.test(context), `Unlocalized visible Chinese in ${name}: ${line.trim()}`);
+    }
+  }
+});
+
+test("navigation badges are removed while notifications hide zero and cap at 99+", async () => {
+  const [navigation, app] = await Promise.all([read("lib/navigation.ts"), read("components/CastoriceApp.tsx")]);
+  assert.doesNotMatch(navigation, /badge/);
+  assert.match(app, /unacknowledgedAlerts > 0/);
+  assert.match(app, /unacknowledgedAlerts > 99 \? "99\+"/);
+  assert.match(app, /snapshot-time/);
+  assert.doesNotMatch(app, /后端快照 ·/);
+});
+
+test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
+  const [page, collector, dashboard] = await Promise.all([read("components/pages/ConnectionsPage.tsx"), read("server/castoriceui/collectors.py"), read("server/castoriceui/dashboard.py")]);
+  assert.match(page, /copyText\(item\.sourceIp\)/);
+  assert.doesNotMatch(page, /同协议、账号和来源 IP 自动合并/);
+  assert.doesNotMatch(page, /速率由相邻真实累计字节快照计算/);
+  assert.match(collector, /default_singbox_protocol/);
+  assert.match(collector, /inboundTags/);
+  assert.match(dashboard, /aggregate_connections/);
+});
+
+test("network targets are editable and charts use real smooth sample paths", async () => {
+  const [network, chart, collector, api] = await Promise.all([read("components/pages/NetworkPage.tsx"), read("components/charts/TrafficChart.tsx"), read("server/castoriceui/collectors.py"), read("lib/api.ts")]);
+  assert.match(network, /updateNetworkTargets/);
+  assert.match(network, /FeatureIntro/);
+  assert.match(network, /order/);
+  assert.match(network, /smoothPath/);
+  assert.match(chart, / C /);
+  assert.match(collector, /"-c", "8"/);
+  assert.match(api, /settings\/network-targets/);
+});
+
+test("subscription hints are removed and traffic quota remains one shared value", async () => {
+  const [subscriptions, overview, accounts, dashboard, app] = await Promise.all([
+    read("components/pages/SubscriptionsPage.tsx"), read("components/pages/OverviewPage.tsx"), read("components/pages/AccountsPage.tsx"), read("server/castoriceui/dashboard.py"), read("components/CastoriceApp.tsx"),
   ]);
-  assert.match(app, /示例数据模式/);
-  assert.match(app, /后端连接中断，数据已停止更新/);
-  assert.match(app, /emptyDashboard/);
-  assert.match(app, /status: "preview"/);
-  assert.match(overview, /没有连接任何服务器/);
-  assert.match(setup, /不会保存配置或验证服务器/);
-  assert.match(wizard, /没有保存配置，也没有验证任何真实服务/);
-  assert.match(app, /previewDashboard/);
+  assert.doesNotMatch(subscriptions, /FeatureIntro|独立入口|快速导入/);
+  assert.match(overview, /流量使用趋势/);
+  assert.match(accounts, /统一额度/);
+  assert.match(dashboard, /account\["quotaBytes"\]/);
+  assert.match(app, /quota-input-stable/);
 });
 
-test("v1.5 deployment examples are authenticated and path-consistent", async () => {
-  const [nginx, deployment, security, service] = await Promise.all([
-    readFile(new URL("../deploy/nginx.conf.example", import.meta.url), "utf8"),
-    readFile(new URL("../docs/DEPLOYMENT.md", import.meta.url), "utf8"),
-    readFile(new URL("../SECURITY.md", import.meta.url), "utf8"),
-    readFile(new URL("../deploy/castoriceui-backend.service", import.meta.url), "utf8"),
-  ]);
-  assert.match(nginx, /root \/var\/www\/castorice-ui\/current;/);
-  assert.match(nginx, /auth_basic\s+"CastoriceUI";/);
-  assert.match(deployment, /groupadd --system proxycert/);
-  assert.match(service, /SupplementaryGroups=proxycert/);
-  assert.doesNotMatch(security, /vinext|image-size@/i);
+test("optional account expiry values cannot crash the account page", async () => {
+  const format = await read("lib/format.ts");
+  assert.match(format, /!value \|\| Number\.isNaN\(date\.getTime\(\)\)/);
+  assert.match(format, /return "—"/);
 });
 
-test("v1.5 mutation requests carry a browser CSRF guard and share one backend version", async () => {
-  const [apiClient, apiServer, backendPackage] = await Promise.all([
-    readFile(new URL("../lib/api.ts", import.meta.url), "utf8"),
-    readFile(new URL("../server/castoriceui/api.py", import.meta.url), "utf8"),
-    readFile(new URL("../server/castoriceui/__init__.py", import.meta.url), "utf8"),
-  ]);
-  assert.match(apiClient, /X-CastoriceUI-Request/);
-  assert.match(apiServer, /missing_request_guard/);
-  assert.match(apiServer, /__version__/);
-  assert.match(backendPackage, /__version__ = "1\.5\.0"/);
+test("additional protocols are explicit and unconfigured state remains visible", async () => {
+  const [types, definitions, backend] = await Promise.all([read("lib/types.ts"), read("lib/integrations.ts"), read("server/castoriceui/config.py")]);
+  for (const protocol of ["VLESS", "SOCKS5", "Shadowsocks"]) assert.match(`${types}\n${definitions}`, new RegExp(protocol));
+  for (const id of ["vless", "socks5", "shadowsocks"]) assert.match(backend, new RegExp(`"${id}"`));
+  assert.match(definitions, /未配置/);
 });
 
-test("backend examples stay loopback-only and secret-free", async () => {
-  const config = JSON.parse(await readFile(new URL("../server/config.example.json", import.meta.url), "utf8"));
+test("backend examples remain loopback-only and secret-free", async () => {
+  const config = JSON.parse(await read("server/config.example.json"));
   assert.equal(config.listen_host, "127.0.0.1");
   assert.match(config.hysteria_api.url, /^http:\/\/127\.0\.0\.1:/);
   assert.match(config.singbox_api.url, /^http:\/\/127\.0\.0\.1:/);
+  assert.equal(config.secure_cookies, true);
   assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
-});
-
-test("v1.5 exposes ten themes and removes misleading placeholder controls", async () => {
-  const [app, network, pages] = await Promise.all([
-    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/pages/NetworkPage.tsx", import.meta.url), "utf8"),
-    Promise.all([
-      "AccountsPage.tsx", "ConnectionsPage.tsx", "TrafficPage.tsx", "SubscriptionsPage.tsx",
-      "ServicesPage.tsx", "AlertsPage.tsx", "AuditPage.tsx",
-    ].map((name) => readFile(new URL(`../components/pages/${name}`, import.meta.url), "utf8"))),
-  ]);
-  for (const color of ["violet", "blue", "green", "rose", "amber", "teal", "cyan", "indigo", "coral", "slate"]) {
-    assert.match(app, new RegExp(`\\b${color}\\b`));
-  }
-  assert.doesNotMatch(network, /packet_mirror/i);
-  assert.match(network, /暂无数据/);
-  assert.doesNotMatch(pages.join("\n"), /需要后端授权|接入后端后启用|仅在当前页面生效/);
-});
-
-test("v1.5 aggregates connections without fabricating unavailable fields", async () => {
-  const [connections, collector, gate] = await Promise.all([
-    readFile(new URL("../components/pages/ConnectionsPage.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../server/castoriceui/collectors.py", import.meta.url), "utf8"),
-    readFile(new URL("../components/setup/IntegrationGate.tsx", import.meta.url), "utf8"),
-  ]);
-  assert.match(connections, /核心未提供/);
-  assert.match(connections, /按协议、账号和来源 IP 合并重复条目/);
-  assert.match(connections, /等待连续快照/);
-  assert.doesNotMatch(connections, /在线设备|每秒更新|过去 3 秒/);
-  assert.match(collector, /"uploadBps": None/);
-  assert.match(collector, /"connectedAt": connection\.get\("start"\)/);
-  assert.match(gate, /status\.status === "error"/);
-  assert.match(gate, /status\?\.status === "preview"/);
-});
-
-test("v1.5 has a standalone optional setup page and removes region placeholders", async () => {
-  const [app, overview, demo, setup] = await Promise.all([
-    readFile(new URL("../components/CastoriceApp.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/pages/OverviewPage.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../lib/demo-data.ts", import.meta.url), "utf8"),
-    readFile(new URL("../components/pages/SetupPage.tsx", import.meta.url), "utf8"),
-  ]);
-  assert.match(app, /显示初始化向导页面/);
-  assert.match(app, /item\.id !== "setup" \|\| showSetup/);
-  assert.match(setup, /SetupPanel/);
-  assert.doesNotMatch(overview, /SetupPanel|nodeRegion|resourceHistory/);
-  assert.doesNotMatch(`${app}\n${overview}\n${demo}`, /Tokyo(?: edge| · NRT)/);
-});
-
-test("v1.5 keeps feature intro only on subscriptions and supports custom traffic ranges", async () => {
-  const pageNames = ["AccountsPage.tsx", "ConnectionsPage.tsx", "TrafficPage.tsx", "SubscriptionsPage.tsx", "NetworkPage.tsx", "ServicesPage.tsx", "AlertsPage.tsx", "AuditPage.tsx"];
-  const pages = await Promise.all(pageNames.map((name) => readFile(new URL(`../components/pages/${name}`, import.meta.url), "utf8")));
-  pages.forEach((content, index) => index === 3 ? assert.match(content, /FeatureIntro/) : assert.doesNotMatch(content, /FeatureIntro/));
-  const overview = await readFile(new URL("../components/pages/OverviewPage.tsx", import.meta.url), "utf8");
-  for (const range of ["1h", "6h", "24h", "3day", "7day"]) assert.match(overview, new RegExp(`"${range}"`));
 });

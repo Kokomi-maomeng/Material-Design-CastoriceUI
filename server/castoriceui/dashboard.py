@@ -32,6 +32,9 @@ class DashboardService:
         self.cached_network: list[dict[str, Any]] = []
         self.network_at = 0.0
         self.connection_baseline: dict[str, tuple[float, int, int]] = {}
+        saved_targets = storage.get_setting("network_targets", None)
+        if isinstance(saved_targets, list):
+            config.network_targets = saved_targets
         overrides = storage.get_setting("integration_overrides", {})
         sanitized_legacy_secrets = False
         if isinstance(overrides, dict):
@@ -71,6 +74,10 @@ class DashboardService:
             self.config.hysteria_api.update({"url": values.get("endpoint", "")})
         elif integration_id == "anytls":
             self.config.singbox_api.update({"url": values.get("endpoint", "")})
+        elif integration_id in {"vless", "socks5", "shadowsocks"}:
+            self.config.singbox_api.update({"url": values.get("endpoint", "")})
+            tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
+            self.config.protocol_adapters[integration_id] = {"inboundTags": tags}
         elif integration_id == "traffic":
             interface = values.get("interface", "").strip()
             if interface:
@@ -111,6 +118,9 @@ class DashboardService:
         allowed_fields = {
             "hysteria2": {"endpoint"},
             "anytls": {"endpoint"},
+            "vless": {"endpoint", "inboundTags"},
+            "socks5": {"endpoint", "inboundTags"},
+            "shadowsocks": {"endpoint", "inboundTags"},
             "traffic": {"interface", "quotaGb"},
             "connections": set(),
             "subscriptions": {"baseUrl"},
@@ -126,7 +136,14 @@ class DashboardService:
             raise ValueError("Integration values must be an object")
         clean_values = {key: str(value)[:2048] for key, value in values.items() if key in allowed_fields[integration_id]}
         enabled = bool(payload.get("enabled", True))
-        required = {"hysteria2": {"endpoint"}, "anytls": {"endpoint"}, "subscriptions": {"baseUrl"}}
+        required = {
+            "hysteria2": {"endpoint"},
+            "anytls": {"endpoint"},
+            "vless": {"endpoint", "inboundTags"},
+            "socks5": {"endpoint", "inboundTags"},
+            "shadowsocks": {"endpoint", "inboundTags"},
+            "subscriptions": {"baseUrl"},
+        }
         configured = required.get(integration_id, set()).issubset({key for key, value in clean_values.items() if value.strip()})
         if integration_id not in required:
             configured = True
@@ -136,6 +153,9 @@ class DashboardService:
         summaries = {
             "hysteria2": "Endpoint saved; connectivity and authentication validated",
             "anytls": "Endpoint saved; connectivity and authentication validated",
+            "vless": "sing-box endpoint and VLESS inbound tags validated",
+            "socks5": "sing-box endpoint and SOCKS5 inbound tags validated",
+            "shadowsocks": "sing-box endpoint and Shadowsocks inbound tags validated",
             "subscriptions": "HTTPS URL format validated; publisher reachability is not probed",
             "network": "Probe targets saved; runtime reachability is reported separately",
             "traffic": "Traffic sampling settings saved",
@@ -162,13 +182,20 @@ class DashboardService:
                 raise ValueError("Configure the Hysteria2 Secret in the protected server config first")
             http_json(endpoint + "/traffic", secret, strict=True)
             values["endpoint"] = endpoint
-        elif integration_id == "anytls":
+        elif integration_id in {"anytls", "vless", "socks5", "shadowsocks"}:
             endpoint = normalize_loopback_endpoint(values["endpoint"])
             secret = str(self.config.singbox_api.get("secret", "")).strip()
             if not secret or secret == "replace-on-server":
                 raise ValueError("Configure the sing-box Secret in the protected server config first")
             http_json(endpoint + "/connections", secret, bearer=True, strict=True)
             values["endpoint"] = endpoint
+            if integration_id != "anytls":
+                tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
+                if not tags or len(tags) > 20 or any(len(tag) > 80 for tag in tags):
+                    raise ValueError("Provide 1-20 sing-box inbound tags, each at most 80 characters")
+                if len({tag.casefold() for tag in tags}) != len(tags):
+                    raise ValueError("Inbound tags must be unique")
+                values["inboundTags"] = ",".join(tags)
         elif integration_id == "subscriptions":
             values["baseUrl"] = normalize_https_base_url(values["baseUrl"])
         elif integration_id == "network" and values.get("targets", "").strip():
@@ -211,9 +238,48 @@ class DashboardService:
                 self.network_at = time.monotonic()
             return self.cached_network
 
+    def update_network_targets(self, payload: Any, source_ip: str, actor: str) -> list[dict[str, Any]]:
+        if not isinstance(payload, list) or not 1 <= len(payload) <= 12:
+            raise ValueError("Configure between 1 and 12 network targets")
+        targets: list[dict[str, Any]] = []
+        seen_addresses: set[str] = set()
+        for index, item in enumerate(payload):
+            if not isinstance(item, dict):
+                raise ValueError("Each network target must be an object")
+            name = str(item.get("name", "")).strip()
+            if not name or len(name) > 60:
+                raise ValueError("Network target name must contain 1-60 characters")
+            address, version = validate_probe_target(str(item.get("address", "")))
+            if address in seen_addresses:
+                raise ValueError("Network target addresses must be unique")
+            seen_addresses.add(address)
+            try:
+                order = int(item.get("order", index + 1))
+            except (TypeError, ValueError) as error:
+                raise ValueError("Network target order must be an integer") from error
+            targets.append({
+                "id": f"custom-{index + 1}",
+                "name": name,
+                "provider": "Custom",
+                "address": address,
+                "ipVersion": version,
+                "order": max(1, min(order, 999)),
+            })
+        targets.sort(key=lambda item: (item["order"], item["name"].casefold()))
+        for index, item in enumerate(targets, 1):
+            item["id"] = f"custom-{index}"
+            item["order"] = index
+        with self.lock:
+            self.config.network_targets = targets
+            self.cached_network = []
+            self.network_at = 0.0
+            self.storage.set_setting("network_targets", targets)
+        self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
+        return targets
+
     def traffic_series(self) -> dict[str, Any]:
         now = int(time.time())
-        definitions = {"1h": (3600, 300), "6h": (6 * 3600, 1800), "24h": (86400, 7200), "3day": (3 * 86400, 21600), "7day": (7 * 86400, 86400)}
+        definitions = {"1h": (3600, 180), "6h": (6 * 3600, 900), "24h": (86400, 3600), "3day": (3 * 86400, 10800), "7day": (7 * 86400, 21600)}
         samples = self.storage.samples_since(now - 7 * 86400 - 300)
 
         def series(duration: int, interval: int) -> list[dict[str, Any]]:
@@ -260,6 +326,7 @@ class DashboardService:
         for account, identities in zip(accounts, mappings):
             account["usedBytes"] = sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in identities)
             account["onlineDevices"] = sum(int(online.get(identity, 0)) for identity in identities)
+            account["quotaBytes"] = int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes))
         return accounts
 
     def aggregate_connections(self, raw_connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -305,13 +372,13 @@ class DashboardService:
         latency_threshold = float(self.config.alert_thresholds.get("latencyMs", 150))
         loss_threshold = float(self.config.alert_thresholds.get("lossPercent", 5))
         if usage >= traffic_threshold:
-            alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "description": "Review the remaining monthly quota and recent growth trend.", "time": "now", "acknowledged": False, "source": "Traffic quota"})
+            alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "titleEn": f"Traffic usage reached {usage:.0f}%", "titleZh": f"流量使用已达到 {usage:.0f}%", "description": "Review the remaining monthly quota and recent growth trend.", "descriptionEn": "Review the remaining monthly quota and recent growth trend.", "descriptionZh": "请检查剩余额度和近期增长趋势。", "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Traffic quota", "sourceEn": "Traffic quota", "sourceZh": "流量额度"})
         for service in services:
             if service["status"] == "stopped":
-                alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "description": service["detail"], "time": "now", "acknowledged": False, "source": "Service monitor"})
+                alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "titleEn": f"{service.get('nameEn', service['name'])} is offline", "titleZh": f"{service.get('nameZh', service['name'])} 已离线", "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Service monitor", "sourceEn": "Service monitor", "sourceZh": "服务监控"})
         for target in network:
             if target["status"] == "down" or target["latency"] >= latency_threshold or target["loss"] >= loss_threshold:
-                alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "time": "latest probe", "acknowledged": False, "source": "Network probe"})
+                alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "titleEn": f"{target['name']} network quality degraded", "titleZh": f"{target['name']} 网络质量下降", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionEn": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionZh": f"延迟 {target['latency']} ms · 丢包 {target['loss']}%", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测"})
         acknowledged = self.storage.acknowledged()
         for alert in alerts:
             alert["acknowledged"] = alert["id"] in acknowledged
@@ -355,28 +422,35 @@ class DashboardService:
     def runtime_integrations(self, hy2: dict[str, Any], singbox: dict[str, Any], network: list[dict[str, Any]]) -> list[dict[str, Any]]:
         states = {item["id"]: item for item in self.config.public_integrations()}
 
-        def update(integration_id: str, *, configured: bool | None = None, ready: bool, summary: str) -> None:
+        def update(integration_id: str, *, configured: bool | None = None, ready: bool, summary: str, summary_zh: str) -> None:
             state = states[integration_id]
             if configured is not None:
                 state["configured"] = configured
             state["status"] = "ready" if ready else "error" if state["configured"] else "pending"
             state["summary"] = summary
+            state["summaryEn"] = summary
+            state["summaryZh"] = summary_zh
 
         hy2_configured = bool(str(self.config.hysteria_api.get("url", "")).strip())
         sb_configured = bool(str(self.config.singbox_api.get("url", "")).strip())
-        update("hysteria2", configured=hy2_configured, ready=bool(hy2.get("available")), summary="Traffic Stats API is responding" if hy2.get("available") else "Traffic Stats API is not configured or not responding")
-        update("anytls", configured=sb_configured, ready=bool(singbox.get("available")), summary="sing-box connections API is responding" if singbox.get("available") else "sing-box connections API is not configured or not responding")
+        update("hysteria2", configured=hy2_configured, ready=bool(hy2.get("available")), summary="Traffic Stats API is responding" if hy2.get("available") else "Traffic Stats API is not configured or not responding", summary_zh="Traffic Stats API 响应正常" if hy2.get("available") else "Traffic Stats API 未配置或当前无响应")
+        anytls_configured = bool(sb_configured and self.config.integrations.get("anytls", {}).get("configured"))
+        update("anytls", configured=anytls_configured, ready=bool(anytls_configured and singbox.get("available")), summary="sing-box connections API is responding for AnyTLS" if anytls_configured and singbox.get("available") else "AnyTLS is not configured or the sing-box API is unavailable", summary_zh="AnyTLS 的 sing-box 连接 API 响应正常" if anytls_configured and singbox.get("available") else "AnyTLS 未配置或 sing-box API 当前不可用")
+        for integration_id, label in (("vless", "VLESS"), ("socks5", "SOCKS5"), ("shadowsocks", "Shadowsocks")):
+            adapter = self.config.protocol_adapters.get(integration_id, {})
+            configured = bool(sb_configured and adapter.get("inboundTags"))
+            update(integration_id, configured=configured, ready=bool(configured and singbox.get("available")), summary=f"{label} inbound tags are mapped to the sing-box connection API" if configured and singbox.get("available") else f"{label} is not configured or the sing-box API is unavailable", summary_zh=f"{label} 入站标签已映射到 sing-box 连接 API" if configured and singbox.get("available") else f"{label} 未配置或 sing-box API 当前不可用")
         hy2_streams_ready = bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available")))
         adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
-        update("connections", ready=adapters_ready, summary="Protocol connection snapshots are available; individual fields may be absent" if adapters_ready else "No configured protocol statistics adapter is currently responding")
-        update("system", ready=True, summary="Local /proc, filesystem and systemd data collected")
-        update("traffic", ready=True, summary=f"Interface {self.system_collector.interface} counters sampled; monthly usage starts at the first retained sample")
+        update("connections", ready=adapters_ready, summary="Protocol connection snapshots are available; individual fields may be absent" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="协议连接快照可用；个别字段可能由核心省略" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")
+        update("system", ready=True, summary="Local /proc, filesystem and systemd data collected", summary_zh="已采集本机 /proc、文件系统和 systemd 数据")
+        update("traffic", ready=True, summary=f"Interface {self.system_collector.interface} counters sampled; monthly usage starts at the first retained sample", summary_zh=f"已采集网卡 {self.system_collector.interface} 计数器；周期用量从首个保留样本开始")
         subscription_count = len(self.config.subscriptions)
-        update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified")
+        update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified", summary_zh=f"已读取 {subscription_count} 条受保护配置记录；未验证发布器外部可达性")
         reachable = sum(1 for target in network if target.get("status") != "down")
-        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary=f"Last cached probe: {reachable}/{len(network)} targets reachable; results may be up to 5 minutes old" if network else "No network probe result is available")
-        update("alerts", ready=True, summary="Local threshold evaluation enabled")
-        update("audit", ready=True, summary="Local audit records loaded from protected storage")
+        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary=f"Last cached probe: {reachable}/{len(network)} targets reachable; results may be up to 5 minutes old" if network else "No network probe result is available", summary_zh=f"最近缓存探测：{reachable}/{len(network)} 个目标可达；结果最多可能延迟 5 分钟" if network else "当前没有网络探测结果")
+        update("alerts", ready=True, summary="Local threshold evaluation enabled", summary_zh="本地阈值告警评估已启用")
+        update("audit", ready=True, summary="Local audit records loaded from protected storage", summary_zh="已从受保护存储读取本地审计记录")
         return list(states.values())
 
     def subscription_url(self, subscription_id: str) -> str | None:
@@ -403,7 +477,8 @@ class DashboardService:
             singbox = singbox_future.result()
             network = network_future.result()
         services = service_snapshots(self.config, system, hy2, singbox)
-        connections = self.aggregate_connections(connection_snapshots(hy2, singbox))
+        default_singbox_protocol = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") else "sing-box"
+        connections = self.aggregate_connections(connection_snapshots(hy2, singbox, self.config.protocol_adapters, default_singbox_protocol))
         integrations = self.runtime_integrations(hy2, singbox, network)
         if self.config.redact_live_data:
             for connection in connections:
@@ -423,9 +498,10 @@ class DashboardService:
                 account["email"] = self._mask_identity(account.get("email", ""))
                 if account.get("note"):
                     account["note"] = "已设置备注（内容已隐藏）"
+        singbox_label = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") and not self.config.protocol_adapters else "sing-box combined"
         protocol = [
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},
-            {"name": "AnyTLS", "value": int(singbox.get("traffic", {}).get("up", 0)) + int(singbox.get("traffic", {}).get("down", 0))},
+            {"name": singbox_label, "value": int(singbox.get("traffic", {}).get("up", 0)) + int(singbox.get("traffic", {}).get("down", 0))},
         ]
         return {
             "mode": "live",
@@ -440,4 +516,5 @@ class DashboardService:
             "alerts": self.alerts(system, services, network),
             "auditEvents": self.audit_events(),
             "integrations": integrations,
+            "uiSettings": self.storage.get_setting("ui_settings", {"showSetup": True, "visiblePanels": ["accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"]}),
         }

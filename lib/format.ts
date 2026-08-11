@@ -22,15 +22,22 @@ export function formatDuration(totalSeconds: number): string {
   const clock = [hours, minutes, remaining]
     .map((value) => String(value).padStart(2, "0"))
     .join(":");
-  return days > 0 ? `${days}天 ${clock}` : clock;
+  return days > 0
+    ? `${days}${document.documentElement.lang.startsWith("zh") ? "天" : "d"} ${clock}`
+    : clock;
 }
 
 export function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(
+    document.documentElement.lang.startsWith("zh") ? "zh-CN" : "en",
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    },
+  ).format(date);
 }
 
 export function percent(value: number, total: number): number {

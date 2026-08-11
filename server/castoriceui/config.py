@@ -10,6 +10,9 @@ DEFAULT_INTEGRATIONS = {
     "system": {"enabled": True, "configured": True},
     "hysteria2": {"enabled": False, "configured": False},
     "anytls": {"enabled": False, "configured": False},
+    "vless": {"enabled": False, "configured": False},
+    "socks5": {"enabled": False, "configured": False},
+    "shadowsocks": {"enabled": False, "configured": False},
     "connections": {"enabled": True, "configured": True},
     "traffic": {"enabled": True, "configured": True},
     "subscriptions": {"enabled": False, "configured": False},
@@ -37,6 +40,11 @@ class AppConfig:
     subscriptions: list[dict[str, Any]] = field(default_factory=list)
     redact_live_data: bool = False
     alert_thresholds: dict[str, float] = field(default_factory=lambda: {"trafficPercent": 80.0, "latencyMs": 150.0, "lossPercent": 5.0})
+    protocol_adapters: dict[str, dict[str, Any]] = field(default_factory=dict)
+    bootstrap_token_path: str = "/var/lib/castoriceui/bootstrap-token"
+    login_background_directory: str = "/var/lib/castoriceui/login-backgrounds"
+    secure_cookies: bool = True
+    session_lifetime_seconds: int = 43_200
 
     @classmethod
     def load(cls, path: str | Path) -> "AppConfig":
@@ -58,6 +66,8 @@ class AppConfig:
                 "configured": bool(value.get("configured")),
                 "status": value.get("status", "ready" if value.get("configured") else "pending"),
                 "summary": value.get("summary", ""),
+                "summaryZh": value.get("summaryZh", ""),
+                "summaryEn": value.get("summaryEn", value.get("summary", "")),
             }
             for key, value in self.integrations.items()
         ]

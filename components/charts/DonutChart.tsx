@@ -1,8 +1,11 @@
 "use client";
 
+import { useI18n } from "../../lib/i18n";
+
 interface DonutItem { name: string; value: number; color: string }
 
 export function DonutChart({ data, centerLabel, centerValue }: { data: DonutItem[]; centerLabel: string; centerValue: string }) {
+  const { t } = useI18n();
   const total = data.reduce((sum, item) => sum + item.value, 0);
   const radius = 72;
   const circumference = 2 * Math.PI * radius;
@@ -10,7 +13,7 @@ export function DonutChart({ data, centerLabel, centerValue }: { data: DonutItem
   return (
     <div className="donut-wrap">
       <div className="chart chart--donut">
-        <svg className="native-donut" viewBox="0 0 200 200" role="img" aria-label={`${centerLabel}分布图`}>
+        <svg className="native-donut" viewBox="0 0 200 200" role="img" aria-label={t(`${centerLabel}分布图`, `${centerLabel} distribution chart`)}>
           <circle className="donut-track" cx="100" cy="100" r={radius} />
           {data.map((item, index) => {
             const fraction = total > 0 ? item.value / total : 0;

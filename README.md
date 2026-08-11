@@ -1,176 +1,145 @@
 # Material-Design CastoriceUI
 
-![Version](https://img.shields.io/badge/version-1.5.0-6750A4)
+![Version](https://img.shields.io/badge/version-2.0.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
 
-一套采用 Material Design 3 的开源轻量 VPS 代理管理面板，包含响应式前端、引导式接入和可选的 Python 标准库后端。它统一呈现主机资源、Hysteria2、AnyTLS / sing-box、连接快照、流量、网络质量、证书、告警与审计信息，并明确区分实时采样、缓存结果、配置记录、缺失字段和演示数据。
+一套采用 Material Design 3 的轻量 VPS 流量与代理可观测面板，包含响应式前端、Python 标准库后端、应用内登录和首次初始化向导。页面只呈现主机或协议接口实际采集到的数据；后端不可用时不会回退到伪造仪表盘。
 
-A lightweight open-source Material Design 3 VPS proxy console with a responsive frontend, guided integrations, and an optional Python standard-library backend. It brings host metrics, Hysteria2, AnyTLS / sing-box, connection snapshots, traffic, network quality, certificates, alerts, and audit events together without presenting cached, missing, configured, or demo values as live evidence.
+A lightweight Material Design 3 VPS traffic and proxy observability console with a responsive frontend, Python standard-library backend, application sign-in, and a protected first-run flow. The production UI displays only data collected from the host or configured protocol APIs and never falls back to a fabricated dashboard.
 
 ![Material-Design CastoriceUI desktop overview](docs/images/dashboard-desktop.png)
 
-> 上图为使用文档保留地址与演示数据生成的界面预览，不代表任何真实服务器状态。
->
-> The hero uses documentation-safe demo data and does not represent a live server.
+> 图片是使用文档保留地址与虚构账号制作的产品预览，不代表真实服务器状态。项目 README 只保留这一张横向桌面图。
+> This documentation image uses reserved addresses and fictional accounts. It is not evidence of a live server.
 
 [中文](#中文) · [English](#english)
 
 ## 中文
 
-### v1.5：真实流量与连接可观测性
+### v2.0 重点更新
 
-- 修复受管账号名称与 Hysteria2 认证身份不同导致账号用量及排名恒为 `0`：支持 `trafficIdentities` 显式映射，并仅在单账号、单身份时自动进行无歧义关联。
-- 活动连接按协议、账号和来源 IP 聚合；同一来源只占一行，持续时间取组内最早连接，真实目标可按需展开。
-- Hysteria2 当前核心不提供来源 IP 时明确显示缺失；AnyTLS 展示 Clash API 实际返回的来源与目标。
-- 瞬时速率不再写成固定 `0`：仅通过同一连接的两个相邻真实累计字节快照计算，首个快照或计数器重置时隐藏速率列。
-- 总览改为 `1h / 6h / 24h / 3天 / 7天` 进出流量图；流量分析使用同一组真实网卡计数器增量。
-- 网络质量目标可使用“名称,地址”逐行自定义，保存后替换旧目标并清除探测缓存。
-- 初始化向导成为总览下方的独立页面，可在设置中隐藏；设置同时支持自定义总览节点名称。
-- 除订阅管理中的“独立入口 / 快速导入 / 凭据保护”外，移除各页重复提示栏。
+- 新增 Material Design 登录页、HttpOnly 会话、CSRF 防护、登录限速和真实登录用户名菜单；注销后回到登录页。
+- 首次部署必须使用服务器生成的一次性 Bootstrap Token 创建管理员，再完成节点名称与流量额度配置；未完成前不能进入总览。
+- 全站支持中文、English 和跟随系统；系统语言不是中文或英文时使用 English。
+- 设置支持登录背景、节点显示名、初始化向导开关、主题以及除总览/初始化向导外的导航面板显隐。
+- 网络探测目标可直接在页面编辑名称、地址和顺序；曲线最多使用 8 个真实 ICMP 响应点，不补造采样。
+- 总览和流量分析使用后台定时保存的真实网卡计数器增量，提供 `1h / 6h / 24h / 3天 / 7天` 范围和更平滑的曲线。
+- 账号额度与总览额度来自同一后端设置；Hysteria2 多账号用量需通过 `trafficIdentities` 显式映射，避免错误归属或恒为零。
+- 活动连接按协议、账号和来源 IP 聚合；可复制真实来源 IP 并展开实际条目。只有相邻累计字节快照可计算速率时才显示速率。
+- 可接入 Hysteria2、AnyTLS、VLESS、SOCKS5 和 Shadowsocks；后三者必须配置明确的 sing-box inbound tag 映射，未配置时只显示“未配置”。
+- 所有侧栏数字已移除；通知为零时不显示角标，最多显示 `99+`。
 
-### 主要能力
+完整修复清单见 [`docs/RELEASE_NOTES_v2.0.0.md`](docs/RELEASE_NOTES_v2.0.0.md)。
 
-- **主机总览**：CPU、内存、磁盘、负载、运行时间、网卡速率、月度基线和多时间范围进出流量。
-- **协议快照**：Hysteria2 Traffic Stats 与 sing-box Clash API；只展示协议核心实际提供的字段。
-- **状态分层**：清楚区分加载中、实时快照、最后快照、预览数据、已配置和当前不可用。
-- **网络与服务**：IPv4 / IPv6 延迟、抖动、丢包、systemd、证书和自动更新状态。
-- **管理视图**：账号配置、活动连接条目、流量分析、订阅记录、告警和操作审计。
-- **安全接入**：管理 API 默认仅监听回环地址；上游 Secret 只保存在服务器 `0640` 配置中。
-- **真实验证**：Hysteria2 / sing-box 必须完成回环地址限制、连通性与鉴权检查后才可标记就绪。
-- **使用体验**：桌面、平板和手机响应式布局，无障碍弹窗与键盘导航，十组主题色。
-- **可回滚部署**：提供 Nginx、systemd、专用用户/组、版本化目录、备份与回滚流程。
+### 数据真实性边界
 
-### 后端能力
+- 主机 CPU、内存、磁盘、负载、运行时间和网卡计数器来自 Linux `/proc`、`/sys` 与 `statvfs`。
+- 流量历史从后端运行后的真实计数器相邻差值建立，无法恢复部署前未采集的历史。
+- Hysteria2 Traffic Stats 可提供账号、累计流量、在线计数和活动流，但当前接口不保证提供客户端来源 IP；缺失时页面明确标记，不会把访问目标伪装成来源。
+- sing-box Clash API 提供连接元数据和累计流量。VLESS、SOCKS5、Shadowsocks 的识别只接受服务器配置中的明确 inbound tag 映射，不依据端口或名称猜测。
+- 连接速率由同一连接 ID 的两次真实累计字节快照计算。首次快照、计数器回退或连接 ID 不连续时不显示速率。
+- ICMP 目标不可达时显示不可达/无响应，不会写入 `0 ms` 或虚构曲线点。
+- 仪表盘响应不包含上游 API Secret、完整订阅 Token、私钥、配置文件或明文密码。完整订阅地址仅在管理员主动复制或生成二维码时按需返回。
 
-`server/` 提供不依赖第三方 Python 包的数据服务：
+### 开发检查
 
-- `/proc`、`/sys`、`statvfs`：CPU、内存、磁盘、负载、运行时间和网卡计数器
-- Hysteria2 Traffic Stats API：账号累计流量、在线计数、活动流、请求目标和显式身份映射
-- sing-box Clash API：AnyTLS 连接、真实来源/目标、累计流量和相邻快照速率
-- `systemd` 与证书读取：核心状态、版本、运行时间和证书有效期
-- IPv4 / IPv6 并发探测：延迟、抖动和丢包
-- SQLite：流量采样、设置、告警确认和操作审计
-
-管理 API 默认只监听 `127.0.0.1`，由 Nginx 通过同源 `/api/` 转发。协议 API 也应只监听回环地址，并使用独立随机密钥。浏览器不会收到上游 API Secret、配置文件、私钥或明文密码。
-
-开源仓库、示例数据和 README 主视觉只使用文档保留地址与虚构账号。登录后的私有部署可以展示适配器实际返回的账号、来源 IP 和审计来源；如需演示环境，可设置 `redact_live_data: true`。无论该选项如何，常规仪表盘响应都不会包含完整订阅 URL、Token、上游 API Secret、配置文件、私钥或明文密码。完整订阅地址只在管理员主动复制或生成二维码时由受保护端点按需返回。
-
-### 快速预览
-
-需要 Node.js 20.19 或更高版本：
+需要 Node.js 20.19+ 与 Python 3.11+。单独启动 Vite 但没有后端时，页面会明确报告后端不可用，不再出现预览数据。
 
 ```bash
 git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
 cd Material-Design-CastoriceUI
 npm ci
+npm run check
 npm run dev
 ```
 
-打开 `http://localhost:5173`。未启动后端时会使用带有持续提示的内置示例数据；向导可以演示交互，但不会声称已经保存或验证真实配置。
-
-### 完整检查
-
-```bash
-npm run check
-```
-
-该命令依次执行 ESLint、TypeScript、前后端测试、敏感信息扫描、生产构建和生产依赖审计。
+`npm run check` 会执行 ESLint、TypeScript、前后端测试、Python 编译、敏感信息扫描、生产构建和生产依赖审计。
 
 ### 生产部署
 
-生产部署不是单条复制命令：必须先建立版本化回滚目录、专用用户与 `proxycert` 组、受限配置文件、TLS 和覆盖前端及 `/api/` 的认证。请完整执行 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)，并使用默认启用认证且指向 `current` 发布目录的 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)。升级时保留现有私有配置和数据库，不要用示例文件覆盖。
+生产环境需要 systemd Linux、Python 3.11+、Nginx 与有效 TLS 证书。后端和所有协议管理接口只能监听回环地址。v2.0 使用应用内登录，不要再在 Nginx 增加 `auth_basic`，否则浏览器密码框会覆盖新的登录体验。
 
-### 数据准确性边界
+请完整执行 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)，首次启动生成一次性 Token：
 
-- 网卡流量从后端首次运行时开始建立月度基线，不能恢复部署前未记录的历史采样。
-- 页面每 5 秒刷新后端快照；网络 ICMP 探测最多缓存 5 分钟，二者不是同一采样频率。
-- Hysteria2 可以提供账号级统计；sing-box 当前接口主要提供连接与聚合统计，能否映射到账号取决于核心返回字段。
-- 协议分布和账号排行展示协议核心当前累计值，不能自动视为运营商或订阅的月度计费周期；月度总览另由本机网卡保留采样建立基线。
-- 多账号部署应在受保护配置的账号记录中设置 `"trafficIdentities": {"hysteria2": ["协议认证身份"]}`；只有一项账号和一项 Hysteria2 身份时才会自动关联。
-- Hysteria2 Traffic Stats 活动流包含认证账号，但当前接口不保证返回客户端来源 IP；缺失时页面会明确显示“协议核心未提供”，不会把访问目标误标为来源地址。
-- 活动流或连接条目不是独立设备计数。连接速率是同一 ID 的相邻累计字节差除以快照间隔，并非协议核心直接提供；无法建立真实基线时不会显示。
-- 面板不会直接执行任意 shell 命令。协议账号写入、认证迁移等高风险操作应通过经过审计的专用适配器实现。
-- Basic Auth 可用于单管理员部署；多人环境建议换成带会话、CSRF 和 MFA 的认证代理。
-
-### 项目结构
-
-```text
-app/                    Material Design 3 样式与设计令牌
-components/             页面、图表、向导和 UI 组件
-lib/                    类型、API 客户端、预览数据和接入定义
-server/castoriceui/     Python 后端、采集器、SQLite 与 HTTP API
-deploy/                 systemd 和 Nginx 示例
-docs/                   部署、接入与设计文档
-tests/                  前端边界测试
+```bash
+sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/backend/run.py \
+  --config /etc/castoriceui/config.json --generate-bootstrap
 ```
 
-### 安全
+Token 文件权限必须为 `0600`，创建首个管理员后会被消费。升级时保留 `/etc/castoriceui/config.json`、`/var/lib/castoriceui/state.db*` 和以前的版本目录，绝不能用示例配置覆盖私有配置。
 
-提交前运行 `npm run check`。不要提交 `.env`、真实服务器地址、用户名、密码、订阅 Token、Cookie、API Secret、私钥或证书。示例只能使用 `example.com` / `example.test` 和文档地址。
+### 协议接入
 
-安全问题请参阅 [`SECURITY.md`](SECURITY.md)，贡献流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+- Hysteria2 与 sing-box 控制端点必须是 `localhost`、`127.0.0.1` 或 `::1`，并通过真实鉴权探测后才标记可用。
+- Secret 只写入服务器的 `0640 root:castoriceui` 配置文件，不通过浏览器提交。
+- 多账号 Hysteria2 必须在 `managed_accounts` 中配置 `trafficIdentities.hysteria2`；只有一账号和一身份时才允许无歧义自动关联。
+- VLESS、SOCKS5、Shadowsocks 共用受保护的 sing-box Clash API，并在 `protocol_adapters` 中列出各自 inbound tags。
+
+示例、限制和浏览器安全边界见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
 
 ## English
 
-### v1.5: real traffic and connection observability
+### v2.0 highlights
 
-- Fixes account usage and rankings that stayed at zero when display names differed from Hysteria2 auth identities; supports explicit `trafficIdentities` mappings and an unambiguous single-account fallback
-- Groups activity by protocol, account, and source IP, with earliest connection duration and expandable real destinations
-- Shows Hysteria2 source IP as unavailable when the core omits it; AnyTLS source and destination fields come directly from the Clash API
-- Calculates rates only from consecutive cumulative-byte snapshots for the same connection; rate columns stay hidden until a real baseline exists
-- Adds `1h`, `6h`, `24h`, `3 day`, and `7 day` interface-traffic ranges to Overview and Traffic Analysis
-- Supports named custom network targets, a standalone optional setup page, and a configurable node display name
-- Keeps the three subscription security hints while removing repeated feature-intro strips elsewhere
+- Material Design sign-in, HttpOnly server sessions, CSRF protection, login throttling, the actual username menu, and sign-out routing.
+- A protected first run: generate a one-time Bootstrap Token on the server, create the first administrator, then save the required node name and traffic quota before Overview becomes available.
+- Complete Chinese/English UI with system-language selection; unsupported system languages resolve to English.
+- Settings for sign-in background, node display name, Setup visibility, themes, and navigation visibility for every optional panel.
+- Editable network probe names, addresses, and ordering, with up to eight real ICMP response points and no invented samples.
+- Persisted host-interface counter sampling for smooth `1h / 6h / 24h / 3 day / 7 day` traffic views.
+- One backend quota shared by Overview and Accounts; explicit Hysteria2 identity mapping prevents false account attribution.
+- Connections grouped by protocol, account, and source IP, with source-IP copy and expandable real entries. Rates appear only when consecutive cumulative counters support them.
+- Explicit Hysteria2, AnyTLS, VLESS, SOCKS5, and Shadowsocks states. VLESS/SOCKS5/Shadowsocks require configured sing-box inbound-tag mappings and otherwise remain unconfigured.
+- No sidebar number badges; zero notification badges stay hidden and counts cap at `99+`.
 
-### Main capabilities
+See [`docs/RELEASE_NOTES_v2.0.0.md`](docs/RELEASE_NOTES_v2.0.0.md) for the complete public change log.
 
-- **Host overview:** CPU, memory, disk, load, uptime, interface rates, a retained monthly baseline, and bounded traffic ranges.
-- **Protocol snapshots:** Hysteria2 Traffic Stats and sing-box Clash API data, limited to fields the cores actually return.
-- **Explicit state model:** loading, live snapshot, stale snapshot, preview data, configured, and runtime-error states.
-- **Network and services:** IPv4/IPv6 latency, jitter, loss, systemd, certificate, and automatic-update health.
-- **Operator views:** configured accounts, activity entries, traffic, subscription records, alerts, and audit events.
-- **Security boundary:** loopback-only management endpoints and server-config-only upstream Secrets.
-- **Authenticated readiness:** protocol adapters become ready only after bounded connectivity and authentication probes.
-- **Responsive UI:** desktop, tablet, and mobile navigation, accessible dialogs, keyboard support, and ten color themes.
-- **Rollback-ready deployment:** authenticated Nginx, a dedicated systemd identity, versioned releases, backups, and rollback guidance.
+### Truthful data model
 
-### Backend
+- Host metrics come from Linux `/proc`, `/sys`, and `statvfs`.
+- Traffic history is built from adjacent real interface counters after the backend starts; it cannot recreate pre-install history.
+- Hysteria2 may omit client source IPs. Missing source data remains explicitly unavailable and is never replaced with a destination.
+- sing-box connection metadata is used as returned. VLESS, SOCKS5, and Shadowsocks are classified only by explicit inbound-tag mappings, never guessed from ports or labels.
+- Per-connection rates require two consecutive non-decreasing cumulative-byte snapshots for the same connection ID.
+- Failed ICMP probes remain unavailable; the UI does not insert `0 ms` or fabricated points.
+- Dashboard payloads exclude upstream Secrets, complete subscription tokens, private keys, raw configs, and plaintext passwords.
 
-The optional backend under `server/` uses only the Python standard library and SQLite. It collects Linux resource counters, Hysteria2 Traffic Stats, sing-box Clash connection data, systemd health, certificate expiry, network probes, traffic history, alerts, and audit events.
+### Development and verification
 
-The API listens on loopback by default and is exposed only through the authenticated same-origin `/api/` reverse proxy. Upstream secrets, raw configuration files, private keys, and plaintext passwords are never returned to the browser.
-
-Repository examples and the README hero remain documentation-safe and explicitly labeled as demo data. A private authenticated deployment can show the account, source IP, and audit identifiers actually returned by its adapters; operators can opt into presentation masking with `redact_live_data: true`. Subscription URLs and tokens remain excluded from the dashboard payload. A protected endpoint returns a URL only for an explicit copy or QR action, and the QR value is cleared from page memory when the dialog closes.
-
-### Development
+Node.js 20.19+ and Python 3.11+ are required. A frontend without its backend displays an explicit connection error instead of sample data.
 
 ```bash
 git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
 cd Material-Design-CastoriceUI
 npm ci
+npm run check
 npm run dev
 ```
 
-Open `http://localhost:5173`. Without a backend, the UI starts in clearly labeled preview mode. The workflow remains testable, but it does not claim to save or validate a real service.
+`npm run check` runs linting, type checking, frontend/backend tests, Python compilation, sensitive-content scanning, a production build, and a production dependency audit.
 
-Run all checks and create the production build:
+### Production
+
+Use a systemd Linux host, Python 3.11+, Nginx, and valid TLS. Keep the backend and protocol management endpoints on loopback. v2.0 uses application authentication; do not add Nginx `auth_basic`, which would bring back the browser credential prompt.
+
+Follow [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) from start to finish. Generate the one-time first-admin token on the server:
 
 ```bash
-npm run check
-npm run build
+sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/backend/run.py \
+  --config /etc/castoriceui/config.json --generate-bootstrap
 ```
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the backend, systemd, Nginx, TLS, validation, and rollback workflow. See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) for the API and adapter boundary.
+Preserve the protected config, SQLite database, and previous versioned release during upgrades. See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) for adapter contracts and safety boundaries and [`SECURITY.md`](SECURITY.md) for the supported deployment boundary.
 
 ### Compatibility
 
-- ES2017 browser target with clipboard, storage, and media-query fallbacks
+- Python 3.11+ and a systemd Linux host for production
+- Node.js 20.19+ for building
+- Maintained Chrome, Edge, Firefox, and Safari desktop/mobile releases
+- Responsive layouts for phone, tablet, desktop, browser zoom, pointer, touch, and keyboard navigation
 - Locally bundled fonts and Material Symbols; no runtime font CDN
-- Lazy-loaded pages and lightweight SVG charts
-- Maintained Chrome, Edge, Firefox, Safari, and their mobile variants
-- Python 3.11+ and a systemd-based Linux host for the optional backend
 
 ### License
 
