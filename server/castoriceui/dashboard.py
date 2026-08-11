@@ -4,7 +4,6 @@ import threading
 import time
 import copy
 import ipaddress
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -32,6 +31,7 @@ class DashboardService:
         self.snapshot_lock = threading.Lock()
         self.cached_network: list[dict[str, Any]] = []
         self.network_at = 0.0
+        self.connection_baseline: dict[str, tuple[float, int, int]] = {}
         overrides = storage.get_setting("integration_overrides", {})
         sanitized_legacy_secrets = False
         if isinstance(overrides, dict):
@@ -61,7 +61,13 @@ class DashboardService:
             storage.add_audit("清理旧版接入密钥", "配置", "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret")
 
     def _apply_integration_values(self, integration_id: str, values: dict[str, str]) -> None:
-        if integration_id == "hysteria2":
+        if integration_id == "system":
+            node_name = values.get("nodeName", "").strip()
+            if node_name:
+                if len(node_name) > 80:
+                    raise ValueError("Node name must be at most 80 characters")
+                self.config.node_name = node_name
+        elif integration_id == "hysteria2":
             self.config.hysteria_api.update({"url": values.get("endpoint", "")})
         elif integration_id == "anytls":
             self.config.singbox_api.update({"url": values.get("endpoint", "")})
@@ -82,11 +88,11 @@ class DashboardService:
         elif integration_id == "network" and values.get("targets", "").strip():
             targets: list[dict[str, Any]] = []
             for index, line in enumerate(values["targets"].splitlines()[:12]):
-                address = line.strip()
-                if not address:
+                if not line.strip():
                     continue
+                name, address = self._network_target_parts(line)
                 address, version = validate_probe_target(address)
-                targets.append({"id": f"custom-{index + 1}", "name": address, "provider": "Custom", "address": address, "ipVersion": version})
+                targets.append({"id": f"custom-{index + 1}", "name": name or address, "provider": "Custom", "address": address, "ipVersion": version})
             if not targets:
                 raise ValueError("At least one valid network target is required")
             self.config.network_targets = targets
@@ -111,7 +117,7 @@ class DashboardService:
             "network": {"targets"},
             "alerts": {"trafficPercent", "latencyMs", "lossPercent"},
             "audit": set(),
-            "system": set(),
+            "system": {"nodeName"},
         }
         if integration_id not in allowed_fields:
             raise ValueError("Unknown integration")
@@ -168,7 +174,8 @@ class DashboardService:
         elif integration_id == "network" and values.get("targets", "").strip():
             for line in values["targets"].splitlines()[:12]:
                 if line.strip():
-                    validate_probe_target(line)
+                    _name, address = self._network_target_parts(line)
+                    validate_probe_target(address)
         elif integration_id == "traffic":
             if values.get("interface", "").strip():
                 values["interface"] = validate_interface_name(values["interface"])
@@ -184,6 +191,19 @@ class DashboardService:
                     if not minimum <= number <= maximum:
                         raise ValueError(f"{key} must be between {minimum} and {maximum}")
 
+    @staticmethod
+    def _network_target_parts(line: str) -> tuple[str, str]:
+        text = line.strip()
+        for separator in ("|", ","):
+            if separator in text:
+                name, address = (part.strip() for part in text.split(separator, 1))
+                if not name or not address:
+                    raise ValueError("Network target must use 'name,address' or a plain address")
+                if len(name) > 60:
+                    raise ValueError("Network target name must be at most 60 characters")
+                return name, address
+        return "", text
+
     def network(self) -> list[dict[str, Any]]:
         with self.lock:
             if time.monotonic() - self.network_at > 300 or not self.cached_network:
@@ -193,22 +213,90 @@ class DashboardService:
 
     def traffic_series(self) -> dict[str, Any]:
         now = int(time.time())
-        samples = self.storage.samples_since(now - 30 * 86400)
-        hourly: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        daily: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for sample in samples:
-            moment = datetime.fromtimestamp(sample["captured_at"], timezone.utc)
-            hourly[moment.strftime("%H:00")].append(sample)
-            daily[moment.strftime("%m/%d")].append(sample)
+        definitions = {"1h": (3600, 300), "6h": (6 * 3600, 1800), "24h": (86400, 7200), "3day": (3 * 86400, 21600), "7day": (7 * 86400, 86400)}
+        samples = self.storage.samples_since(now - 7 * 86400 - 300)
 
-        def deltas(groups: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+        def series(duration: int, interval: int) -> list[dict[str, Any]]:
+            start = now - duration
+            buckets: dict[int, dict[str, int]] = {}
+            previous: dict[str, Any] | None = None
+            for sample in samples:
+                if previous is not None and sample["captured_at"] >= start:
+                    bucket = (sample["captured_at"] // interval) * interval
+                    item = buckets.setdefault(bucket, {"upload": 0, "download": 0})
+                    item["upload"] += max(0, sample["tx_bytes"] - previous["tx_bytes"])
+                    item["download"] += max(0, sample["rx_bytes"] - previous["rx_bytes"])
+                previous = sample
             result = []
-            for label, values in groups.items():
-                first, last = values[0], values[-1]
-                result.append({"label": label, "upload": max(0, last["tx_bytes"] - first["tx_bytes"]), "download": max(0, last["rx_bytes"] - first["rx_bytes"])})
+            for captured_at, values in sorted(buckets.items()):
+                moment = datetime.fromtimestamp(captured_at, timezone.utc)
+                label = moment.strftime("%m/%d") if interval >= 86400 else moment.strftime("%m/%d %H:%M")
+                result.append({"label": label, **values})
             return result
 
-        return {"hourly": deltas(hourly), "daily": deltas(daily)}
+        ranges = {key: series(duration, interval) for key, (duration, interval) in definitions.items()}
+        return {"ranges": ranges, "hourly": ranges["24h"], "daily": ranges["7day"]}
+
+    def account_metrics(self, accounts: list[dict[str, Any]], hy2: dict[str, Any]) -> list[dict[str, Any]]:
+        traffic = hy2.get("traffic", {}) if isinstance(hy2.get("traffic"), dict) else {}
+        online = hy2.get("online", {}) if isinstance(hy2.get("online"), dict) else {}
+        identities = set(traffic) | set(online)
+        assigned: set[str] = set()
+        mappings: list[list[str]] = []
+        for account in accounts:
+            configured = account.get("trafficIdentities", [])
+            if isinstance(configured, dict):
+                configured = configured.get("hysteria2", [])
+            if not isinstance(configured, list):
+                configured = []
+            candidates = [str(account.get("name", "")), str(account.get("id", "")), *(str(value) for value in configured)]
+            matches = [candidate for candidate in candidates if candidate and candidate in identities and candidate not in assigned]
+            assigned.update(matches)
+            mappings.append(matches)
+        unmatched_accounts = [index for index, values in enumerate(mappings) if not values]
+        unmatched_identities = [identity for identity in identities if identity not in assigned]
+        if len(unmatched_accounts) == 1 and len(unmatched_identities) == 1:
+            mappings[unmatched_accounts[0]] = [unmatched_identities[0]]
+        for account, identities in zip(accounts, mappings):
+            account["usedBytes"] = sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in identities)
+            account["onlineDevices"] = sum(int(online.get(identity, 0)) for identity in identities)
+        return accounts
+
+    def aggregate_connections(self, raw_connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        now = time.monotonic()
+        current: dict[str, tuple[float, int, int]] = {}
+        groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for item in raw_connections:
+            connection_id = str(item["id"])
+            uploaded = int(item.get("uploadedBytes", 0)); downloaded = int(item.get("downloadedBytes", 0))
+            previous = self.connection_baseline.get(connection_id)
+            upload_rate = download_rate = None
+            if previous and now > previous[0] and uploaded >= previous[1] and downloaded >= previous[2]:
+                elapsed = now - previous[0]
+                upload_rate = round((uploaded - previous[1]) / elapsed)
+                download_rate = round((downloaded - previous[2]) / elapsed)
+            current[connection_id] = (now, uploaded, downloaded)
+            detail = {**item, "uploadBps": upload_rate, "downloadBps": download_rate}
+            key = (str(item["protocol"]), str(item["account"]), str(item["sourceIp"]))
+            if key not in groups:
+                groups[key] = {"id": "group-" + str(len(groups) + 1), "protocol": key[0], "account": key[1], "sourceIp": key[2], "ipVersion": item.get("ipVersion"), "connections": 0, "uploadBps": 0, "downloadBps": 0, "connectedAt": item.get("connectedAt"), "uploadedBytes": 0, "downloadedBytes": 0, "details": [], "ratesAvailable": True}
+            group = groups[key]
+            group["connections"] += 1
+            group["uploadedBytes"] += uploaded; group["downloadedBytes"] += downloaded
+            group["details"].append(detail)
+            if item.get("connectedAt") and (not group["connectedAt"] or str(item["connectedAt"]) < str(group["connectedAt"])):
+                group["connectedAt"] = item["connectedAt"]
+            if upload_rate is None or download_rate is None:
+                group["ratesAvailable"] = False
+            else:
+                group["uploadBps"] += upload_rate; group["downloadBps"] += download_rate
+        self.connection_baseline = current
+        for group in groups.values():
+            if not group.pop("ratesAvailable"):
+                group["uploadBps"] = None; group["downloadBps"] = None
+            if not any(detail.get("destination") for detail in group["details"]):
+                group["details"] = []
+        return list(groups.values())
 
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]]) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
@@ -315,19 +403,21 @@ class DashboardService:
             singbox = singbox_future.result()
             network = network_future.result()
         services = service_snapshots(self.config, system, hy2, singbox)
-        connections = connection_snapshots(hy2, singbox)
+        connections = self.aggregate_connections(connection_snapshots(hy2, singbox))
         integrations = self.runtime_integrations(hy2, singbox, network)
         if self.config.redact_live_data:
             for connection in connections:
                 connection["sourceIp"] = self._mask_ip(connection.get("sourceIp"))
                 connection["account"] = self._mask_identity(connection.get("account"))
+                for detail in connection.get("details", []):
+                    detail["sourceIp"] = self._mask_ip(detail.get("sourceIp"))
+                    detail["account"] = self._mask_identity(detail.get("account"))
+                    if detail.get("destination"):
+                        detail["destination"] = "已隐藏"
         traffic = self.traffic_series()
-        accounts = copy.deepcopy(self.config.managed_accounts)
+        accounts = self.account_metrics(copy.deepcopy(self.config.managed_accounts), hy2)
         for account in accounts:
             identity = account.get("name", "")
-            hy2_usage = hy2.get("traffic", {}).get(identity, {})
-            account["usedBytes"] = int(hy2_usage.get("tx", 0)) + int(hy2_usage.get("rx", 0))
-            account["onlineDevices"] = int(hy2.get("online", {}).get(identity, 0))
             if self.config.redact_live_data:
                 account["name"] = self._mask_identity(identity)
                 account["email"] = self._mask_identity(account.get("email", ""))
@@ -350,5 +440,4 @@ class DashboardService:
             "alerts": self.alerts(system, services, network),
             "auditEvents": self.audit_events(),
             "integrations": integrations,
-            "resourceHistory": [{"label": datetime.fromtimestamp(sample["captured_at"], timezone.utc).strftime("%H:%M"), "cpu": sample["cpu"], "memory": sample["memory"]} for sample in self.storage.samples_since(int(time.time()) - 1800)][-12:],
         }

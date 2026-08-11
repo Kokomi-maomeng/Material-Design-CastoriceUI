@@ -1,6 +1,6 @@
 # Material-Design CastoriceUI
 
-![Version](https://img.shields.io/badge/version-1.4.0-6750A4)
+![Version](https://img.shields.io/badge/version-1.5.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -19,20 +19,20 @@ A lightweight open-source Material Design 3 VPS proxy console with a responsive 
 
 ## 中文
 
-### v1.4：可信数据状态
+### v1.5：真实流量与连接可观测性
 
-- 首屏先显示中性加载状态，不再在真实后端响应前闪现示例服务器数字。
-- 后端中断时保留最后成功快照，但明确标记“已停止更新”和快照时间，不再继续声称实时。
-- Hysteria2 活动流和 sing-box 连接统一称为“活动连接条目”，不再误称独立在线设备。
-- 协议核心未返回速率、来源 IP 或开始时间时显示“核心未提供”，不再使用 `0` 或当前时间补造。
-- Hysteria2 / sing-box 的运行态取决于当前 API 响应；仅填写地址不再显示为已连接。
-- 系统自动更新状态改为读取 `unattended-upgrades` 与 `apt-daily-upgrade.timer`，系统版本来自 `/etc/os-release`。
-- 订阅记录明确属于受保护的服务器配置；HTTPS 格式校验不代表发布器可达或已验证。
-- 网络探测明确标注最多缓存 5 分钟；月度流量继续明确以首个保留采样为基线。
+- 修复受管账号名称与 Hysteria2 认证身份不同导致账号用量及排名恒为 `0`：支持 `trafficIdentities` 显式映射，并仅在单账号、单身份时自动进行无歧义关联。
+- 活动连接按协议、账号和来源 IP 聚合；同一来源只占一行，持续时间取组内最早连接，真实目标可按需展开。
+- Hysteria2 当前核心不提供来源 IP 时明确显示缺失；AnyTLS 展示 Clash API 实际返回的来源与目标。
+- 瞬时速率不再写成固定 `0`：仅通过同一连接的两个相邻真实累计字节快照计算，首个快照或计数器重置时隐藏速率列。
+- 总览改为 `1h / 6h / 24h / 3天 / 7天` 进出流量图；流量分析使用同一组真实网卡计数器增量。
+- 网络质量目标可使用“名称,地址”逐行自定义，保存后替换旧目标并清除探测缓存。
+- 初始化向导成为总览下方的独立页面，可在设置中隐藏；设置同时支持自定义总览节点名称。
+- 除订阅管理中的“独立入口 / 快速导入 / 凭据保护”外，移除各页重复提示栏。
 
 ### 主要能力
 
-- **主机总览**：CPU、内存、磁盘、负载、运行时间、网卡速率和月度流量基线。
+- **主机总览**：CPU、内存、磁盘、负载、运行时间、网卡速率、月度基线和多时间范围进出流量。
 - **协议快照**：Hysteria2 Traffic Stats 与 sing-box Clash API；只展示协议核心实际提供的字段。
 - **状态分层**：清楚区分加载中、实时快照、最后快照、预览数据、已配置和当前不可用。
 - **网络与服务**：IPv4 / IPv6 延迟、抖动、丢包、systemd、证书和自动更新状态。
@@ -47,8 +47,8 @@ A lightweight open-source Material Design 3 VPS proxy console with a responsive 
 `server/` 提供不依赖第三方 Python 包的数据服务：
 
 - `/proc`、`/sys`、`statvfs`：CPU、内存、磁盘、负载、运行时间和网卡计数器
-- Hysteria2 Traffic Stats API：账号累计流量、在线计数和活动流条目
-- sing-box Clash API：AnyTLS 连接、来源地址和累计流量
+- Hysteria2 Traffic Stats API：账号累计流量、在线计数、活动流、请求目标和显式身份映射
+- sing-box Clash API：AnyTLS 连接、真实来源/目标、累计流量和相邻快照速率
 - `systemd` 与证书读取：核心状态、版本、运行时间和证书有效期
 - IPv4 / IPv6 并发探测：延迟、抖动和丢包
 - SQLite：流量采样、设置、告警确认和操作审计
@@ -87,8 +87,10 @@ npm run check
 - 网卡流量从后端首次运行时开始建立月度基线，不能恢复部署前未记录的历史采样。
 - 页面每 5 秒刷新后端快照；网络 ICMP 探测最多缓存 5 分钟，二者不是同一采样频率。
 - Hysteria2 可以提供账号级统计；sing-box 当前接口主要提供连接与聚合统计，能否映射到账号取决于核心返回字段。
+- 协议分布和账号排行展示协议核心当前累计值，不能自动视为运营商或订阅的月度计费周期；月度总览另由本机网卡保留采样建立基线。
+- 多账号部署应在受保护配置的账号记录中设置 `"trafficIdentities": {"hysteria2": ["协议认证身份"]}`；只有一项账号和一项 Hysteria2 身份时才会自动关联。
 - Hysteria2 Traffic Stats 活动流包含认证账号，但当前接口不保证返回客户端来源 IP；缺失时页面会明确显示“协议核心未提供”，不会把访问目标误标为来源地址。
-- 活动流或连接条目不是独立设备计数；协议核心没有提供瞬时速率或连接开始时间时，面板不会自行推算。
+- 活动流或连接条目不是独立设备计数。连接速率是同一 ID 的相邻累计字节差除以快照间隔，并非协议核心直接提供；无法建立真实基线时不会显示。
 - 面板不会直接执行任意 shell 命令。协议账号写入、认证迁移等高风险操作应通过经过审计的专用适配器实现。
 - Basic Auth 可用于单管理员部署；多人环境建议换成带会话、CSRF 和 MFA 的认证代理。
 
@@ -112,18 +114,19 @@ tests/                  前端边界测试
 
 ## English
 
-### v1.4: trustworthy data states
+### v1.5: real traffic and connection observability
 
-- Neutral loading state before the first backend response; demo metrics no longer flash during production startup
-- Explicit stale-snapshot state after a backend disconnect, including the last successful timestamp
-- Activity streams and connection records are no longer mislabeled as independent online devices
-- Missing source IP, instantaneous rate, or start time is shown as unavailable instead of being fabricated
-- Runtime adapter health is derived from current authenticated API responses, not configuration presence
-- Automatic-update state comes from systemd, subscription URLs are described as configured records, and network-probe caching is disclosed
+- Fixes account usage and rankings that stayed at zero when display names differed from Hysteria2 auth identities; supports explicit `trafficIdentities` mappings and an unambiguous single-account fallback
+- Groups activity by protocol, account, and source IP, with earliest connection duration and expandable real destinations
+- Shows Hysteria2 source IP as unavailable when the core omits it; AnyTLS source and destination fields come directly from the Clash API
+- Calculates rates only from consecutive cumulative-byte snapshots for the same connection; rate columns stay hidden until a real baseline exists
+- Adds `1h`, `6h`, `24h`, `3 day`, and `7 day` interface-traffic ranges to Overview and Traffic Analysis
+- Supports named custom network targets, a standalone optional setup page, and a configurable node display name
+- Keeps the three subscription security hints while removing repeated feature-intro strips elsewhere
 
 ### Main capabilities
 
-- **Host overview:** CPU, memory, disk, load, uptime, interface rates, and a retained monthly traffic baseline.
+- **Host overview:** CPU, memory, disk, load, uptime, interface rates, a retained monthly baseline, and bounded traffic ranges.
 - **Protocol snapshots:** Hysteria2 Traffic Stats and sing-box Clash API data, limited to fields the cores actually return.
 - **Explicit state model:** loading, live snapshot, stale snapshot, preview data, configured, and runtime-error states.
 - **Network and services:** IPv4/IPv6 latency, jitter, loss, systemd, certificate, and automatic-update health.

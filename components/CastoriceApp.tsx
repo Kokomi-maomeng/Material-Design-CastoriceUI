@@ -26,6 +26,7 @@ const NetworkPage = lazy(() => import("./pages/NetworkPage").then((module) => ({
 const ServicesPage = lazy(() => import("./pages/ServicesPage").then((module) => ({ default: module.ServicesPage })));
 const SubscriptionsPage = lazy(() => import("./pages/SubscriptionsPage").then((module) => ({ default: module.SubscriptionsPage })));
 const TrafficPage = lazy(() => import("./pages/TrafficPage").then((module) => ({ default: module.TrafficPage })));
+const SetupPage = lazy(() => import("./pages/SetupPage").then((module) => ({ default: module.SetupPage })));
 
 function readPreference<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -135,7 +136,8 @@ export function CastoriceApp() {
     };
   }, []);
 
-  const pageTitle = navigation.find((item) => item.id === page)?.label ?? "总览";
+  const visibleNavigation = useMemo(() => navigation.filter((item) => item.id !== "setup" || showSetup), [showSetup]);
+  const pageTitle = visibleNavigation.find((item) => item.id === page)?.label ?? "总览";
   const unacknowledgedAlerts = alerts.filter((item) => !item.acknowledged).length;
 
   const navigate = useCallback((id: PageId) => {
@@ -150,7 +152,12 @@ export function CastoriceApp() {
   const showToast = useCallback((message: string) => setToast(message), []);
   const dismissToast = useCallback(() => setToast(null), []);
   const integrationFor = useCallback((id: IntegrationId) => dashboard.integrations.find((item) => item.id === id), [dashboard.integrations]);
-  const configurePage = useCallback((id: IntegrationId) => setSelectedSetup(id), []);
+  const configurePage = useCallback((id: IntegrationId) => {
+    if (id === "network") {
+      setSetupDrafts((current) => ({ ...current, network: { ...current.network, targets: dashboard.networkTargets.map((target) => `${target.name},${target.address}`).join("\n") } }));
+    }
+    setSelectedSetup(id);
+  }, [dashboard.networkTargets]);
   const closeTheme = useCallback(() => setThemeOpen(false), []);
   const closeQuota = useCallback(() => setQuotaOpen(false), []);
   const openQuota = useCallback(() => {
@@ -194,6 +201,7 @@ export function CastoriceApp() {
 
   const content = useMemo(() => {
     switch (page) {
+      case "setup": return <SetupPage statuses={dashboard.integrations} preview={dashboard.mode === "preview"} onOpen={configurePage} />;
       case "accounts":
         return <AccountsPage accounts={dashboard.accounts} integration={integrationFor("hysteria2")} onConfigure={() => configurePage("hysteria2")} />;
       case "connections": return <ConnectionsPage connections={connections} now={now} onToast={showToast} integration={integrationFor("connections")} onConfigure={() => configurePage("connections")} />;
@@ -203,21 +211,21 @@ export function CastoriceApp() {
       case "services": return <ServicesPage services={dashboard.services} metrics={dashboard.overview} onRefresh={() => { void loadDashboard(); showToast("正在重新读取服务状态"); }} integration={integrationFor("system")} onConfigure={() => configurePage("system")} />;
       case "alerts": return <AlertsPage alerts={alerts} integration={integrationFor("alerts")} onConfigure={() => configurePage("alerts")} onAcknowledge={(id) => { setAlerts((current) => current.map((item) => item.id === id ? { ...item, acknowledged: true } : item)); void acknowledgeAlert(id).catch(() => undefined); showToast("告警已确认"); }} onToast={showToast} />;
       case "audit": return <AuditPage events={dashboard.auditEvents} integration={integrationFor("audit")} onConfigure={() => configurePage("audit")} />;
-      default: return <OverviewPage mode={dashboard.mode} metrics={dashboard.overview} connections={connections} services={dashboard.services} networkTargets={dashboard.networkTargets} integrations={dashboard.integrations} resourceHistory={dashboard.resourceHistory} showSetup={showSetup} onOpenSetup={configurePage} onEditQuota={openQuota} onRefresh={() => { void loadDashboard(); showToast(dashboard.mode === "preview" ? "正在尝试连接后端；失败时继续显示明确标注的示例数据" : "正在刷新后端快照"); }} onViewServices={() => navigate("services")} />;
+      default: return <OverviewPage mode={dashboard.mode} metrics={dashboard.overview} connections={connections} services={dashboard.services} networkTargets={dashboard.networkTargets} traffic={dashboard.traffic} onEditQuota={openQuota} onRefresh={() => { void loadDashboard(); showToast(dashboard.mode === "preview" ? "正在尝试连接后端；失败时继续显示明确标注的示例数据" : "正在刷新后端快照"); }} onViewServices={() => navigate("services")} />;
     }
-  }, [alerts, configurePage, connections, dashboard, integrationFor, loadDashboard, navigate, now, openQuota, page, showSetup, showToast]);
+  }, [alerts, configurePage, connections, dashboard, integrationFor, loadDashboard, navigate, now, openQuota, page, showToast]);
 
   return (
     <div className="app-shell">
       <aside className={`navigation-rail ${drawerOpen ? "is-open" : ""}`}>
         <div className="brand"><span className="brand-mark"><Icon name="ac_unit" size={25} filled /></span><div><strong>CastoriceUI</strong><span>VPS Console</span></div></div>
         <nav aria-label="主导航">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const badge = item.id === "alerts" ? unacknowledgedAlerts : item.badge;
             return <button key={item.id} className={page === item.id ? "is-active" : ""} onClick={() => navigate(item.id)} aria-current={page === item.id ? "page" : undefined} aria-label={badge ? `${item.label} ${badge}` : item.label} title={item.label}><Icon name={item.icon} filled={page === item.id} /><span>{item.label}</span>{badge ? <em>{badge}</em> : null}</button>;
           })}
         </nav>
-        <div className="nav-footer"><button onClick={() => setThemeOpen(true)} aria-label="主题与外观" title="主题与外观"><Icon name="palette" /><span>主题与外观</span></button><div className="nav-status"><span className={`status-dot ${backendOnline ? "status-dot--online" : "status-dot--warning"}`} /><div><strong>{dashboard.mode === "live" ? `后端快照 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : dashboard.mode === "stale" ? `数据已停止更新 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : dashboard.mode === "loading" ? "正在连接后端" : "明确标注的示例数据"}</strong><span>{dashboard.overview.nodeName}</span></div></div><button onClick={() => setShowSetup((visible) => !visible)} aria-label={showSetup ? "隐藏初始化向导" : "显示初始化向导"} title={showSetup ? "隐藏初始化向导" : "显示初始化向导"}><Icon name={showSetup ? "checklist" : "playlist_add_check"} /><span>{showSetup ? "隐藏初始化向导" : "显示初始化向导"}</span></button></div>
+        <div className="nav-footer"><button onClick={() => setThemeOpen(true)} aria-label="设置" title="设置"><Icon name="settings" /><span>设置</span></button><div className="nav-status"><span className={`status-dot ${backendOnline ? "status-dot--online" : "status-dot--warning"}`} /><div><strong>{dashboard.mode === "live" ? `后端快照 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : dashboard.mode === "stale" ? `数据已停止更新 · ${new Date(dashboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : dashboard.mode === "loading" ? "正在连接后端" : "明确标注的示例数据"}</strong><span>{dashboard.overview.nodeName}</span></div></div></div>
       </aside>
       {drawerOpen ? <button className="drawer-scrim" onClick={() => setDrawerOpen(false)} aria-label="关闭导航" /> : null}
 
@@ -225,7 +233,7 @@ export function CastoriceApp() {
         <header className="top-app-bar">
           <div className="top-app-bar__start"><Button variant="text" icon="menu" className="menu-button" aria-label="打开导航" onClick={() => setDrawerOpen(true)} /><div className="mobile-brand"><span className="brand-mark"><Icon name="ac_unit" size={21} filled /></span><strong>{pageTitle}</strong></div></div>
           <div aria-hidden="true" />
-          <div className="top-actions"><Button variant="text" icon="contrast" aria-label="主题设置" onClick={() => setThemeOpen(true)} /><button className="notification-button" onClick={() => navigate("alerts")} aria-label={`${unacknowledgedAlerts} 条未确认告警`}><Icon name="notifications" /><span>{unacknowledgedAlerts}</span></button><div className="user-menu" aria-label="当前管理员"><span className="avatar avatar--small">C</span><div><strong>admin</strong><small>系统管理员</small></div></div></div>
+          <div className="top-actions"><Button variant="text" icon="settings" aria-label="设置" onClick={() => setThemeOpen(true)} /><button className="notification-button" onClick={() => navigate("alerts")} aria-label={`${unacknowledgedAlerts} 条未确认告警`}><Icon name="notifications" /><span>{unacknowledgedAlerts}</span></button><div className="user-menu" aria-label="当前管理员"><span className="avatar avatar--small">C</span><div><strong>admin</strong><small>系统管理员</small></div></div></div>
         </header>
         <main id="main-content">
           {dashboard.mode === "preview" && !backendOnline ? <div className="preview-mode-banner" role="status"><Icon name="science" size={21} /><div><strong>示例数据模式</strong><span>当前数字、连接、服务状态和配置结果均为界面演示，不代表任何服务器已经接入或验证。</span></div></div> : null}
@@ -235,11 +243,11 @@ export function CastoriceApp() {
       </div>
 
       <nav className="bottom-navigation" aria-label="手机导航">
-        {navigation.slice(0, 4).map((item) => <button key={item.id} className={page === item.id ? "is-active" : ""} onClick={() => navigate(item.id)}><span><Icon name={item.icon} filled={page === item.id} /></span><small>{item.label}</small></button>)}
-        <button className={!navigation.slice(0, 4).some((item) => item.id === page) ? "is-active" : ""} onClick={() => setDrawerOpen(true)}><span><Icon name="apps" filled={!navigation.slice(0, 4).some((item) => item.id === page)} /></span><small>更多</small></button>
+        {visibleNavigation.filter((item) => item.id !== "setup").slice(0, 4).map((item) => <button key={item.id} className={page === item.id ? "is-active" : ""} onClick={() => navigate(item.id)}><span><Icon name={item.icon} filled={page === item.id} /></span><small>{item.label}</small></button>)}
+        <button className={!visibleNavigation.filter((item) => item.id !== "setup").slice(0, 4).some((item) => item.id === page) ? "is-active" : ""} onClick={() => setDrawerOpen(true)}><span><Icon name="apps" filled={!visibleNavigation.filter((item) => item.id !== "setup").slice(0, 4).some((item) => item.id === page)} /></span><small>更多</small></button>
       </nav>
 
-      <ThemeDialog open={themeOpen} onClose={closeTheme} mode={themeMode} color={themeColor} onMode={setThemeMode} onColor={setThemeColor} showSetup={showSetup} onShowSetup={setShowSetup} />
+      <ThemeDialog key={`${themeOpen}-${dashboard.overview.nodeName}`} open={themeOpen} onClose={closeTheme} mode={themeMode} color={themeColor} onMode={setThemeMode} onColor={setThemeColor} showSetup={showSetup} onShowSetup={(visible) => { setShowSetup(visible); if (!visible && page === "setup") navigate("overview"); }} nodeName={dashboard.overview.nodeName} onSaveNodeName={async (nodeName) => { await saveIntegration("system", { nodeName }); }} />
       <SetupWizard key={selectedSetup ?? "closed"} selected={selectedSetup} status={selectedSetup ? integrationFor(selectedSetup) : undefined} preview={dashboard.mode === "preview"} drafts={setupDrafts} onDraft={(id, field, value) => setSetupDrafts((current) => ({ ...current, [id]: { ...(current[id] ?? {}), [field]: value } }))} onClose={() => setSelectedSetup(null)} onSave={saveIntegration} />
       <Dialog open={quotaOpen} onClose={closeQuota} title="设置月度总流量" description="用于总览、预计耗尽日期和流量阈值告警。" size="small" actions={<><Button variant="text" onClick={closeQuota} disabled={quotaSaving}>取消</Button><Button onClick={() => void saveQuota()} disabled={quotaSaving}>{quotaSaving ? "保存中…" : "保存"}</Button></>}><label className="field"><span>总流量（GB）</span><div className="field-with-suffix"><input type="number" min="1" step="1" inputMode="numeric" value={draftLimit} onChange={(event) => setDraftLimit(event.target.value)} autoComplete="off" /><b>GB</b></div></label><p className="field-hint">输入期间实时刷新不会覆盖该字段；保存成功后才更新后端额度。</p></Dialog>
       <Toast message={toast} onDismiss={dismissToast} />
@@ -251,7 +259,9 @@ function PageLoading() {
   return <div className="page-loading" role="status" aria-label="正在加载页面"><span /><span /><span /></div>;
 }
 
-function ThemeDialog({ open, onClose, mode, color, onMode, onColor, showSetup, onShowSetup }: { open: boolean; onClose: () => void; mode: ThemeMode; color: ThemeColor; onMode: (mode: ThemeMode) => void; onColor: (color: ThemeColor) => void; showSetup: boolean; onShowSetup: (visible: boolean) => void }) {
+function ThemeDialog({ open, onClose, mode, color, onMode, onColor, showSetup, onShowSetup, nodeName, onSaveNodeName }: { open: boolean; onClose: () => void; mode: ThemeMode; color: ThemeColor; onMode: (mode: ThemeMode) => void; onColor: (color: ThemeColor) => void; showSetup: boolean; onShowSetup: (visible: boolean) => void; nodeName: string; onSaveNodeName: (name: string) => Promise<void> }) {
+  const [draftNodeName, setDraftNodeName] = useState(nodeName);
+  const [nodeNameSaving, setNodeNameSaving] = useState(false);
   const colors: Array<{ id: ThemeColor; label: string; value: string }> = [
     { id: "violet", label: "鸢尾紫", value: "#7357a3" }, { id: "blue", label: "海湾蓝", value: "#38618c" },
     { id: "green", label: "青苔绿", value: "#42664f" }, { id: "rose", label: "蔷薇红", value: "#88525f" }, { id: "amber", label: "琥珀金", value: "#7b5f21" },
@@ -259,5 +269,5 @@ function ThemeDialog({ open, onClose, mode, color, onMode, onColor, showSetup, o
     { id: "indigo", label: "群青蓝", value: "#4b5f9e" }, { id: "coral", label: "珊瑚橙", value: "#9b442a" }, { id: "slate", label: "岩灰蓝", value: "#52606f" },
   ];
   if (!open) return null;
-  return <Dialog open={open} onClose={onClose} title="设置" description="管理 Material Design 3 外观和总览显示偏好。" actions={<Button onClick={onClose}>完成</Button>}><div className="theme-section"><h3>显示模式</h3><div className="theme-mode-grid">{(["light", "dark", "system"] as const).map((item) => <button key={item} className={mode === item ? "is-selected" : ""} onClick={() => onMode(item)}><span className={`theme-preview theme-preview--${item}`}><i /><i /><i /></span><div><Icon name={item === "light" ? "light_mode" : item === "dark" ? "dark_mode" : "desktop_windows"} size={19} />{item === "light" ? "浅色" : item === "dark" ? "深色" : "跟随系统"}</div></button>)}</div></div><div className="theme-section"><h3>主题色彩</h3><div className="color-options">{colors.map((item) => <button key={item.id} className={color === item.id ? "is-selected" : ""} onClick={() => onColor(item.id)}><span style={{ background: item.value }}>{color === item.id ? <Icon name="check" size={18} /> : null}</span><small>{item.label}</small></button>)}</div></div><button className="settings-row settings-row--button" role="switch" aria-checked={showSetup} onClick={() => onShowSetup(!showSetup)}><span><Icon name="checklist" /><span><strong>显示初始化向导</strong><small>点击整行即可在总览显示或隐藏。</small></span></span><span className={`md-switch ${showSetup ? "is-on" : ""}`} aria-hidden="true"><span /></span><b>{showSetup ? "已显示" : "已隐藏"}</b></button><div className="theme-info"><Icon name="contrast" size={22} /><span>文字、图表和状态色会自动适配浅色与深色表面。</span></div></Dialog>;
+  return <Dialog open={open} onClose={onClose} title="设置" description="管理节点显示名称、初始化向导页面和 Material Design 3 外观。" actions={<Button onClick={onClose}>完成</Button>}><div className="theme-section"><h3>节点信息</h3><label className="field"><span>节点显示名称</span><div className="settings-inline-field"><input value={draftNodeName} maxLength={80} onChange={(event) => setDraftNodeName(event.target.value)} /><Button compact disabled={nodeNameSaving || !draftNodeName.trim() || draftNodeName.trim() === nodeName} onClick={() => { setNodeNameSaving(true); void onSaveNodeName(draftNodeName.trim()).catch(() => undefined).finally(() => setNodeNameSaving(false)); }}>{nodeNameSaving ? "保存中…" : "保存"}</Button></div><small className="field-hint">保存到后端受保护设置，并作为总览主标题显示。</small></label></div><div className="theme-section"><h3>显示模式</h3><div className="theme-mode-grid">{(["light", "dark", "system"] as const).map((item) => <button key={item} className={mode === item ? "is-selected" : ""} onClick={() => onMode(item)}><span className={`theme-preview theme-preview--${item}`}><i /><i /><i /></span><div><Icon name={item === "light" ? "light_mode" : item === "dark" ? "dark_mode" : "desktop_windows"} size={19} />{item === "light" ? "浅色" : item === "dark" ? "深色" : "跟随系统"}</div></button>)}</div></div><div className="theme-section"><h3>主题色彩</h3><div className="color-options">{colors.map((item) => <button key={item.id} className={color === item.id ? "is-selected" : ""} onClick={() => onColor(item.id)}><span style={{ background: item.value }}>{color === item.id ? <Icon name="check" size={18} /> : null}</span><small>{item.label}</small></button>)}</div></div><button className="settings-row settings-row--button" role="switch" aria-checked={showSetup} onClick={() => onShowSetup(!showSetup)}><span><Icon name="checklist" /><span><strong>显示初始化向导页面</strong><small>控制左侧导航中的独立初始化向导入口。</small></span></span><span className={`md-switch ${showSetup ? "is-on" : ""}`} aria-hidden="true"><span /></span><b>{showSetup ? "已显示" : "已隐藏"}</b></button><div className="theme-info"><Icon name="contrast" size={22} /><span>文字、图表和状态色会自动适配浅色与深色表面。</span></div></Dialog>;
 }
