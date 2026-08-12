@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { updateNetworkTargets } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
@@ -431,7 +431,8 @@ function NetworkMetric({
   );
 }
 function smoothPath(points: Array<{ x: number; y: number }>) {
-  if (points.length < 2) return "";
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x},${points[0].y}`;
   return points.slice(1).reduce((path, point, index) => {
     const previous = points[index];
     const mid = (previous.x + point.x) / 2;
@@ -446,6 +447,7 @@ function Sparkline({
   degraded: boolean;
 }) {
   const [active, setActive] = useState<number | null>(null);
+  const gradientId = useId();
   const safeValues = values.filter(Number.isFinite);
   if (safeValues.length === 0)
     return (
@@ -465,10 +467,7 @@ function Sparkline({
   const range = max - min || 1;
   const points =
     safeValues.length === 1
-      ? [
-          { x: 0, y: 16 },
-          { x: 100, y: 16 },
-        ]
+      ? [{ x: 50, y: 16 }]
       : safeValues.map((value, index) => ({
           x: (index / (safeValues.length - 1)) * 100,
           y: 28 - ((value - min) / range) * 24,
@@ -476,13 +475,22 @@ function Sparkline({
   const stroke = degraded ? "var(--warning)" : "var(--primary)";
   return (
     <>
-    <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true" onPointerLeave={() => setActive(null)}>
+    <svg viewBox="0 0 100 32" aria-hidden="true" onPointerLeave={() => setActive(null)}>
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={stroke} stopOpacity=".2" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {points.length > 1 ? <path d={`${smoothPath(points)} L 100,32 L 0,32 Z`} fill={`url(#${gradientId})`} /> : null}
       <path
         d={smoothPath(points)}
         fill="none"
         stroke={stroke}
         strokeWidth="2.5"
         strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
       />
       {points.map((point, index) => (
         <g key={index} onPointerEnter={() => setActive(Math.min(index, safeValues.length - 1))} onPointerDown={() => setActive(Math.min(index, safeValues.length - 1))}>

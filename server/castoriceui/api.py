@@ -226,9 +226,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, {"targets": result})
                 return
             if path == "/api/v2/settings/ui":
-                current = self.app.storage.get_setting("ui_settings", {"showSetup": True, "visiblePanels": sorted(VISIBLE_PANELS)})
-                if not isinstance(current, dict):
-                    current = {}
+                saved = self.app.storage.get_setting("ui_settings", {})
+                if not isinstance(saved, dict):
+                    saved = {}
+                current = {"showSetup": True, "visiblePanels": sorted(VISIBLE_PANELS), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 0, **saved}
                 if "showSetup" in payload:
                     current["showSetup"] = bool(payload["showSetup"])
                 if "visiblePanels" in payload:
@@ -236,8 +237,18 @@ class ApiHandler(BaseHTTPRequestHandler):
                     if not isinstance(panels, list) or any(str(item) not in VISIBLE_PANELS for item in panels):
                         raise ValueError("visiblePanels contains an unknown panel")
                     current["visiblePanels"] = list(dict.fromkeys(str(item) for item in panels))
+                if "panelTitle" in payload:
+                    panel_title = str(payload["panelTitle"]).strip()
+                    if not panel_title or len(panel_title) > 40 or any(ord(character) < 32 for character in panel_title):
+                        raise ValueError("panelTitle must contain 1 to 40 printable characters")
+                    current["panelTitle"] = panel_title
+                if "idleTimeoutMinutes" in payload:
+                    idle_timeout = int(payload["idleTimeoutMinutes"])
+                    if idle_timeout not in {0, 2, 5, 10, 15, 20, 30}:
+                        raise ValueError("idleTimeoutMinutes is not supported")
+                    current["idleTimeoutMinutes"] = idle_timeout
                 self.app.storage.set_setting("ui_settings", current)
-                self.app.storage.add_audit("更新面板设置", "配置", "导航可见性设置已更新", self.source_ip(), actor=str(session["username"]))
+                self.app.storage.add_audit("更新面板设置", "配置", "界面偏好设置已更新", self.source_ip(), actor=str(session["username"]))
                 self.send_json(HTTPStatus.OK, current)
                 return
             if path == "/api/v2/settings/login-background":
