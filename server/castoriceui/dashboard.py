@@ -528,6 +528,9 @@ class DashboardService:
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},
             {"name": singbox_label, "value": int(singbox.get("traffic", {}).get("up", 0)) + int(singbox.get("traffic", {}).get("down", 0))},
         ]
+        saved_ui_settings = self.storage.get_setting("ui_settings", {})
+        if not isinstance(saved_ui_settings, dict):
+            saved_ui_settings = {}
         return {
             "mode": "live",
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -540,5 +543,11 @@ class DashboardService:
             "services": services,
             "alerts": self.alerts(system, services, network),
             "integrations": integrations,
-            "uiSettings": self.storage.get_setting("ui_settings", {"showSetup": True, "visiblePanels": ["accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"]}),
+            "uiSettings": {
+                "showSetup": True,
+                "visiblePanels": ["accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"],
+                "panelTitle": "CastoriceUI",
+                "idleTimeoutMinutes": 0,
+                **saved_ui_settings,
+            },
         }

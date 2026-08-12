@@ -166,6 +166,8 @@ export interface DashboardPayload {
 export interface UiSettings {
   showSetup: boolean;
   visiblePanels: PageId[];
+  panelTitle: string;
+  idleTimeoutMinutes: 0 | 2 | 5 | 10 | 15 | 20 | 30;
 }
 
 export interface LoginAppearance {

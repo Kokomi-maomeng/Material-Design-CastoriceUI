@@ -181,6 +181,8 @@ export function CastoriceApp() {
   >({});
   const hasLiveData = useRef(false);
   const toastSequence = useRef(0);
+  const dateMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const start = useCallback(async () => {
     try {
@@ -225,6 +227,25 @@ export function CastoriceApp() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const closeFloatingMenus = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (!dateMenuRef.current?.contains(target)) setDateOpen(false);
+      if (!userMenuRef.current?.contains(target)) setUserMenuOpen(false);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setDateOpen(false);
+      setUserMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeFloatingMenus);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeFloatingMenus);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
   }, []);
 
   const signOut = useCallback(async () => {
@@ -288,7 +309,40 @@ export function CastoriceApp() {
   const uiSettings = dashboard.uiSettings ?? {
     showSetup: true,
     visiblePanels: PANEL_IDS,
+    panelTitle: "CastoriceUI",
+    idleTimeoutMinutes: 0,
   };
+  useEffect(() => {
+    if (!session || uiSettings.idleTimeoutMinutes === 0) return;
+    let timeout = 0;
+    const schedule = () => {
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(
+        () => void signOut(),
+        uiSettings.idleTimeoutMinutes * 60_000,
+      );
+    };
+    const activityEvents: Array<keyof WindowEventMap> = [
+      "pointerdown",
+      "pointermove",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ];
+    schedule();
+    activityEvents.forEach((eventName) =>
+      window.addEventListener(eventName, schedule, {
+        passive: true,
+        capture: eventName === "scroll",
+      }),
+    );
+    return () => {
+      window.clearTimeout(timeout);
+      activityEvents.forEach((eventName) =>
+        window.removeEventListener(eventName, schedule, eventName === "scroll"),
+      );
+    };
+  }, [session, signOut, uiSettings.idleTimeoutMinutes]);
   const visiblePanels =
     dashboard.mode === "live" ? uiSettings.visiblePanels : PANEL_IDS;
   const visibleNavigation = useMemo(
@@ -629,7 +683,7 @@ export function CastoriceApp() {
             <Icon name="ac_unit" size={25} filled />
           </span>
           <div>
-            <strong>CastoriceUI</strong>
+            <strong>{uiSettings.panelTitle || "CastoriceUI"}</strong>
             <span>VPS Console</span>
           </div>
         </div>
@@ -685,11 +739,11 @@ export function CastoriceApp() {
           </div>
           <div aria-hidden="true" />
           <div className="top-actions">
-            <div className="snapshot-time-wrap">
+            <div className="snapshot-time-wrap" ref={dateMenuRef}>
               <button className={`snapshot-time ${backendOnline ? "" : "is-stale"}`} onClick={() => setDateOpen((open) => !open)} aria-expanded={dateOpen} aria-label={t("显示快照日期", "Show snapshot date")}>
                 <time dateTime={dashboard.generatedAt}>{dashboard.mode === "stale" ? t("停止更新", "Stale") : ""}{" "}{new Date(dashboard.generatedAt).toLocaleTimeString(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time>
               </button>
-              {dateOpen ? <div className="snapshot-date" role="status">{new Date(dashboard.generatedAt).toLocaleDateString("en-CA").replaceAll("-", "")}</div> : null}
+              <div className={`snapshot-date floating-surface ${dateOpen ? "is-open" : ""}`} role="status" aria-hidden={!dateOpen}>{new Date(dashboard.generatedAt).toLocaleDateString("en-CA").replaceAll("-", "")}</div>
             </div>
             <button
               className="notification-button"
@@ -706,7 +760,7 @@ export function CastoriceApp() {
                 </span>
               ) : null}
             </button>
-            <div className="user-menu-wrap">
+            <div className="user-menu-wrap" ref={userMenuRef}>
               <button
                 className="user-menu"
                 onClick={() => setUserMenuOpen((open) => !open)}
@@ -725,14 +779,12 @@ export function CastoriceApp() {
                   size={18}
                 />
               </button>
-              {userMenuOpen ? (
-                <div className="user-popover" role="menu">
+                <div className={`user-popover floating-surface ${userMenuOpen ? "is-open" : ""}`} role="menu" aria-hidden={!userMenuOpen}>
                   <button role="menuitem" onClick={() => void signOut()}>
                     <Icon name="logout" size={19} />
                     {t("注销", "Sign out")}
                   </button>
                 </div>
-              ) : null}
             </div>
           </div>
         </header>
@@ -796,7 +848,7 @@ export function CastoriceApp() {
         </button>
       </nav>
     <SettingsDialog
-      key={`${settingsOpen}-${dashboard.overview.nodeName}`}
+      key={`${settingsOpen}-${dashboard.overview.nodeName}-${uiSettings.panelTitle}`}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         mode={themeMode}
@@ -920,6 +972,7 @@ function SettingsDialog({
 }) {
   const { preference, setPreference, t } = useI18n();
   const [draftNodeName, setDraftNodeName] = useState(nodeName);
+  const [draftPanelTitle, setDraftPanelTitle] = useState(uiSettings.panelTitle);
   const [saving, setSaving] = useState(false);
   const [backgroundType, setBackgroundType] = useState<
     "default" | "url" | "server"
@@ -1012,6 +1065,56 @@ function SettingsDialog({
             </Button>
           </div>
         </label>
+        <label className="field">
+          <span>{t("面板标题", "Panel title")}</span>
+          <div className="settings-inline-field">
+            <input
+              value={draftPanelTitle}
+              maxLength={40}
+              onChange={(event) => setDraftPanelTitle(event.target.value)}
+            />
+            <Button
+              compact
+              disabled={
+                saving ||
+                !draftPanelTitle.trim() ||
+                draftPanelTitle.trim() === uiSettings.panelTitle
+              }
+              onClick={() => {
+                setSaving(true);
+                void onUiSettings({ panelTitle: draftPanelTitle.trim() }).finally(() =>
+                  setSaving(false),
+                );
+              }}
+            >
+              {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
+            </Button>
+          </div>
+          <small className="field-hint">
+            {t("显示在左上角品牌位置。", "Shown in the upper-left brand area.")}
+          </small>
+        </label>
+        <label className="field">
+          <span>{t("在线超时时长", "Inactivity timeout")}</span>
+          <select
+            value={uiSettings.idleTimeoutMinutes}
+            onChange={(event) =>
+              void onUiSettings({
+                idleTimeoutMinutes: Number(event.target.value) as UiSettings["idleTimeoutMinutes"],
+              })
+            }
+          >
+            <option value="0">{t("不自动登出", "Never sign out automatically")}</option>
+            {[2, 5, 10, 15, 20, 30].map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {t(`${minutes} 分钟`, `${minutes} minutes`)}
+              </option>
+            ))}
+          </select>
+          <small className="field-hint">
+            {t("无鼠标、键盘、触摸或滚动操作达到该时长后返回登录页。", "Returns to sign-in after this period without pointer, keyboard, touch, or scroll activity.")}
+          </small>
+        </label>
       </div>
       <button
         className="settings-row settings-row--button"
@@ -1032,56 +1135,9 @@ function SettingsDialog({
           </span>
         </span>
         <span className="settings-switch-control" aria-hidden="true">
-          <small>{uiSettings.showSetup ? t("开启", "On") : t("关闭", "Off")}</small>
           <span className={`md-switch ${uiSettings.showSetup ? "is-on" : ""}`}><span /></span>
         </span>
       </button>
-      <details className="settings-disclosure">
-        <summary>
-          <span>
-            <Icon name="dashboard_customize" />
-            <span>
-              <strong>{t("面板自定义", "Panel customization")}</strong>
-              <small>
-                {t(
-                  "总览和初始化向导不在隐藏范围内。",
-                  "Overview and Setup cannot be hidden here.",
-                )}
-              </small>
-            </span>
-          </span>
-          <span className="disclosure-status"><small>{t(`已显示 ${uiSettings.visiblePanels.length} 项`, `${uiSettings.visiblePanels.length} shown`)}</small><Icon name="expand_more" /></span>
-        </summary>
-        <div className="panel-toggle-list">
-          {PANEL_IDS.map((id) => {
-            const item = navigation.find((candidate) => candidate.id === id)!;
-            const checked = uiSettings.visiblePanels.includes(id);
-            return (
-              <button
-                key={id}
-                role="switch"
-                aria-checked={checked}
-                onClick={() =>
-                  void onUiSettings({
-                    visiblePanels: checked
-                      ? uiSettings.visiblePanels.filter((panel) => panel !== id)
-                      : [...uiSettings.visiblePanels, id],
-                  })
-                }
-              >
-                <span>
-                  <Icon name={item.icon} />
-                  {t(item.labelZh, item.labelEn)}
-                </span>
-                <span className="settings-switch-control" aria-hidden="true">
-                  <small>{checked ? t("显示", "Shown") : t("隐藏", "Hidden")}</small>
-                  <span className={`md-switch ${checked ? "is-on" : ""}`}><span /></span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </details>
       <details className="settings-disclosure">
         <summary>
           <span>
@@ -1173,58 +1229,81 @@ function SettingsDialog({
           </Button>
         </div>
       </details>
-      <div className="theme-section">
-        <h3>{t("显示模式", "Display mode")}</h3>
-        <div className="theme-mode-grid">
-          {THEME_MODES.map((item) => (
-            <button
-              key={item}
-              className={mode === item ? "is-selected" : ""}
-              onClick={() => onMode(item)}
-            >
-              <span className={`theme-preview theme-preview--${item}`}>
-                <i />
-                <i />
-                <i />
-              </span>
-              <div>
-                <Icon
-                  name={
-                    item === "light"
-                      ? "light_mode"
-                      : item === "dark"
-                        ? "dark_mode"
-                        : "desktop_windows"
-                  }
-                  size={19}
-                />
-                {item === "light"
-                  ? t("浅色", "Light")
-                  : item === "dark"
-                    ? t("深色", "Dark")
-                    : t("跟随系统", "System")}
-              </div>
-            </button>
-          ))}
+      <section className="theme-section theme-style-group">
+        <h3>{t("主题风格", "Theme style")}</h3>
+        <div className="theme-style-item">
+          <div className="theme-style-heading">
+            <Icon name="contrast" />
+            <div>
+              <strong>{t("显示模式", "Display mode")}</strong>
+              <small>{t("选择浅色、深色或跟随系统。", "Choose light, dark, or system appearance.")}</small>
+            </div>
+          </div>
+          <div className="theme-mode-grid">
+            {THEME_MODES.map((item) => (
+              <button
+                key={item}
+                className={mode === item ? "is-selected" : ""}
+                onClick={() => onMode(item)}
+              >
+                <span className={`theme-preview theme-preview--${item}`}>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <div>
+                  <Icon name={item === "light" ? "light_mode" : item === "dark" ? "dark_mode" : "desktop_windows"} size={19} />
+                  {item === "light" ? t("浅色", "Light") : item === "dark" ? t("深色", "Dark") : t("跟随系统", "System")}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="theme-section">
-        <h3>{t("主题色彩", "Theme color")}</h3>
-        <div className="color-options">
-          {colors.map((item) => (
-            <button
-              key={item.id}
-              className={color === item.id ? "is-selected" : ""}
-              onClick={() => onColor(item.id)}
-            >
-              <span style={{ background: item.value }}>
-                {color === item.id ? <Icon name="check" size={18} /> : null}
+        <details className="settings-disclosure theme-style-item">
+          <summary>
+            <span>
+              <Icon name="palette" />
+              <span>
+                <strong>{t("主题色彩", "Theme color")}</strong>
+                <small>{t("选择面板的 Material 配色。", "Choose the panel's Material color palette.")}</small>
               </span>
-              <small>{t(item.zh, item.en)}</small>
-            </button>
-          ))}
-        </div>
-      </div>
+            </span>
+            <span className="disclosure-status"><i className="selected-color-dot" style={{ background: colors.find((item) => item.id === color)?.value }} /><Icon name="expand_more" /></span>
+          </summary>
+          <div className="color-options disclosure-content">
+            {colors.map((item) => (
+              <button key={item.id} className={color === item.id ? "is-selected" : ""} onClick={() => onColor(item.id)}>
+                <span style={{ background: item.value }}>{color === item.id ? <Icon name="check" size={18} /> : null}</span>
+                <small>{t(item.zh, item.en)}</small>
+              </button>
+            ))}
+          </div>
+        </details>
+        <details className="settings-disclosure theme-style-item">
+          <summary>
+            <span>
+              <Icon name="dashboard_customize" />
+              <span>
+                <strong>{t("面板自定义", "Panel customization")}</strong>
+                <small>{t("选择在导航中显示的功能面板。", "Choose the feature panels shown in navigation.")}</small>
+              </span>
+            </span>
+            <span className="disclosure-status"><small>{t(`已显示 ${uiSettings.visiblePanels.length} 项`, `${uiSettings.visiblePanels.length} shown`)}</small><Icon name="expand_more" /></span>
+          </summary>
+          <div className="panel-toggle-list disclosure-content">
+            {PANEL_IDS.map((id) => {
+              const item = navigation.find((candidate) => candidate.id === id)!;
+              const checked = uiSettings.visiblePanels.includes(id);
+              return (
+                <button key={id} role="switch" aria-checked={checked} onClick={() => void onUiSettings({ visiblePanels: checked ? uiSettings.visiblePanels.filter((panel) => panel !== id) : [...uiSettings.visiblePanels, id] })}>
+                  <span><Icon name={item.icon} />{t(item.labelZh, item.labelEn)}</span>
+                  <span className="settings-switch-control" aria-hidden="true"><span className={`md-switch ${checked ? "is-on" : ""}`}><span /></span></span>
+                </button>
+              );
+            })}
+          </div>
+        </details>
+      </section>
     </Dialog>
   );
 }
