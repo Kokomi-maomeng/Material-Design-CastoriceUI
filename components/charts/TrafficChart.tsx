@@ -17,7 +17,13 @@ export function TrafficChart({ data }: { data: TrafficPoint[] }) {
   const point = (value: number, index: number): Point => ({ x: PLOT.x + (index / Math.max(1, data.length - 1)) * PLOT.width, y: PLOT.y + PLOT.height - (value / max) * PLOT.height });
   const downloadPoints = data.map((item, index) => point(item.download, index)); const uploadPoints = data.map((item, index) => point(item.upload, index));
   const area = (items: Point[]) => `${smoothPath(items)} L ${PLOT.x + PLOT.width},${PLOT.y + PLOT.height} L ${PLOT.x},${PLOT.y + PLOT.height} Z`;
-  const pick = (event: PointerEvent<SVGSVGElement>) => { const rect = event.currentTarget.getBoundingClientRect(); const x = ((event.clientX - rect.left) / rect.width) * WIDTH; const ratio = (x - PLOT.x) / PLOT.width; setActive(Math.max(0, Math.min(data.length - 1, Math.round(ratio * (data.length - 1))))); };
+  const pick = (event: PointerEvent<SVGSVGElement>) => {
+    const matrix = event.currentTarget.getScreenCTM();
+    if (!matrix) return;
+    const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const ratio = (cursor.x - PLOT.x) / PLOT.width;
+    setActive(Math.max(0, Math.min(data.length - 1, Math.round(ratio * (data.length - 1)))));
+  };
   const selected = active === null ? null : data[active]; const selectedX = active === null ? 0 : downloadPoints[active].x; const tooltipX = Math.min(WIDTH - 170, Math.max(54, selectedX - 74));
 
   return <div className="chart chart--traffic"><svg className="native-chart native-chart--interactive" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标查看数值", "Upload and download traffic trend; move the pointer to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive((value) => value ?? data.length - 1)} onBlur={() => setActive(null)}>

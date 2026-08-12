@@ -7,13 +7,13 @@ const read = (path) => readFile(new URL(path, root), "utf8");
 
 test("production entry contains metadata, viewport, and mount point", async () => {
   const html = await read("index.html");
-  assert.match(html, /<title>Material-Design CastoriceUI<\/title>/i);
+  assert.match(html, /<title>CastoriceUI<\/title>/i);
   assert.match(html, /<div id="root"><\/div>/i);
   assert.match(html, /<script type="module" src="\/main\.tsx"><\/script>/i);
   assert.match(html, /name="viewport"/i);
 });
 
-test("v2.2 production UI never falls back to fabricated dashboard data", async () => {
+test("v2.3 production UI never falls back to fabricated dashboard data", async () => {
   const [app, empty] = await Promise.all([read("components/CastoriceApp.tsx"), read("lib/empty-dashboard.ts")]);
   assert.doesNotMatch(app, /previewDashboard|mode === "preview"|示例数据模式/);
   assert.match(app, /没有显示任何示例数据/);
@@ -22,7 +22,7 @@ test("v2.2 production UI never falls back to fabricated dashboard data", async (
   await assert.rejects(read("lib/demo-data.ts"));
 });
 
-test("v2.2 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
+test("v2.3 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
   const [client, server, nginx, backendPackage] = await Promise.all([
     read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"),
   ]);
@@ -32,7 +32,7 @@ test("v2.2 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "2\.2\.0"/);
+  assert.match(backendPackage, /__version__ = "2\.3\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -97,8 +97,29 @@ test("network targets are editable and charts use real smooth sample paths", asy
   assert.match(network, /order/);
   assert.match(network, /smoothPath/);
   assert.match(chart, / C /);
+  assert.match(chart, /getScreenCTM\(\)/);
+  assert.match(chart, /matrix\.inverse\(\)/);
   assert.match(collector, /"-c", "8"/);
   assert.match(api, /settings\/network-targets/);
+});
+
+test("v2.3 settings and floating surfaces follow the requested Material interactions", async () => {
+  const [app, styles, types, backend] = await Promise.all([
+    read("components/CastoriceApp.tsx"), read("app/globals.css"), read("lib/types.ts"), read("server/castoriceui/api.py"),
+  ]);
+  assert.match(app, /closeFloatingMenus/);
+  assert.match(app, /dateMenuRef/);
+  assert.match(app, /userMenuRef/);
+  assert.match(app, /idleTimeoutMinutes \* 60_000/);
+  assert.match(app, /panelTitle/);
+  assert.match(app, /主题风格/);
+  assert.doesNotMatch(app, /uiSettings\.showSetup \? t\("开启"/);
+  assert.doesNotMatch(app, /checked \? t\("显示"/);
+  assert.match(styles, /\.floating-surface\.is-open/);
+  assert.match(styles, /settings-disclosure::details-content/);
+  assert.match(styles, /prefers-reduced-motion/);
+  assert.match(types, /idleTimeoutMinutes: 0 \| 2 \| 5 \| 10 \| 15 \| 20 \| 30/);
+  assert.match(backend, /panelTitle must contain 1 to 40 printable characters/);
 });
 
 test("subscription hints are removed and traffic quota remains one shared value", async () => {
@@ -126,7 +147,7 @@ test("common sing-box protocols are explicit and unmatched connections stay hidd
   assert.match(definitions, /Reality/);
 });
 
-test("v2.2 detail interactions avoid native or stale UI artifacts", async () => {
+test("v2.3 detail interactions avoid native or stale UI artifacts", async () => {
   const [app, styles, audit, traffic, donut, login] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("app/globals.css"), read("components/pages/AuditPage.tsx"),
     read("components/charts/TrafficChart.tsx"), read("components/charts/DonutChart.tsx"), read("components/auth/AuthPage.tsx"),
@@ -145,7 +166,7 @@ test("v2.2 detail interactions avoid native or stale UI artifacts", async () => 
   assert.doesNotMatch(login, /凭据只发送到当前面板后端|Use your panel account to access live server data/);
 });
 
-test("v2.2 scopes alert acknowledgement and audit history on the server", async () => {
+test("v2.3 scopes alert acknowledgement and audit history on the server", async () => {
   const [app, client, dashboard, storage, packageJson, packager] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("lib/api.ts"), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/storage.py"), read("package.json"), read("scripts/package-release.mjs"),
