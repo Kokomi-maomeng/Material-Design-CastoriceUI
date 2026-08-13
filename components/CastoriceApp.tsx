@@ -310,10 +310,10 @@ export function CastoriceApp() {
     showSetup: true,
     visiblePanels: PANEL_IDS,
     panelTitle: "CastoriceUI",
-    idleTimeoutMinutes: 0,
+    idleTimeoutMinutes: 15,
   };
   useEffect(() => {
-    if (!session || uiSettings.idleTimeoutMinutes === 0) return;
+    if (!session) return;
     let timeout = 0;
     const schedule = () => {
       window.clearTimeout(timeout);
@@ -416,7 +416,7 @@ export function CastoriceApp() {
       String(
         Math.max(
           1,
-          Math.round(dashboard.overview.trafficLimitBytes / 1024 ** 3),
+          Math.round(dashboard.overview.trafficLimitBytes / 1_000_000_000),
         ),
       ),
     );
@@ -433,7 +433,7 @@ export function CastoriceApp() {
       );
       return;
     }
-    const bytes = Math.round(value * 1024 ** 3);
+    const bytes = Math.round(value * 1_000_000_000);
     setQuotaSaving(true);
     try {
       await updateTrafficLimit(bytes);
@@ -885,7 +885,7 @@ export function CastoriceApp() {
         onClose={() => setQuotaOpen(false)}
         title={t("设置总流量额度", "Set total traffic quota")}
         description={t(
-          "总览与账号管理会立即使用同一个额度。",
+          "总览与账号状态会立即使用同一个十进制 GB 额度。",
           "Overview and account management use the same quota immediately.",
         )}
         size="small"
@@ -1104,7 +1104,6 @@ function SettingsDialog({
               })
             }
           >
-            <option value="0">{t("不自动登出", "Never sign out automatically")}</option>
             {[2, 5, 10, 15, 20, 30].map((minutes) => (
               <option key={minutes} value={minutes}>
                 {t(`${minutes} 分钟`, `${minutes} minutes`)}
@@ -1112,7 +1111,7 @@ function SettingsDialog({
             ))}
           </select>
           <small className="field-hint">
-            {t("无鼠标、键盘、触摸或滚动操作达到该时长后返回登录页。", "Returns to sign-in after this period without pointer, keyboard, touch, or scroll activity.")}
+            {t("前后端都会执行该空闲时限；会话不能设置为永久有效。", "Both client and server enforce this inactivity limit; sessions cannot be made permanent.")}
           </small>
         </label>
       </div>

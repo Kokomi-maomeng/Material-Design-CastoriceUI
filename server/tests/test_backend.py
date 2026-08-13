@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import http.cookiejar
+import copy
 import sys
 import tempfile
 import threading
@@ -16,7 +17,7 @@ SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
 
 from castoriceui.config import AppConfig  # noqa: E402
-from castoriceui.collectors import automatic_update_info, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot  # noqa: E402
+from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.api import ApiHandler, ApiServer  # noqa: E402
 from castoriceui.security import normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, safe_background_image, validate_probe_target  # noqa: E402
@@ -194,6 +195,48 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(storage.get_setting("traffic_limit_bytes", 0), 123)
             self.assertEqual(storage.audit_page()["items"][0]["detail"], "safe detail")
 
+    def test_traffic_usage_survives_reboot_counter_reset_and_interface_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            storage.record_sample(100, 100, 200, 0, 0, "eth0", "boot-a")
+            storage.record_sample(160, 160, 230, 0, 0, "eth0", "boot-a")
+            storage.record_sample(220, 10, 20, 0, 0, "eth0", "boot-b")
+            storage.record_sample(280, 50, 50, 0, 0, "eth0", "boot-b")
+            storage.record_sample(340, 5, 7, 0, 0, "ens3", "boot-b")
+            storage.record_sample(400, 25, 37, 0, 0, "ens3", "boot-b")
+            usage = storage.traffic_usage_since(100, "sum")
+            self.assertEqual(usage["receivedBytes"], 120)
+            self.assertEqual(usage["transmittedBytes"], 90)
+            self.assertEqual(usage["usedBytes"], 210)
+            self.assertTrue(usage["coverageComplete"])
+            self.assertEqual(storage.traffic_usage_since(100, "max")["usedBytes"], 120)
+
+    def test_mid_cycle_baseline_is_explicit_and_scoped_by_caller(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            storage.record_sample(500, 10, 20, 0, 0, "eth0", "boot")
+            storage.record_sample(560, 30, 50, 0, 0, "eth0", "boot")
+            without_baseline = storage.traffic_usage_since(100, "sum")
+            with_baseline = storage.traffic_usage_since(100, "sum", 1_000_000_000)
+            self.assertFalse(without_baseline["coverageComplete"])
+            self.assertTrue(with_baseline["coverageComplete"])
+            self.assertEqual(with_baseline["usedBytes"], without_baseline["usedBytes"] + 1_000_000_000)
+
+    def test_saved_traffic_baseline_keeps_its_original_cycle_on_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "state.db")
+            config = AppConfig(database_path=path)
+            config.integrations = AppConfig.load(self._config_file(directory, path)).integrations
+            storage = Storage(path)
+            dashboard = DashboardService(config, storage)
+            dashboard.configure_integration("traffic", {"values": {"quotaGb": "1000", "billingDay": "1", "billingTimezone": "UTC", "initialUsedGb": "12", "countMode": "sum"}})
+            saved_cycle = storage.get_setting("integration_overrides", {})["traffic"]["values"]["initialUsedCycle"]
+            restarted = AppConfig(database_path=path)
+            restarted.integrations = AppConfig.load(self._config_file(directory, path)).integrations
+            DashboardService(restarted, storage)
+            self.assertEqual(restarted.traffic_initial_used_cycle, saved_cycle)
+            self.assertEqual(restarted.traffic_initial_used_bytes, 12_000_000_000)
+
     def test_audit_records_are_filtered_and_paginated_on_the_server(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             storage = Storage(str(Path(directory) / "state.db"))
@@ -292,7 +335,9 @@ class BackendTests(unittest.TestCase):
             normalize_https_base_url("http://panel.example.com/subscription")
         with self.assertRaises(ValueError):
             validate_probe_target("-f")
-        self.assertEqual(normalize_https_image_url("https://images.example.test/panel.webp"), "https://images.example.test/panel.webp")
+        self.assertEqual(normalize_https_image_url("https://images.example.test/panel.webp", ["images.example.test"]), "https://images.example.test/panel.webp")
+        with self.assertRaisesRegex(ValueError, "allowlisted"):
+            normalize_https_image_url("https://images.example.test/panel.webp")
         with self.assertRaises(ValueError):
             normalize_https_image_url("http://127.0.0.1/private.png")
         with self.assertRaises(ValueError):
@@ -321,6 +366,19 @@ class BackendTests(unittest.TestCase):
         handler.client_address = ("127.0.0.1", 12345)
         self.assertTrue(handler.require_mutation_header())
         self.assertEqual(handler.source_ip(), "203.0.113.42")
+        handler.headers = {"X-CastoriceUI-Request": "1", "Host": "panel.example.test", "Origin": "https://evil.example.test"}
+        handler.send_json.reset_mock()
+        self.assertFalse(handler.require_mutation_header())
+        handler.send_json.assert_called_once()
+
+    def test_server_enforces_session_idle_expiry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            user_id = storage.create_initial_user("operator", "Valid-Password-123")
+            token, _, _ = storage.create_session(user_id, 3600)
+            with storage.connect() as connection:
+                connection.execute("UPDATE sessions SET last_seen_at='2000-01-01T00:00:00+00:00'")
+            self.assertIsNone(storage.session(token, idle_timeout_seconds=120))
 
     def test_application_login_initialization_session_csrf_and_logout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -446,6 +504,45 @@ class BackendTests(unittest.TestCase):
             public = dashboard.public_subscriptions()
             self.assertEqual(public[0]["account"], "alice")
             self.assertNotIn("url", public[0])
+
+    def test_dashboard_payload_uses_explicit_account_and_subscription_allowlists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"), redact_live_data=False)
+            config.managed_accounts = [{"id": "a", "name": "Alice", "password": "must-not-leak", "nested": {"token": "hidden"}}]
+            config.subscriptions = [{"id": "s", "account": "Alice", "url": "https://example.test/private", "secret": "must-not-leak", "nested": {"token": "hidden"}}]
+            dashboard = DashboardService(config, Storage(config.database_path))
+            accounts = dashboard.account_metrics(copy.deepcopy(config.managed_accounts), {"traffic": {}, "online": {}})
+            subscriptions = dashboard.public_subscriptions()
+            serialized = json.dumps({"accounts": accounts, "subscriptions": subscriptions})
+            self.assertNotIn("password", serialized)
+            self.assertNotIn("secret", serialized)
+            self.assertNotIn("nested", serialized)
+            self.assertNotIn("private", serialized)
+
+    def test_loaded_config_rejects_unsafe_or_unknown_security_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = [
+                {"database_path": str(root / "a.db"), "listen_host": "0.0.0.0"},
+                {"database_path": str(root / "b.db"), "secure_cookies": False},
+                {"database_path": str(root / "c.db"), "unexpected_secret": "value"},
+                {"database_path": str(root / "d.db"), "hysteria_api": {"url": "http://169.254.169.254/latest"}},
+            ]
+            for index, payload in enumerate(cases):
+                path = root / f"unsafe-{index}.json"
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    AppConfig.load(path)
+
+    def test_login_failures_persist_across_storage_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "state.db")
+            first = Storage(path)
+            for _ in range(5):
+                first.record_login_failure("203.0.113.10")
+            self.assertFalse(Storage(path).login_allowed("203.0.113.10"))
+            Storage(path).clear_login_failures("203.0.113.10")
+            self.assertTrue(Storage(path).login_allowed("203.0.113.10"))
 
     @staticmethod
     def _config_file(directory: str, database: str) -> str:

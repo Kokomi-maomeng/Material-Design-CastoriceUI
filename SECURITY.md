@@ -10,7 +10,7 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private s
 
 ## Supported production boundary
 
-CastoriceUI v2.4 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
+CastoriceUI v2.5 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
 
 1. Nginx terminates valid TLS and serves both the frontend and same-origin `/api/`.
 2. `castoriceui-backend` listens only on `127.0.0.1` or `::1`.
@@ -18,15 +18,16 @@ CastoriceUI v2.4 includes a browser application, application authentication, and
 4. The browser authenticates through the CastoriceUI login page; Nginx `auth_basic` is not used.
 5. Protected config is `0640 root:castoriceui`; SQLite, bootstrap token, and login image state are restricted to the service identity.
 
-The backend is not designed for direct public exposure. v2.4 does not implement MFA, password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
+The backend is not designed for direct public exposure. v2.5 does not implement MFA, password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
 
 ## Authentication and sessions
 
 - First administrator creation requires a server-generated, one-time Bootstrap Token stored with mode `0600`.
 - Passwords require at least 12 characters and three character classes and are stored as salted scrypt hashes.
 - Session identifiers are random, stored only as hashes server-side, time-limited, HttpOnly, SameSite=Strict, and Secure by default.
-- Mutations require an in-memory CSRF token plus the custom-request header.
-- Login failures are rate-limited and expensive password checks are serialized to protect small VPS memory/CPU.
+- Mutations require an in-memory CSRF token, the custom-request header, and same-origin browser metadata when supplied.
+- Login failures are persisted across backend restarts, expensive password checks are serialized, and concurrent request workers are bounded to protect small VPS memory/CPU.
+- Client and server both enforce a finite inactivity timeout; an authenticated session cannot be configured as permanently idle-valid.
 - Logout deletes the server session and expires the cookie.
 
 Do not set `secure_cookies: false` in production. Do not log Bootstrap Tokens, session cookies, CSRF values, passwords, or upstream Secrets.
@@ -35,15 +36,15 @@ Do not set `secure_cookies: false` in production. Do not log Bootstrap Tokens, s
 
 Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`. The setup UI accepts loopback endpoints and tag mappings but never accepts or persists the upstream Secret in SQLite. Failed authenticated probes are not saved as ready configurations.
 
-Dashboard payloads exclude password hashes, session values, CSRF values other than the current authenticated session response, upstream Secrets, raw configs, private keys, and full subscription URLs. Complete subscription URLs are returned only by a separate authenticated endpoint after an explicit copy/QR action.
+Dashboard account and subscription payloads are constructed from explicit field allowlists. They exclude password hashes, session values, CSRF values other than the current authenticated session response, upstream Secrets, unknown config fields, raw configs, private keys, and full subscription URLs. Complete subscription URLs are returned only by a separate authenticated endpoint after an explicit copy/QR action.
 
-When `redact_live_data` is false, a private authenticated panel may display real adapter-provided account names, source IPs, destinations, and audit sources. Enable redaction for screenshots or shared demonstrations; it is not a substitute for access control.
+Redaction is enabled by default. When `redact_live_data` is explicitly false, a private authenticated panel may display real adapter-provided account names, source IPs, destinations, and audit sources. Redaction is not a substitute for access control.
 
 ## URL, SSRF, command, and file boundaries
 
 - Protocol endpoints are restricted to loopback and strict no-redirect authenticated requests.
 - Network probe targets undergo separate hostname/IP validation and are passed as subprocess arguments without a shell.
-- HTTPS login-background URLs are stored but fetched directly by the browser, never by the backend.
+- HTTPS login-background URLs are allowed only for hosts in `external_background_hosts` and are fetched directly by the browser, never by the backend. The default allowlist is empty.
 - Server login images must stay within the configured directory, pass size/extension/magic validation, and cannot use nested traversal paths.
 - The panel does not expose arbitrary shell execution. Protocol account writes, credential rotation, and service control require a separately designed and audited adapter.
 

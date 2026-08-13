@@ -61,7 +61,7 @@ def validate_interface_name(value: str) -> str:
     return candidate
 
 
-def normalize_https_image_url(value: str) -> str:
+def normalize_https_image_url(value: str, allowed_hosts: list[str] | None = None) -> str:
     """Validate an image URL that will be loaded by the browser, never fetched by this backend."""
     candidate = value.strip()
     if not candidate or len(candidate) > 2048:
@@ -69,6 +69,9 @@ def normalize_https_image_url(value: str) -> str:
     parsed = urlsplit(candidate)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("Background image must use a plain HTTPS URL without credentials, query, or fragment")
+    hosts = {str(host).strip().rstrip(".").lower() for host in (allowed_hosts or []) if str(host).strip()}
+    if parsed.hostname.rstrip(".").lower() not in hosts:
+        raise ValueError("Background image host is not allowlisted by the server configuration")
     return urlunsplit(("https", parsed.netloc, parsed.path or "/", "", ""))
 
 

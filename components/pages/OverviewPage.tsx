@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 
-import { formatBytes, percent } from "../../lib/format";
+import { formatBytes, formatDecimalBytes, percent } from "../../lib/format";
 import type {
   Connection,
   DashboardPayload,
@@ -115,13 +115,13 @@ export function OverviewPage({
           <div className="traffic-hero__top">
             <div>
               <span className="metric-label">
-                {t("本月真实用量", "Real usage this month")}
+                {t("计费周期本机估算", "Local billing-cycle estimate")}
               </span>
-              <strong>{formatBytes(metrics.trafficUsedBytes)}</strong>
+              <strong>{formatDecimalBytes(metrics.trafficUsedBytes)}</strong>
               <span className="metric-support">
                 {t(
-                  `额度 ${formatBytes(metrics.trafficLimitBytes)} · 剩余 ${formatBytes(remaining)}`,
-                  `Quota ${formatBytes(metrics.trafficLimitBytes)} · ${formatBytes(remaining)} remaining`,
+                  `额度 ${formatDecimalBytes(metrics.trafficLimitBytes)} · 剩余 ${formatDecimalBytes(remaining)}`,
+                  `Quota ${formatDecimalBytes(metrics.trafficLimitBytes)} · ${formatDecimalBytes(remaining)} remaining`,
                 )}
               </span>
             </div>
@@ -140,15 +140,22 @@ export function OverviewPage({
           <div className="traffic-hero__footer">
             <span>
               <Icon name="calendar_month" size={18} />{" "}
-              {estimatedDays
+              {!metrics.trafficCoverageComplete
+                ? t(
+                    `覆盖不完整${metrics.trafficCoverageStart ? `，从 ${new Date(metrics.trafficCoverageStart).toLocaleDateString("zh-CN")} 起` : ""}`,
+                    `Incomplete coverage${metrics.trafficCoverageStart ? ` since ${new Date(metrics.trafficCoverageStart).toLocaleDateString("en")}` : ""}`,
+                  )
+                : estimatedDays
                 ? t(
                     `按当前均值约 ${estimatedDays} 天`,
                     `About ${estimatedDays} days at the current average`,
                   )
                 : t("正在建立用量基线", "Establishing a usage baseline")}
             </span>
-            <Chip staticChip tone="warning">
-              {t(`已用 ${usage.toFixed(0)}%`, `${usage.toFixed(0)}% used`)}
+            <Chip staticChip tone={metrics.trafficCoverageComplete ? "warning" : "danger"}>
+              {metrics.trafficCoverageComplete
+                ? t(`已用 ${usage.toFixed(0)}%`, `${usage.toFixed(0)}% used`)
+                : t("估算不完整", "Incomplete estimate")}
             </Chip>
           </div>
         </Card>
@@ -206,8 +213,8 @@ export function OverviewPage({
           <TrafficChart
             data={(traffic.ranges?.[trafficRange] ?? []).map((item) => ({
               ...item,
-              upload: item.upload / 1024 ** 3,
-              download: item.download / 1024 ** 3,
+              upload: item.upload / 1_000_000_000,
+              download: item.download / 1_000_000_000,
             }))}
           />
         </Card>

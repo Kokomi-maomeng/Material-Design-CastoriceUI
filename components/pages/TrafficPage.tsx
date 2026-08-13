@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { DashboardPayload, IntegrationStatus, TrafficRange } from "../../lib/types";
-import { formatBytes } from "../../lib/format";
+import { formatDecimalBytes } from "../../lib/format";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { DonutChart } from "../charts/DonutChart";
 import { TrafficChart } from "../charts/TrafficChart";
@@ -16,11 +16,11 @@ import { Progress } from "../ui/Progress";
 export function TrafficPage({ traffic, integration, onConfigure }: { onToast: (message: string) => void; traffic: DashboardPayload["traffic"]; integration?: IntegrationStatus; onConfigure: () => void }) {
   const { t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
-  const hourlyTraffic = (traffic.ranges?.["24h"] ?? traffic.hourly).map((item) => ({ ...item, upload: item.upload / 1024 ** 3, download: item.download / 1024 ** 3 }));
-  const dailyTraffic = (traffic.ranges?.["7day"] ?? traffic.daily).map((item) => ({ ...item, upload: item.upload / 1024 ** 3, download: item.download / 1024 ** 3 }));
-  const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1024 ** 3, download: item.download / 1024 ** 3 }));
-  const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, value: item.value / 1024 ** 3, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
-  const accountTraffic = traffic.account.map((item) => ({ ...item, value: item.value / 1024 ** 3 }));
+  const hourlyTraffic = (traffic.ranges?.["24h"] ?? traffic.hourly).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
+  const dailyTraffic = (traffic.ranges?.["7day"] ?? traffic.daily).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
+  const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
+  const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, value: item.value / 1_000_000_000, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
+  const accountTraffic = traffic.account.map((item) => ({ ...item, value: item.value / 1_000_000_000 }));
   const total = protocolTraffic.reduce((sum, item) => sum + item.value, 0);
   const accountMax = Math.max(1, ...accountTraffic.map((item) => item.value));
 
@@ -29,8 +29,8 @@ export function TrafficPage({ traffic, integration, onConfigure }: { onToast: (m
       <PageHeader eyebrow={t("用量洞察", "Usage insights")} title={t("流量分析", "Traffic analytics")} description={t("按时间、账号与代理协议查看真实用量和增长趋势。", "Review real usage and growth by time, account, and proxy protocol.")} />
       <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="后台每分钟采集真实网卡计数器；协议与账号分类只使用核心返回的累计值。" descriptionEn="The backend records real interface counters every minute. Protocol and account breakdowns use only cumulative values returned by the cores." onConfigure={onConfigure} />
       <section className="traffic-kpis">
-        <Kpi label={t("近 24 小时用量", "Last 24 hours")} value={formatBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0) * 1024 ** 3)} icon="today" change={t("真实网卡增量", "Real interface deltas")} />
-        <Kpi label={t("核心累计统计", "Core cumulative total")} value={formatBytes(total * 1024 ** 3)} icon="calendar_month" change={t("协议 API 当前累计值", "Current protocol API totals")} />
+        <Kpi label={t("近 24 小时用量", "Last 24 hours")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0) * 1_000_000_000)} icon="today" change={t("真实网卡增量", "Real interface deltas")} />
+        <Kpi label={t("核心累计统计", "Core cumulative total")} value={formatDecimalBytes(total * 1_000_000_000)} icon="calendar_month" change={t("协议 API 当前累计值", "Current protocol API totals")} />
         <Kpi label={t("协议数据源", "Protocol sources")} value={t(`${protocolTraffic.length} 个`, `${protocolTraffic.length}`)} icon="speed" change={t("实时聚合", "Live aggregation")} />
         <Kpi label={t("趋势采样", "Trend samples")} value={t(`${dailyTraffic.length} 个时间桶`, `${dailyTraffic.length} time buckets`)} icon="query_stats" change={t("每分钟持续采集", "Collected every minute")} positive />
       </section>
@@ -53,7 +53,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { onToast: (m
         <Card variant="filled" className="forecast-card">
           <span className="forecast-card__icon"><Icon name="auto_graph" size={28} /></span>
           <div><p>{t("容量预测", "Capacity forecast")}</p><strong>{dailyTraffic.length >= 2 ? t("趋势已建立", "Trend established") : t("持续采样中", "Collecting samples")}</strong><span>{t("更多真实时间桶会让趋势判断更稳定", "More real time buckets improve trend stability")}</span></div>
-          <div className="forecast-card__note"><Icon name="lightbulb" size={20} filled /><span>{t("总览会结合统一额度与本月真实用量显示剩余空间。", "Overview combines the shared quota with real current-month usage.")}</span></div>
+          <div className="forecast-card__note"><Icon name="lightbulb" size={20} filled /><span>{t("总览显示重启可连续累计的本机估算；覆盖不完整时不会冒充运营商账单。", "Overview shows a reset-safe local estimate and never presents incomplete coverage as a provider bill.")}</span></div>
         </Card>
       </section>
     </div>

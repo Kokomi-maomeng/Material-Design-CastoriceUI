@@ -7,9 +7,11 @@ import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .collectors import (
     SystemCollector,
+    billing_cycle_start,
     connection_snapshots,
     http_json,
     hysteria_snapshot,
@@ -87,10 +89,19 @@ class DashboardService:
                 self.system_collector.interface = interface
             quota = values.get("quotaGb", "").strip()
             if quota:
-                quota_bytes = round(float(quota) * 1024 ** 3)
+                quota_bytes = round(float(quota) * 1_000_000_000)
                 if quota_bytes < 1_000_000_000:
                     raise ValueError("Traffic quota must be at least 1 GB")
                 self.storage.set_setting("traffic_limit_bytes", quota_bytes)
+            if values.get("billingDay", "").strip():
+                self.config.traffic_billing_day = int(values["billingDay"])
+            if values.get("billingTimezone", "").strip():
+                self.config.traffic_billing_timezone = values["billingTimezone"].strip()
+            if values.get("countMode", "").strip():
+                self.config.traffic_count_mode = values["countMode"].strip()
+            if values.get("initialUsedGb", "").strip():
+                self.config.traffic_initial_used_bytes = round(float(values["initialUsedGb"]) * 1_000_000_000)
+                self.config.traffic_initial_used_cycle = values.get("initialUsedCycle", "").strip()
         elif integration_id == "subscriptions":
             self.config.subscription_base_url = values.get("baseUrl", "").strip()
         elif integration_id == "network" and values.get("targets", "").strip():
@@ -125,7 +136,7 @@ class DashboardService:
             "vmess": {"endpoint", "inboundTags"},
             "trojan": {"endpoint", "inboundTags"},
             "tuic": {"endpoint", "inboundTags"},
-            "traffic": {"interface", "quotaGb"},
+            "traffic": {"interface", "quotaGb", "billingDay", "billingTimezone", "initialUsedGb", "countMode"},
             "connections": set(),
             "subscriptions": {"baseUrl"},
             "network": {"targets"},
@@ -139,6 +150,10 @@ class DashboardService:
         if not isinstance(values, dict):
             raise ValueError("Integration values must be an object")
         clean_values = {key: str(value)[:2048] for key, value in values.items() if key in allowed_fields[integration_id]}
+        if integration_id == "traffic" and clean_values.get("initialUsedGb", "").strip():
+            effective_day = int(clean_values.get("billingDay") or self.config.traffic_billing_day)
+            effective_timezone = clean_values.get("billingTimezone") or self.config.traffic_billing_timezone
+            clean_values["initialUsedCycle"] = billing_cycle_start(datetime.now(timezone.utc), effective_day, effective_timezone).date().isoformat()
         enabled = bool(payload.get("enabled", True))
         required = {
             "hysteria2": {"endpoint"},
@@ -219,8 +234,23 @@ class DashboardService:
                 values["interface"] = validate_interface_name(values["interface"])
             if values.get("quotaGb", "").strip():
                 quota = float(values["quotaGb"])
-                if not 0 < quota <= 1_000_000:
-                    raise ValueError("quotaGb must be between 0 and 1000000")
+                if not 1 <= quota <= 1_000_000:
+                    raise ValueError("quotaGb must be between 1 and 1000000 decimal GB")
+            if values.get("billingDay", "").strip() and not 1 <= int(values["billingDay"]) <= 28:
+                raise ValueError("billingDay must be between 1 and 28")
+            if values.get("billingTimezone", "").strip():
+                timezone_name = values["billingTimezone"].strip()
+                if timezone_name != "UTC":
+                    try:
+                        ZoneInfo(timezone_name)
+                    except ZoneInfoNotFoundError as error:
+                        raise ValueError("billingTimezone must be UTC or an installed IANA timezone") from error
+            if values.get("initialUsedGb", "").strip():
+                baseline = float(values["initialUsedGb"])
+                if not 0 <= baseline <= 1_000_000:
+                    raise ValueError("initialUsedGb must be between 0 and 1000000 decimal GB")
+            if values.get("countMode", "").strip() not in {"", "sum", "max"}:
+                raise ValueError("countMode must be sum or max")
         elif integration_id == "alerts":
             limits = {"trafficPercent": (0, 100), "lossPercent": (0, 100), "latencyMs": (0, 60_000)}
             for key, (minimum, maximum) in limits.items():
@@ -340,11 +370,21 @@ class DashboardService:
         unmatched_identities = [identity for identity in identities if identity not in assigned]
         if len(unmatched_accounts) == 1 and len(unmatched_identities) == 1:
             mappings[unmatched_accounts[0]] = [unmatched_identities[0]]
+        public_accounts: list[dict[str, Any]] = []
         for account, identities in zip(accounts, mappings):
-            account["usedBytes"] = sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in identities)
-            account["onlineDevices"] = sum(int(online.get(identity, 0)) for identity in identities)
-            account["quotaBytes"] = int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes))
-        return accounts
+            public_accounts.append({
+                "id": str(account.get("id", ""))[:160],
+                "name": str(account.get("name", "account"))[:160],
+                "email": str(account.get("email", ""))[:254],
+                "status": account.get("status", "active") if account.get("status") in {"active", "disabled", "expiring"} else "active",
+                "protocols": [str(value)[:80] for value in account.get("protocols", [])[:20]] if isinstance(account.get("protocols", []), list) else [],
+                "expiresAt": str(account.get("expiresAt", ""))[:80],
+                "note": str(account.get("note", ""))[:500],
+                "usedBytes": sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in identities),
+                "onlineDevices": sum(int(online.get(identity, 0)) for identity in identities),
+                "quotaBytes": int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)),
+            })
+        return public_accounts
 
     def aggregate_connections(self, raw_connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
         now = time.monotonic()
@@ -445,7 +485,15 @@ class DashboardService:
     def public_subscriptions(self) -> list[dict[str, Any]]:
         public: list[dict[str, Any]] = []
         for source in self.config.subscriptions:
-            item = {key: copy.deepcopy(value) for key, value in source.items() if key != "url"}
+            item = {
+                "id": str(source.get("id", ""))[:160],
+                "account": str(source.get("account", "account"))[:160],
+                "tokenHint": str(source.get("tokenHint", ""))[:80],
+                "protocols": [str(value)[:80] for value in source.get("protocols", [])[:20]] if isinstance(source.get("protocols", []), list) else [],
+                "updatedAt": str(source.get("updatedAt", ""))[:80],
+                "lastFetchedAt": str(source.get("lastFetchedAt", ""))[:80],
+                "enabled": bool(source.get("enabled", True)),
+            }
             if self.config.redact_live_data:
                 item["account"] = self._mask_identity(item.get("account", "account"))
             public.append(item)
@@ -476,7 +524,7 @@ class DashboardService:
         adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
         update("connections", ready=adapters_ready, summary="Protocol connection snapshots are available; individual fields may be absent" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="协议连接快照可用；个别字段可能由核心省略" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")
         update("system", ready=True, summary="Local /proc, filesystem and systemd data collected", summary_zh="已采集本机 /proc、文件系统和 systemd 数据")
-        update("traffic", ready=True, summary=f"Interface {self.system_collector.interface} counters sampled; monthly usage starts at the first retained sample", summary_zh=f"已采集网卡 {self.system_collector.interface} 计数器；周期用量从首个保留样本开始")
+        update("traffic", ready=True, summary=f"Interface {self.system_collector.interface} deltas persist across counter resets; incomplete cycle coverage is disclosed", summary_zh=f"网卡 {self.system_collector.interface} 增量会跨计数器归零持续累计；周期覆盖不完整时会明确提示")
         subscription_count = len(self.config.subscriptions)
         update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified", summary_zh=f"已读取 {subscription_count} 条受保护配置记录；未验证发布器外部可达性")
         reachable = sum(1 for target in network if target.get("status") != "down")
@@ -537,6 +585,8 @@ class DashboardService:
         saved_ui_settings = self.storage.get_setting("ui_settings", {})
         if not isinstance(saved_ui_settings, dict):
             saved_ui_settings = {}
+        if saved_ui_settings.get("idleTimeoutMinutes", 15) not in {2, 5, 10, 15, 20, 30}:
+            saved_ui_settings["idleTimeoutMinutes"] = 15
         return {
             "mode": "live",
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -553,7 +603,7 @@ class DashboardService:
                 "showSetup": True,
                 "visiblePanels": ["accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"],
                 "panelTitle": "CastoriceUI",
-                "idleTimeoutMinutes": 0,
+                "idleTimeoutMinutes": 15,
                 **saved_ui_settings,
             },
         }

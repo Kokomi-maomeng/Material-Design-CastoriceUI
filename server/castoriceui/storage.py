@@ -18,9 +18,10 @@ def utc_now() -> str:
 
 
 class Storage:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, audit_retention_days: int = 180) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self.audit_retention_days = max(7, min(int(audit_retention_days), 3650))
         self.lock = threading.RLock()
         self._initialize()
 
@@ -28,6 +29,7 @@ class Storage:
     def connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
         try:
             yield connection
             connection.commit()
@@ -44,7 +46,9 @@ class Storage:
                     rx_bytes INTEGER NOT NULL,
                     tx_bytes INTEGER NOT NULL,
                     cpu REAL NOT NULL,
-                    memory REAL NOT NULL
+                    memory REAL NOT NULL,
+                    interface TEXT NOT NULL DEFAULT '',
+                    boot_id TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
@@ -88,16 +92,26 @@ class Storage:
                     last_seen_at TEXT NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS login_failures (
+                    source_ip TEXT NOT NULL,
+                    failed_at INTEGER NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
                 CREATE INDEX IF NOT EXISTS audits_category_id ON audits(category, id DESC);
+                CREATE INDEX IF NOT EXISTS login_failures_source_time ON login_failures(source_ip, failed_at);
                 """
             )
+            sample_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(samples)")}
+            if "interface" not in sample_columns:
+                connection.execute("ALTER TABLE samples ADD COLUMN interface TEXT NOT NULL DEFAULT ''")
+            if "boot_id" not in sample_columns:
+                connection.execute("ALTER TABLE samples ADD COLUMN boot_id TEXT NOT NULL DEFAULT ''")
 
-    def record_sample(self, captured_at: int, rx: int, tx: int, cpu: float, memory: float) -> None:
+    def record_sample(self, captured_at: int, rx: int, tx: int, cpu: float, memory: float, interface: str = "", boot_id: str = "") -> None:
         with self.lock, self.connect() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO samples VALUES (?, ?, ?, ?, ?)",
-                (captured_at, rx, tx, cpu, memory),
+                "INSERT OR REPLACE INTO samples(captured_at,rx_bytes,tx_bytes,cpu,memory,interface,boot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (captured_at, rx, tx, cpu, memory, interface[:32], boot_id[:64]),
             )
             connection.execute("DELETE FROM samples WHERE captured_at < ?", (captured_at - 90 * 86400,))
 
@@ -107,6 +121,31 @@ class Storage:
                 "SELECT * FROM samples WHERE captured_at >= ? ORDER BY captured_at", (timestamp,)
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def traffic_usage_since(self, timestamp: int, count_mode: str = "sum", initial_used_bytes: int = 0) -> dict[str, Any]:
+        samples = self.samples_since(timestamp)
+        last_by_source: dict[tuple[str, str], tuple[int, int]] = {}
+        received = transmitted = 0
+        for sample in samples:
+            source = (str(sample.get("interface") or "legacy"), str(sample.get("boot_id") or "legacy"))
+            previous = last_by_source.get(source)
+            current = (int(sample["rx_bytes"]), int(sample["tx_bytes"]))
+            if previous is not None:
+                received += max(0, current[0] - previous[0])
+                transmitted += max(0, current[1] - previous[1])
+            last_by_source[source] = current
+        measured = max(received, transmitted) if count_mode == "max" else received + transmitted
+        first_sample = int(samples[0]["captured_at"]) if samples else None
+        baseline = max(0, int(initial_used_bytes))
+        return {
+            "usedBytes": baseline + measured,
+            "receivedBytes": received,
+            "transmittedBytes": transmitted,
+            "firstSampleAt": first_sample,
+            "coverageComplete": bool(first_sample is not None and first_sample <= timestamp + 120) or baseline > 0,
+            "baselineBytes": baseline,
+            "countMode": count_mode,
+        }
 
     def get_setting(self, key: str, default: Any) -> Any:
         with self.connect() as connection:
@@ -126,6 +165,8 @@ class Storage:
                 "INSERT INTO audits(action,category,actor,source_ip,result,detail,created_at) VALUES(?,?,?,?,?,?,?)",
                 (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
             )
+            cutoff = datetime.fromtimestamp(time.time() - self.audit_retention_days * 86400, timezone.utc).isoformat(timespec="seconds")
+            connection.execute("DELETE FROM audits WHERE created_at < ?", (cutoff,))
 
     def audit_page(self, page: int = 1, page_size: int = 30, search: str = "", category: str = "") -> dict[str, Any]:
         page = max(1, int(page))
@@ -258,11 +299,16 @@ class Storage:
             )
         return token, csrf_token, expires_at
 
-    def session(self, token: str) -> dict[str, Any] | None:
+    def session(self, token: str, idle_timeout_seconds: int = 0) -> dict[str, Any] | None:
         if not token:
             return None
         now = int(time.time())
+        cutoff = datetime.fromtimestamp(now - max(0, int(idle_timeout_seconds)), timezone.utc).isoformat(timespec="seconds")
         with self.lock, self.connect() as connection:
+            if idle_timeout_seconds > 0:
+                connection.execute("DELETE FROM sessions WHERE expires_at<=? OR last_seen_at<?", (now, cutoff))
+            else:
+                connection.execute("DELETE FROM sessions WHERE expires_at<=?", (now,))
             row = connection.execute(
                 """
                 SELECT sessions.user_id,users.username,sessions.csrf_token,sessions.expires_at
@@ -280,3 +326,28 @@ class Storage:
             return
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
+
+    def login_allowed(self, source_ip: str, limit: int = 5, window_seconds: int = 600) -> bool:
+        cutoff = int(time.time()) - window_seconds
+        with self.lock, self.connect() as connection:
+            connection.execute("DELETE FROM login_failures WHERE failed_at<?", (cutoff,))
+            count = int(connection.execute(
+                "SELECT COUNT(*) FROM login_failures WHERE source_ip=? AND failed_at>=?",
+                (source_ip, cutoff),
+            ).fetchone()[0])
+        return count < limit
+
+    def record_login_failure(self, source_ip: str) -> None:
+        with self.lock, self.connect() as connection:
+            connection.execute("INSERT INTO login_failures(source_ip,failed_at) VALUES(?,?)", (source_ip, int(time.time())))
+
+    def clear_login_failures(self, source_ip: str) -> None:
+        with self.lock, self.connect() as connection:
+            connection.execute("DELETE FROM login_failures WHERE source_ip=?", (source_ip,))
+
+    def database_size(self) -> int:
+        return sum(
+            candidate.stat().st_size
+            for candidate in (Path(self.path), Path(self.path + "-wal"), Path(self.path + "-shm"))
+            if candidate.is_file()
+        )

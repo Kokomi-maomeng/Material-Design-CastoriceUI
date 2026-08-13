@@ -1,6 +1,6 @@
 {
   "name": "material-design-castorice-ui",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "private": false,
   "engines": {
     "node": ">=20.19.0"
@@ -11,7 +11,8 @@
     "build": "npm run clean && vite build",
     "release:package": "node scripts/package-release.mjs",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs && python -m compileall -q server && python -m unittest discover -s server/tests -p test_*.py -v",
+    "test:runtime": "vitest run",
+    "test": "node --test tests/*.test.mjs && npm run test:runtime && python -m compileall -q server && python -m unittest discover -s server/tests -p test_*.py -v",
     "scan:sensitive": "node scripts/sensitive-scan.mjs",
     "lint": "eslint . --ignore-pattern dist",
     "typecheck": "tsc --noEmit",
@@ -28,6 +29,8 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
     "@types/node": "22.20.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -37,9 +40,11 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.5.0",
+    "jsdom": "^29.1.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.66.0",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   },
   "type": "module",
   "license": "MIT"

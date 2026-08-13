@@ -33,7 +33,7 @@ def main() -> None:
             handle.write(token + "\n")
         print(token)
         return
-    storage = Storage(config.database_path)
+    storage = Storage(config.database_path, config.audit_retention_days)
     dashboard = DashboardService(config, storage)
     server = ApiServer(config, storage, dashboard)
     storage.add_audit("后端启动", "系统", f"CastoriceUI {__version__} 数据服务已启动")

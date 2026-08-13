@@ -74,6 +74,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         if self.headers.get("X-CastoriceUI-Request") != "1":
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "missing_request_guard"})
             return False
+        if self.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_rejected"})
+            return False
+        origin = self.headers.get("Origin", "").strip()
+        host = self.headers.get("Host", "").strip().lower()
+        if origin:
+            parsed = urlparse(origin)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.netloc.lower() != host:
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "origin_mismatch"})
+                return False
         return True
 
     def source_ip(self) -> str:
@@ -96,7 +106,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         return morsel.value if morsel else ""
 
     def current_session(self) -> dict[str, Any] | None:
-        return self.app.storage.session(self.session_token())
+        settings = self.app.storage.get_setting("ui_settings", {})
+        idle_minutes = int(settings.get("idleTimeoutMinutes", 15)) if isinstance(settings, dict) else 15
+        if idle_minutes not in {2, 5, 10, 15, 20, 30}:
+            idle_minutes = 15
+        return self.app.storage.session(self.session_token(), idle_minutes * 60)
 
     def require_session(self, mutation: bool = False) -> dict[str, Any] | None:
         session = self.current_session()
@@ -127,7 +141,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         background_value = str(value.get("value", ""))
         try:
             if background_type == "url":
-                return {"type": "url", "url": normalize_https_image_url(background_value)}
+                return {"type": "url", "url": normalize_https_image_url(background_value, self.app.config.external_background_hosts)}
             if background_type == "server":
                 safe_background_image(self.app.config.login_background_directory, background_value)
                 return {"type": "server", "url": "/api/v2/auth/background"}
@@ -229,7 +243,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 saved = self.app.storage.get_setting("ui_settings", {})
                 if not isinstance(saved, dict):
                     saved = {}
-                current = {"showSetup": True, "visiblePanels": sorted(VISIBLE_PANELS), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 0, **saved}
+                current = {"showSetup": True, "visiblePanels": sorted(VISIBLE_PANELS), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 15, **saved}
+                if current.get("idleTimeoutMinutes") not in {2, 5, 10, 15, 20, 30}:
+                    current["idleTimeoutMinutes"] = 15
                 if "showSetup" in payload:
                     current["showSetup"] = bool(payload["showSetup"])
                 if "visiblePanels" in payload:
@@ -244,7 +260,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     current["panelTitle"] = panel_title
                 if "idleTimeoutMinutes" in payload:
                     idle_timeout = int(payload["idleTimeoutMinutes"])
-                    if idle_timeout not in {0, 2, 5, 10, 15, 20, 30}:
+                    if idle_timeout not in {2, 5, 10, 15, 20, 30}:
                         raise ValueError("idleTimeoutMinutes is not supported")
                     current["idleTimeoutMinutes"] = idle_timeout
                 self.app.storage.set_setting("ui_settings", current)
@@ -255,7 +271,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 background_type = str(payload.get("type", "default"))
                 background_value = str(payload.get("value", ""))
                 if background_type == "url":
-                    background_value = normalize_https_image_url(background_value)
+                    background_value = normalize_https_image_url(background_value, self.app.config.external_background_hosts)
                 elif background_type == "server":
                     safe_background_image(self.app.config.login_background_directory, background_value)
                 elif background_type == "default":
@@ -353,15 +369,32 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 class ApiServer(ThreadingHTTPServer):
     daemon_threads = True
+    request_queue_size = 64
+    max_request_workers = 32
 
     def __init__(self, config: AppConfig, storage: Storage, dashboard: DashboardService) -> None:
         self.config = config
         self.storage = storage
         self.dashboard = dashboard
         self.authentication_lock = threading.Lock()
-        self.login_lock = threading.Lock()
-        self.login_failures: dict[str, list[float]] = {}
+        self.request_slots = threading.BoundedSemaphore(self.max_request_workers)
         super().__init__((config.listen_host, config.listen_port), ApiHandler)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self.request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
 
     def bootstrap_available(self) -> bool:
         path = Path(self.config.bootstrap_token_path)
@@ -387,16 +420,10 @@ class ApiServer(ThreadingHTTPServer):
             pass
 
     def login_allowed(self, source_ip: str) -> bool:
-        cutoff = time.monotonic() - 600
-        with self.login_lock:
-            recent = [moment for moment in self.login_failures.get(source_ip, []) if moment >= cutoff]
-            self.login_failures[source_ip] = recent
-            return len(recent) < 5
+        return self.storage.login_allowed(source_ip)
 
     def record_login_failure(self, source_ip: str) -> None:
-        with self.login_lock:
-            self.login_failures.setdefault(source_ip, []).append(time.monotonic())
+        self.storage.record_login_failure(source_ip)
 
     def clear_login_failures(self, source_ip: str) -> None:
-        with self.login_lock:
-            self.login_failures.pop(source_ip, None)
+        self.storage.clear_login_failures(source_ip)

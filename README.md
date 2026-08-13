@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-2.4.0-6750A4)
+![Version](https://img.shields.io/badge/version-2.5.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -11,12 +11,19 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 
 ![CastoriceUI desktop overview](docs/images/dashboard-desktop.png)
 
-> 示例图使用虚构账号与保留地址，不包含生产服务器数据。
+<details>
+<summary>移动端导航（390 × 844）</summary>
+
+![CastoriceUI mobile navigation](docs/images/dashboard-mobile.png)
+
+</details>
+
+> 截图来自真实运行页面并启用脱敏，不包含密码、Token、完整订阅地址或未处理的生产身份信息。
 
 ## 功能范围
 
 - Linux 主机 CPU、内存、磁盘、负载、运行时间及网卡计数器
-- 1 小时至 7 天的流量趋势、协议分布和账号用量
+- 1 小时至 7 天的流量趋势、跨重启增量账本、计费周期覆盖说明及账号用量
 - 在线连接、连接速率、来源与目标信息（以协议核心实际输出为准）
 - IPv4/IPv6 网络质量探测、服务健康、告警确认及操作审计
 - 首次安全初始化、应用登录、会话与 CSRF 防护、界面与面板设置
@@ -51,7 +58,7 @@ npm run dev
 
 部署与升级步骤见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。升级前应备份受保护配置、完整的 `state.db*`、当前前后端目录、systemd 单元和 Nginx 站点，并保留可验证的回滚版本。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v2.4.0.md`](docs/RELEASE_NOTES_v2.4.0.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v2.5.0.md`](docs/RELEASE_NOTES_v2.5.0.md)。
 
 ## English
 

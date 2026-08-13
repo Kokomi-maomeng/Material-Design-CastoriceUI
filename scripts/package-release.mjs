@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +54,18 @@ async function collectFiles(directory) {
   return result;
 }
 
+async function removePythonCaches(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "__pycache__") await rm(target, { recursive: true, force: true });
+      else await removePythonCaches(target);
+    } else if (/\.pyc$/i.test(entry.name)) {
+      await rm(target, { force: true });
+    }
+  }
+}
+
 const assetDirectory = path.join(stageDirectory, "frontend", "assets");
 const assets = await readdir(assetDirectory);
 const logicalAssets = new Map();
@@ -66,8 +78,10 @@ for (const asset of assets) {
   logicalAssets.set(logicalName, asset);
 }
 
+await removePythonCaches(stageDirectory);
+
 for (const file of await collectFiles(stageDirectory)) {
-  if (file.includes(`${path.sep}__pycache__${path.sep}`) || /\.pyc$/i.test(file)) await rm(file, { force: true });
+  if ((await lstat(file)).isSymbolicLink()) throw new Error(`Release staging must not contain symlinks: ${file}`);
 }
 
 execFileSync("tar", ["-czf", archivePath, "-C", releaseDirectory, path.basename(stageDirectory)], { stdio: "inherit" });

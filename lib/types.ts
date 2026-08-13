@@ -131,10 +131,18 @@ export interface OverviewMetrics {
   uptimeSeconds: number;
   trafficUsedBytes: number;
   trafficLimitBytes: number;
+  trafficCycleStart: string;
+  trafficCoverageStart: string | null;
+  trafficCoverageComplete: boolean;
+  trafficBaselineBytes: number;
+  trafficCountMode: "sum" | "max";
+  trafficQuotaUnit: "GB";
   downloadBps: number;
   uploadBps: number;
   interface: string;
   kernel: string;
+  databaseBytes: number;
+  databaseWritable: boolean;
 }
 
 export interface TrafficBreakdown {
@@ -168,7 +176,7 @@ export interface UiSettings {
   showSetup: boolean;
   visiblePanels: PageId[];
   panelTitle: string;
-  idleTimeoutMinutes: 0 | 2 | 5 | 10 | 15 | 20 | 30;
+  idleTimeoutMinutes: 2 | 5 | 10 | 15 | 20 | 30;
 }
 
 export interface LoginAppearance {

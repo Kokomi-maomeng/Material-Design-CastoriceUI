@@ -3,7 +3,7 @@ import type { NavigationItem } from "./types";
 export const navigation: NavigationItem[] = [
   { id: "overview", labelZh: "总览", labelEn: "Overview", icon: "space_dashboard" },
   { id: "setup", labelZh: "初始化向导", labelEn: "Setup", icon: "checklist" },
-  { id: "accounts", labelZh: "账号管理", labelEn: "Accounts", icon: "group" },
+  { id: "accounts", labelZh: "账号状态", labelEn: "Account status", icon: "group" },
   { id: "connections", labelZh: "在线连接", labelEn: "Connections", icon: "lan" },
   { id: "traffic", labelZh: "流量分析", labelEn: "Traffic", icon: "monitoring" },
   { id: "subscriptions", labelZh: "订阅管理", labelEn: "Subscriptions", icon: "qr_code_2" },

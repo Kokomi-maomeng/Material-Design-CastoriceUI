@@ -33,6 +33,8 @@ export function ServicesPage({
     (service) => service.status === "running",
   ).length;
   const unhealthy = services.length - running;
+  const adapterServices = services.filter((item) => item.id === "hysteria2" || item.id === "anytls");
+  const runningAdapters = adapterServices.filter((item) => item.status === "running").length;
   return (
     <div className="page-content page-enter">
       <PageHeader
@@ -186,28 +188,26 @@ export function ServicesPage({
               <span>
                 <b>{t("SQLite 审计", "SQLite audit")}</b>
                 <small>
-                  {t("后端受限目录", "Protected backend directory")}
+                  {metrics.databaseWritable
+                    ? t(`采样写入成功 · ${formatBytes(metrics.databaseBytes)}`, `Sample write succeeded · ${formatBytes(metrics.databaseBytes)}`)
+                    : t("数据库当前不可写", "Database is not writable")}
                 </small>
               </span>
-              <Progress value={100} tone="success" />
+              <Progress value={metrics.databaseWritable ? 100 : 0} tone={metrics.databaseWritable ? "success" : "danger"} />
             </div>
             <div>
               <span>
                 <b>{t("协议适配器", "Protocol adapters")}</b>
                 <small>
                   {t(
-                    `${services.filter((item) => item.id === "hysteria2" || item.id === "anytls").filter((item) => item.status === "running").length} / 2 在线`,
-                    `${services.filter((item) => item.id === "hysteria2" || item.id === "anytls").filter((item) => item.status === "running").length} of 2 online`,
+                    `${runningAdapters} / ${adapterServices.length} 个数据源在线`,
+                    `${runningAdapters} of ${adapterServices.length} data sources online`,
                   )}
                 </small>
               </span>
               <Progress
                 value={
-                  services
-                    .filter(
-                      (item) => item.id === "hysteria2" || item.id === "anytls",
-                    )
-                    .filter((item) => item.status === "running").length * 50
+                  adapterServices.length ? (runningAdapters / adapterServices.length) * 100 : 0
                 }
                 tone="success"
               />

@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .config import AppConfig
 from .storage import Storage
@@ -71,6 +72,18 @@ def detect_interface(configured: str) -> str:
     return match.group(1) if match else "eth0"
 
 
+def billing_cycle_start(now: datetime, day: int, timezone_name: str) -> datetime:
+    zone = timezone.utc if timezone_name == "UTC" else ZoneInfo(timezone_name)
+    local = now.astimezone(zone)
+    year, month = local.year, local.month
+    if local.day < day:
+        month -= 1
+        if month == 0:
+            year -= 1
+            month = 12
+    return datetime(year, month, day, tzinfo=zone).astimezone(timezone.utc)
+
+
 class SystemCollector:
     def __init__(self, config: AppConfig, storage: Storage) -> None:
         self.config = config
@@ -78,6 +91,10 @@ class SystemCollector:
         self.interface = detect_interface(config.interface)
         self.previous_cpu: tuple[int, int] | None = None
         self.previous_net: tuple[float, int, int] | None = None
+        try:
+            self.boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        except OSError:
+            self.boot_id = "unknown"
 
     @staticmethod
     def _cpu_times() -> tuple[int, int]:
@@ -124,14 +141,14 @@ class SystemCollector:
         disk = shutil.disk_usage("/")
         rx, tx, download, upload = self.network()
         now = int(time.time())
-        self.storage.record_sample(now, rx, tx, cpu, memory_pct)
+        self.storage.record_sample(now, rx, tx, cpu, memory_pct, self.interface, self.boot_id)
         limit = int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes))
-        month_start = int(datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
-        month_samples = self.storage.samples_since(month_start)
-        if month_samples:
-            used = max(0, rx - month_samples[0]["rx_bytes"]) + max(0, tx - month_samples[0]["tx_bytes"])
-        else:
-            used = 0
+        cycle_start = billing_cycle_start(datetime.now(timezone.utc), self.config.traffic_billing_day, self.config.traffic_billing_timezone)
+        traffic_usage = self.storage.traffic_usage_since(
+            int(cycle_start.timestamp()),
+            self.config.traffic_count_mode,
+            self.config.traffic_initial_used_bytes if self.config.traffic_initial_used_cycle == cycle_start.date().isoformat() else 0,
+        )
         load = os.getloadavg()
         return {
             "nodeName": self.config.node_name,
@@ -145,12 +162,20 @@ class SystemCollector:
             "diskTotalBytes": disk.total,
             "load": [round(value, 2) for value in load],
             "uptimeSeconds": float(Path("/proc/uptime").read_text().split()[0]),
-            "trafficUsedBytes": used,
+            "trafficUsedBytes": traffic_usage["usedBytes"],
             "trafficLimitBytes": limit,
+            "trafficCycleStart": cycle_start.isoformat().replace("+00:00", "Z"),
+            "trafficCoverageStart": datetime.fromtimestamp(traffic_usage["firstSampleAt"], timezone.utc).isoformat().replace("+00:00", "Z") if traffic_usage["firstSampleAt"] is not None else None,
+            "trafficCoverageComplete": traffic_usage["coverageComplete"],
+            "trafficBaselineBytes": traffic_usage["baselineBytes"],
+            "trafficCountMode": traffic_usage["countMode"],
+            "trafficQuotaUnit": "GB",
             "downloadBps": download,
             "uploadBps": upload,
             "interface": self.interface,
             "kernel": platform.release(),
+            "databaseBytes": self.storage.database_size(),
+            "databaseWritable": True,
         }
 
 

@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const root = new URL("../", import.meta.url);
@@ -37,6 +38,23 @@ for (const file of await collect(root)) {
   for (const pattern of forbiddenContent) {
     if (pattern.test(content)) findings.push(`${file}: matched ${pattern}`);
   }
+}
+
+try {
+  const metadataEmails = execFileSync("git", ["log", "--all", "--format=%ae%n%ce"], { cwd: new URL("..", root), encoding: "utf8" })
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const taggerEmails = execFileSync("git", ["for-each-ref", "--format=%(taggeremail)", "refs/tags"], { cwd: new URL("..", root), encoding: "utf8" })
+    .split(/\r?\n/)
+    .map((value) => value.replace(/^<|>$/g, "").trim())
+    .filter(Boolean);
+  const isPrivateEmail = (email) => !/@users\.noreply\.github\.com$/i.test(email) && !/^noreply@github\.com$/i.test(email);
+  if (metadataEmails.some(isPrivateEmail) || taggerEmails.some(isPrivateEmail)) {
+    findings.push("Git history contains non-privacy author, committer, or tagger email metadata");
+  }
+} catch {
+  findings.push("Git history metadata could not be inspected");
 }
 
 if (findings.length > 0) {
