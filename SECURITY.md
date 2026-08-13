@@ -10,7 +10,7 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private s
 
 ## Supported production boundary
 
-CastoriceUI v2.3 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
+CastoriceUI v2.4 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
 
 1. Nginx terminates valid TLS and serves both the frontend and same-origin `/api/`.
 2. `castoriceui-backend` listens only on `127.0.0.1` or `::1`.
@@ -18,7 +18,7 @@ CastoriceUI v2.3 includes a browser application, application authentication, and
 4. The browser authenticates through the CastoriceUI login page; Nginx `auth_basic` is not used.
 5. Protected config is `0640 root:castoriceui`; SQLite, bootstrap token, and login image state are restricted to the service identity.
 
-The backend is not designed for direct public exposure. v2.3 does not implement MFA, password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
+The backend is not designed for direct public exposure. v2.4 does not implement MFA, password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
 
 ## Authentication and sessions
 

@@ -47,6 +47,33 @@ export function SetupPanel({
           </Chip>
         }
       />
+      {completed.length ? (
+        <div className="setup-completed setup-completed--first">
+          <h3>{t("已完成", "Completed")}</h3>
+          {completed.map((item) => {
+            const isReady = statusMap.get(item.id)?.status === "ready";
+            return (
+            <button key={item.id} onClick={() => onOpen(item.id)}>
+              <Icon name={isReady ? "check_circle" : "error"} filled />
+              <span>
+                <strong>{local(item.name)}</strong>
+                <small>
+                  {runtimeSummary(statusMap.get(item.id), local(item.outcome))}
+                </small>
+              </span>
+              <Chip staticChip tone={isReady ? "success" : "warning"}>
+                {isReady ? t("正常", "Ready") : t("需检查", "Check")}
+              </Chip>
+            </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {pending.length ? (
+        <div className="setup-pending-heading">
+          <h3>{t("待配置", "Pending")}</h3>
+        </div>
+      ) : null}
       {pending.length ? (
         <div className="setup-list setup-list--pending">
           {pending.map((item, index) => (
@@ -79,25 +106,6 @@ export function SetupPanel({
           </div>
         </div>
       )}
-      {completed.length ? (
-        <div className="setup-completed">
-          <h3>{t("已完成", "Completed")}</h3>
-          {completed.map((item) => (
-            <button key={item.id} onClick={() => onOpen(item.id)}>
-              <Icon name="check_circle" filled />
-              <span>
-                <strong>{local(item.name)}</strong>
-                <small>
-                  {runtimeSummary(statusMap.get(item.id), local(item.outcome))}
-                </small>
-              </span>
-              <Chip staticChip tone="success">
-                {t("正常", "Ready")}
-              </Chip>
-            </button>
-          ))}
-        </div>
-      ) : null}
     </Card>
   );
 }

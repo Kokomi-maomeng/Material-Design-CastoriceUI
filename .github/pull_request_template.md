@@ -11,6 +11,7 @@
 - [ ] `npm run check`
 - [ ] Sensitive-content review completed
 - [ ] Desktop and mobile browser regression completed when UI changed
+- [ ] Local-time labels, pointer alignment, and horizontal chart scrolling checked when charts changed
 - [ ] Deployment and rollback documentation updated when runtime behavior changed
 
 ## Safety
