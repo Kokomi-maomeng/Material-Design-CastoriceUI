@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type PointerEvent } from "react";
 import { updateNetworkTargets } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
@@ -260,6 +260,10 @@ export function NetworkPage({
                 <Sparkline
                   values={target.history}
                   degraded={target.status === "degraded"}
+                  label={t(
+                    `${target.name} 延迟趋势`,
+                    `${target.name} latency trend`,
+                  )}
                 />
               </div>
               <div className="network-measure">
@@ -442,9 +446,11 @@ function smoothPath(points: Array<{ x: number; y: number }>) {
 function Sparkline({
   values,
   degraded,
+  label,
 }: {
   values: number[];
   degraded: boolean;
+  label: string;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const gradientId = useId();
@@ -473,9 +479,16 @@ function Sparkline({
           y: 28 - ((value - min) / range) * 24,
         }));
   const stroke = degraded ? "var(--warning)" : "var(--primary)";
+  const pick = (event: PointerEvent<SVGSVGElement>) => {
+    const matrix = event.currentTarget.getScreenCTM();
+    if (!matrix) return;
+    const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const ratio = Math.max(0, Math.min(1, cursor.x / 100));
+    setActive(Math.round(ratio * (safeValues.length - 1)));
+  };
   return (
     <>
-    <svg viewBox="0 0 100 32" aria-hidden="true" onPointerLeave={() => setActive(null)}>
+    <svg className="sparkline-chart" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" tabIndex={0} aria-label={label} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive(safeValues.length - 1)} onBlur={() => setActive(null)}>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={stroke} stopOpacity=".2" />
@@ -493,11 +506,11 @@ function Sparkline({
         vectorEffect="non-scaling-stroke"
       />
       {points.map((point, index) => (
-        <g key={index} onPointerEnter={() => setActive(Math.min(index, safeValues.length - 1))} onPointerDown={() => setActive(Math.min(index, safeValues.length - 1))}>
+        <g key={index} pointerEvents="none">
           <circle cx={point.x} cy={point.y} r={active === index ? "2.8" : "1.8"} fill={stroke} />
-          <circle cx={point.x} cy={point.y} r="6" fill="transparent" />
         </g>
       ))}
+      <rect className="sparkline-hit-area" x="0" y="0" width="100" height="32" />
     </svg>
     {active !== null ? <span className="sparkline-tooltip" style={{ left: `${points[active].x}%` }}>{safeValues[Math.min(active, safeValues.length - 1)].toFixed(1)} ms</span> : null}
     </>

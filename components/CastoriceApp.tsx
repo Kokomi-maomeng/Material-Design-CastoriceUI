@@ -1116,12 +1116,7 @@ function SettingsDialog({
           </small>
         </label>
       </div>
-      <button
-        className="settings-row settings-row--button"
-        role="switch"
-        aria-checked={uiSettings.showSetup}
-        onClick={() => void onUiSettings({ showSetup: !uiSettings.showSetup })}
-      >
+      <div className="settings-row settings-row--switch">
         <span>
           <Icon name="checklist" />
           <span>
@@ -1134,10 +1129,12 @@ function SettingsDialog({
             </small>
           </span>
         </span>
-        <span className="settings-switch-control" aria-hidden="true">
-          <span className={`md-switch ${uiSettings.showSetup ? "is-on" : ""}`}><span /></span>
-        </span>
-      </button>
+        <SettingsSwitch
+          checked={uiSettings.showSetup}
+          label={t("显示初始化向导页面", "Show Setup page")}
+          onChange={() => void onUiSettings({ showSetup: !uiSettings.showSetup })}
+        />
+      </div>
       <details className="settings-disclosure">
         <summary>
           <span>
@@ -1295,15 +1292,34 @@ function SettingsDialog({
               const item = navigation.find((candidate) => candidate.id === id)!;
               const checked = uiSettings.visiblePanels.includes(id);
               return (
-                <button key={id} role="switch" aria-checked={checked} onClick={() => void onUiSettings({ visiblePanels: checked ? uiSettings.visiblePanels.filter((panel) => panel !== id) : [...uiSettings.visiblePanels, id] })}>
+                <div className="panel-toggle-item" key={id}>
                   <span><Icon name={item.icon} />{t(item.labelZh, item.labelEn)}</span>
-                  <span className="settings-switch-control" aria-hidden="true"><span className={`md-switch ${checked ? "is-on" : ""}`}><span /></span></span>
-                </button>
+                  <SettingsSwitch
+                    checked={checked}
+                    label={t(`${item.labelZh}显示状态`, `Show ${item.labelEn}`)}
+                    onChange={() => void onUiSettings({ visiblePanels: checked ? uiSettings.visiblePanels.filter((panel) => panel !== id) : [...uiSettings.visiblePanels, id] })}
+                  />
+                </div>
               );
             })}
           </div>
         </details>
       </section>
     </Dialog>
+  );
+}
+
+function SettingsSwitch({ checked, label, onChange }: { checked: boolean; label: string; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`md-switch settings-switch-control ${checked ? "is-on" : ""}`}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+    >
+      <span aria-hidden="true" />
+    </button>
   );
 }

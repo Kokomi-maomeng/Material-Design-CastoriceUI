@@ -54,6 +54,7 @@ export interface ConnectionDetail {
 
 export interface TrafficPoint {
   label: string;
+  capturedAt?: string;
   upload: number;
   download: number;
 }

@@ -305,10 +305,16 @@ class DashboardService:
                     item["download"] += max(0, sample["rx_bytes"] - previous["rx_bytes"])
                 previous = sample
             result = []
-            for captured_at, values in sorted(buckets.items()):
-                moment = datetime.fromtimestamp(captured_at, timezone.utc)
+            ordered_buckets = sorted(buckets.items())
+            for captured_at, values in ordered_buckets:
+                # A bucket represents the interval ending at this timestamp. The
+                # current bucket ends at the snapshot time, so its final label can
+                # agree with the clock shown by the browser instead of appearing
+                # one whole bucket behind it.
+                display_at = min(captured_at + interval, now)
+                moment = datetime.fromtimestamp(display_at, timezone.utc)
                 label = moment.strftime("%m/%d") if interval >= 86400 else moment.strftime("%m/%d %H:%M")
-                result.append({"label": label, **values})
+                result.append({"label": label, "capturedAt": moment.isoformat().replace("+00:00", "Z"), **values})
             return result
 
         ranges = {key: series(duration, interval) for key, (duration, interval) in definitions.items()}
