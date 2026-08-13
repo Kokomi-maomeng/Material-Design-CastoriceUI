@@ -103,6 +103,7 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(sum(item["upload"] for item in traffic["ranges"]["1h"]), 50)
             self.assertEqual(set(traffic["ranges"]), {"1h", "6h", "24h", "3day", "7day"})
             self.assertGreaterEqual(len(traffic["ranges"]["1h"]), 2)
+            self.assertEqual(traffic["ranges"]["1h"][-1]["capturedAt"], "2033-05-18T03:33:20Z")
 
     def test_named_network_targets_and_node_name_are_validated_and_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

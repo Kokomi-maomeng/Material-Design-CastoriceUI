@@ -1,23 +1,39 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-2.3.0-6750A4)
+![Version](https://img.shields.io/badge/version-2.4.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
 
-一个给小型 VPS 用的 Material Design 3 可观测面板。我最初只是想把主机状态、代理流量、在线连接和网络探测放在一个干净的页面里，后来逐渐补齐了应用登录、首次初始化、告警、审计和多协议适配。
+CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用于集中查看主机资源、真实网卡流量、代理连接、网络质量、服务状态、订阅记录、告警与审计信息。
 
-前端使用 React，后端是轻量的 Python/SQLite 服务。它可以读取 Linux 主机指标，并通过本机 API 接入 Hysteria2 与 sing-box。sing-box 侧支持按 inbound tag 映射 AnyTLS、VLESS、SOCKS5、Shadowsocks、VMess、Trojan 和 TUIC；没有明确映射的连接不会被猜测或误报。
+项目由 React 前端和轻量 Python/SQLite 后端组成。后端仅需接入本机数据源，浏览器不会直接访问协议管理接口，也不会用模拟数据替代不可用的生产数据。
 
 ![CastoriceUI desktop overview](docs/images/dashboard-desktop.png)
 
-> 截图使用保留地址和虚构账号制作，不包含生产数据。
+> 示例图使用虚构账号与保留地址，不包含生产服务器数据。
 
-[中文](#使用) · [English](#english)
+## 功能范围
 
-## 使用
+- Linux 主机 CPU、内存、磁盘、负载、运行时间及网卡计数器
+- 1 小时至 7 天的流量趋势、协议分布和账号用量
+- 在线连接、连接速率、来源与目标信息（以协议核心实际输出为准）
+- IPv4/IPv6 网络质量探测、服务健康、告警确认及操作审计
+- 首次安全初始化、应用登录、会话与 CSRF 防护、界面与面板设置
+- 响应式桌面与移动端布局、浅色/深色主题及减少动态效果支持
 
-开发环境需要 Node.js 20.19+ 和 Python 3.11+：
+## 协议接入
+
+| 数据源 | 当前支持 |
+| --- | --- |
+| Hysteria2 | Traffic Stats API 的累计流量、在线计数与活动流 |
+| sing-box | AnyTLS、VLESS、XTLS Vision、Reality、SOCKS5、Shadowsocks、VMess、Trojan、TUIC |
+
+sing-box 连接仅按服务器配置中的 inbound tag 明确映射。未匹配的连接不会被猜测为某个协议；Reality 作为 VLESS 的 TLS 安全配置展示，而不是独立协议。
+
+## 本地开发
+
+需要 Node.js 20.19+ 与 Python 3.11+：
 
 ```bash
 git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
@@ -27,46 +43,23 @@ npm run check
 npm run dev
 ```
 
-前端不会用示例数据假装后端在线。只启动 Vite 时会直接显示连接错误；接上后端后，流量历史才会从真实网卡计数器逐步建立。
+单独启动前端时，如果后端不可用，页面会显示连接状态，不会生成演示流量。完整接口约定见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
 
-生产部署请阅读 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。推荐使用 systemd、Nginx 和有效 TLS，后端及协议控制 API 必须只监听回环地址。首次部署需要在服务器生成一次性 Bootstrap Token，用它创建管理员：
+## 生产部署
 
-```bash
-sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/backend/run.py \
-  --config /etc/castoriceui/config.json --generate-bootstrap
-```
+生产环境建议使用 systemd、Nginx 与有效 TLS。CastoriceUI 后端、Hysteria2 Traffic Stats API 和 sing-box Clash API 均应只监听回环地址，由 Nginx 同源提供网页与 `/api/`。
 
-升级时保留私有配置、`state.db*` 和上一个版本目录。不要用仓库里的示例配置覆盖生产配置，也不要在 Nginx 额外开启 `auth_basic`。
+部署与升级步骤见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。升级前应备份受保护配置、完整的 `state.db*`、当前前后端目录、systemd 单元和 Nginx 站点，并保留可验证的回滚版本。
 
-## 数据从哪里来
-
-- CPU、内存、磁盘、负载、运行时间和网卡计数器来自 Linux `/proc`、`/sys` 与 `statvfs`。
-- Hysteria2 Traffic Stats API 提供账号流量、在线数和活动流；接口缺少来源 IP 时，页面会明确留空。
-- sing-box Clash API 提供连接与流量数据，协议身份只按服务器配置的 inbound tags 判断。
-- 网络质量来自小流量 ICMP 探测。不可达目标不会被写成 `0 ms`，曲线也不会补造采样点。
-- 密钥、完整订阅地址、私钥和明文密码不会进入普通仪表盘响应。
-
-接入配置和字段限制见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)，安全边界见 [`SECURITY.md`](SECURITY.md)。v2.3 的发布说明在 [`docs/RELEASE_NOTES_v2.3.0.md`](docs/RELEASE_NOTES_v2.3.0.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v2.4.0.md`](docs/RELEASE_NOTES_v2.4.0.md)。
 
 ## English
 
-CastoriceUI is a small Material Design 3 dashboard for VPS observability. It brings host metrics, proxy traffic, active connections, network probes, alerts, and audit history into one interface without pretending unavailable data exists.
+CastoriceUI is a Material Design 3 observability console for Linux VPS hosts. It combines host metrics, real interface traffic, proxy connections, network quality, service health, subscriptions, alerts, and audit records in a responsive interface.
 
-The React frontend talks to a lightweight Python/SQLite backend. Hysteria2 uses its Traffic Stats API; sing-box protocols are mapped through explicit inbound tags, including AnyTLS, VLESS, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC.
+The React frontend uses a lightweight Python/SQLite backend. Hysteria2 is integrated through its Traffic Stats API. sing-box connections are classified only through explicit inbound-tag mappings for AnyTLS, VLESS/XTLS/Reality, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC.
 
-To work on it locally:
-
-```bash
-git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
-cd Material-Design-CastoriceUI
-npm ci
-npm run check
-npm run dev
-```
-
-For production, use a systemd Linux host, Nginx, and TLS. Keep the backend and every protocol control endpoint on loopback. Follow [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), and preserve the protected config, SQLite state, and previous release when upgrading.
-
-Adapter details live in [`docs/INTEGRATION.md`](docs/INTEGRATION.md). See [`docs/RELEASE_NOTES_v2.3.0.md`](docs/RELEASE_NOTES_v2.3.0.md) for this release.
+For local development, run `npm ci`, `npm run check`, and `npm run dev`. For production, follow [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) and keep every backend or protocol-management endpoint on loopback behind same-origin Nginx and TLS.
 
 ## License
 

@@ -10,14 +10,14 @@ body:
     id: version
     attributes:
       label: Version or commit
-      placeholder: v2.3.0
+      placeholder: v2.4.0
     validations:
       required: true
   - type: dropdown
     id: area
     attributes:
       label: Area
-      options: [Frontend, Backend, Deployment, Documentation]
+      options: [Frontend, Charts and interaction, Backend, Deployment, Documentation]
     validations:
       required: true
   - type: textarea
