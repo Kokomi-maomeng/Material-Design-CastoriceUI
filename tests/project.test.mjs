@@ -231,4 +231,5 @@ test("v2.5 fails closed for config, payload fields, traffic resets, login abuse,
   assert.match(security, /host is not allowlisted/);
   assert.match(sensitiveScan, /cwd: root/);
   assert.doesNotMatch(sensitiveScan, /cwd: new URL\("\.\."/);
+  assert.match(sensitiveScan, /GITHUB_EVENT_NAME === "pull_request" \? "HEAD\^2" : "HEAD"/);
 });

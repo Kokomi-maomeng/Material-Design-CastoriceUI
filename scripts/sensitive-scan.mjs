@@ -41,7 +41,10 @@ for (const file of await collect(root)) {
 }
 
 try {
-  const metadataEmails = execFileSync("git", ["log", "--all", "--format=%ae%n%ce"], { cwd: root, encoding: "utf8" })
+  const historyRevision = process.env.GITHUB_ACTIONS === "true"
+    ? (process.env.GITHUB_EVENT_NAME === "pull_request" ? "HEAD^2" : "HEAD")
+    : "--all";
+  const metadataEmails = execFileSync("git", ["log", historyRevision, "--format=%ae%n%ce"], { cwd: root, encoding: "utf8" })
     .split(/\r?\n/)
     .map((value) => value.trim())
     .filter(Boolean);
