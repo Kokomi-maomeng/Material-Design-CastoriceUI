@@ -214,10 +214,11 @@ test("backend examples remain loopback-only and secret-free", async () => {
   assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
 });
 
-test("v2.5 fails closed for config, payload fields, traffic resets, and login abuse", async () => {
-  const [config, dashboard, storage, collector, nginx, security] = await Promise.all([
+test("v2.5 fails closed for config, payload fields, traffic resets, login abuse, and repository metadata", async () => {
+  const [config, dashboard, storage, collector, nginx, security, sensitiveScan] = await Promise.all([
     read("server/castoriceui/config.py"), read("server/castoriceui/dashboard.py"), read("server/castoriceui/storage.py"),
     read("server/castoriceui/collectors.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/security.py"),
+    read("scripts/sensitive-scan.mjs"),
   ]);
   assert.match(config, /Unknown configuration field/);
   assert.match(config, /listen_host must be a loopback IP address/);
@@ -228,4 +229,6 @@ test("v2.5 fails closed for config, payload fields, traffic resets, and login ab
   assert.match(collector, /boot_id/);
   assert.match(nginx, /limit_req zone=castorice_api/);
   assert.match(security, /host is not allowlisted/);
+  assert.match(sensitiveScan, /cwd: root/);
+  assert.doesNotMatch(sensitiveScan, /cwd: new URL\("\.\."/);
 });

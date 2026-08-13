@@ -41,11 +41,11 @@ for (const file of await collect(root)) {
 }
 
 try {
-  const metadataEmails = execFileSync("git", ["log", "--all", "--format=%ae%n%ce"], { cwd: new URL("..", root), encoding: "utf8" })
+  const metadataEmails = execFileSync("git", ["log", "--all", "--format=%ae%n%ce"], { cwd: root, encoding: "utf8" })
     .split(/\r?\n/)
     .map((value) => value.trim())
     .filter(Boolean);
-  const taggerEmails = execFileSync("git", ["for-each-ref", "--format=%(taggeremail)", "refs/tags"], { cwd: new URL("..", root), encoding: "utf8" })
+  const taggerEmails = execFileSync("git", ["for-each-ref", "--format=%(taggeremail)", "refs/tags"], { cwd: root, encoding: "utf8" })
     .split(/\r?\n/)
     .map((value) => value.replace(/^<|>$/g, "").trim())
     .filter(Boolean);
