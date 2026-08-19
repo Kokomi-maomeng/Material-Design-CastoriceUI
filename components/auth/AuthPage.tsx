@@ -13,7 +13,7 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const initialize = bootstrap.setupRequired;
-  const style = bootstrap.appearance.url ? { backgroundImage: `linear-gradient(135deg, rgb(22 18 39 / .62), rgb(48 33 82 / .48)), url("${bootstrap.appearance.url.replace(/["\\]/g, "")}")` } : undefined;
+  const style = bootstrap.appearance.url ? { backgroundImage: `linear-gradient(135deg, rgb(22 18 39 / .62), rgb(48 33 82 / .48)), url("${bootstrap.appearance.url.replace(/["\\]/g, "")}")`, backgroundSize: bootstrap.appearance.fit, backgroundPosition: bootstrap.appearance.position, backgroundRepeat: "no-repeat" } : undefined;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

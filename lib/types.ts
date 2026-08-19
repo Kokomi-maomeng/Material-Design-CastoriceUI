@@ -137,12 +137,24 @@ export interface OverviewMetrics {
   trafficBaselineBytes: number;
   trafficCountMode: "sum" | "max";
   trafficQuotaUnit: "GB";
+  trafficQuota?: TrafficQuotaSettings;
   downloadBps: number;
   uploadBps: number;
   interface: string;
   kernel: string;
   databaseBytes: number;
   databaseWritable: boolean;
+}
+
+export interface TrafficQuotaSettings {
+  bytes: number;
+  autoReset: boolean;
+  periodUnit: "day" | "week" | "month" | "year";
+  periodCount: number;
+  resetAnchor: string;
+  timezone: string;
+  cycleStart: string;
+  nextReset: string | null;
 }
 
 export interface TrafficBreakdown {
@@ -182,6 +194,8 @@ export interface UiSettings {
 export interface LoginAppearance {
   type: "default" | "url" | "server";
   url: string;
+  fit: "cover" | "contain";
+  position: "center" | "top" | "bottom" | "left" | "right";
 }
 
 export interface BootstrapState {

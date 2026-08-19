@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import re
+import socket
 from pathlib import Path
+from urllib import error as urlerror
+from urllib import request as urlrequest
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -62,17 +66,89 @@ def validate_interface_name(value: str) -> str:
 
 
 def normalize_https_image_url(value: str, allowed_hosts: list[str] | None = None) -> str:
-    """Validate an image URL that will be loaded by the browser, never fetched by this backend."""
+    """Validate a public HTTPS image/API URL fetched through the same-origin backend."""
     candidate = value.strip()
     if not candidate or len(candidate) > 2048:
         raise ValueError("Background image URL is empty or too long")
     parsed = urlsplit(candidate)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("Background image must use a plain HTTPS URL without credentials, query, or fragment")
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("Background image API must use HTTPS without credentials or a fragment")
     hosts = {str(host).strip().rstrip(".").lower() for host in (allowed_hosts or []) if str(host).strip()}
-    if parsed.hostname.rstrip(".").lower() not in hosts:
+    if hosts and parsed.hostname.rstrip(".").lower() not in hosts:
         raise ValueError("Background image host is not allowlisted by the server configuration")
-    return urlunsplit(("https", parsed.netloc, parsed.path or "/", "", ""))
+    return urlunsplit(("https", parsed.netloc, parsed.path or "/", parsed.query, ""))
+
+
+def _require_public_host(host: str) -> None:
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addresses = list({ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)})
+        except (OSError, ValueError) as error:
+            raise ValueError("Background image host cannot be resolved") from error
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("Background image host must resolve only to public IP addresses")
+
+
+class _NoRedirect(urlrequest.HTTPRedirectHandler):
+    def redirect_request(self, req: object, fp: object, code: int, msg: str, headers: object, newurl: str) -> None:
+        return None
+
+
+def _image_mime(body: bytes) -> str:
+    if body.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if body.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP":
+        return "image/webp"
+    raise ValueError("Background API did not return PNG, JPEG, or WebP content")
+
+
+def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, max_bytes: int = 5 * 1024 * 1024) -> tuple[bytes, str, str]:
+    """Fetch a bounded public image response, redirect, or small JSON object containing an image URL."""
+    current = normalize_https_image_url(value, allowed_hosts)
+    opener = urlrequest.build_opener(_NoRedirect)
+    for _ in range(5):
+        parsed = urlsplit(current)
+        _require_public_host(str(parsed.hostname))
+        request = urlrequest.Request(current, headers={"Accept": "image/avif,image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": "CastoriceUI/2.6"})
+        try:
+            response = opener.open(request, timeout=8)
+        except urlerror.HTTPError as error:
+            if error.code in {301, 302, 303, 307, 308} and error.headers.get("Location"):
+                from urllib.parse import urljoin
+                current = normalize_https_image_url(urljoin(current, error.headers["Location"]), allowed_hosts)
+                continue
+            raise ValueError(f"Background API returned HTTP {error.code}") from error
+        except (urlerror.URLError, TimeoutError, OSError) as error:
+            raise ValueError("Background image API is unreachable") from error
+        with response:
+            length = response.headers.get("Content-Length")
+            if length:
+                try:
+                    declared_length = int(length)
+                except (TypeError, ValueError):
+                    declared_length = 0
+                if declared_length > max_bytes:
+                    raise ValueError("Background image exceeds 5 MB")
+            body = response.read(max_bytes + 1)
+            if not body or len(body) > max_bytes:
+                raise ValueError("Background image is empty or exceeds 5 MB")
+            content_type = response.headers.get_content_type().lower()
+        if content_type == "application/json":
+            if len(body) > 64 * 1024:
+                raise ValueError("Background API JSON response exceeds 64 KiB")
+            try:
+                payload = json.loads(body)
+                candidate = next(str(payload[key]) for key in ("url", "image", "imageUrl", "image_url") if isinstance(payload, dict) and payload.get(key))
+            except (json.JSONDecodeError, StopIteration, TypeError, ValueError) as error:
+                raise ValueError("Background API JSON must contain url, image, imageUrl, or image_url") from error
+            current = normalize_https_image_url(candidate, allowed_hosts)
+            continue
+        return body, _image_mime(body), current
+    raise ValueError("Background image API redirected too many times")
 
 
 def _validated_background_candidate(root_path: Path, candidate: Path, max_bytes: int) -> tuple[Path, str]:
@@ -83,15 +159,7 @@ def _validated_background_candidate(root_path: Path, candidate: Path, max_bytes:
         raise ValueError("Background image is unavailable or exceeds 5 MB")
     with resolved_candidate.open("rb") as image:
         header = image.read(16)
-    mime = ""
-    if header.startswith(b"\x89PNG\r\n\x1a\n"):
-        mime = "image/png"
-    elif header.startswith(b"\xff\xd8\xff"):
-        mime = "image/jpeg"
-    elif len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP":
-        mime = "image/webp"
-    if not mime:
-        raise ValueError("Background image content is not PNG, JPEG, or WebP")
+    mime = _image_mime(header)
     return resolved_candidate, mime
 
 

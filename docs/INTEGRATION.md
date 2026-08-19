@@ -1,4 +1,4 @@
-# CastoriceUI v2.5 backend integration guide
+# CastoriceUI v2.6 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -115,8 +115,8 @@ Changing the list clears the probe cache so old values are not attributed to new
 - Hysteria2/sing-box URLs allow only `http` or `https` with `localhost` or loopback IP hosts.
 - Embedded credentials, query strings, fragments, remote/private hostnames, and metadata addresses are rejected before requests.
 - Strict authenticated probes use short timeouts and do not follow redirects.
-- Subscription base URLs and external login backgrounds require HTTPS.
-- External backgrounds are never fetched by the backend, preventing a background setting from becoming an SSRF proxy.
+- Subscription base URLs and image API login backgrounds require HTTPS.
+- Image API backgrounds are fetched through a bounded same-origin proxy. Every hop must resolve only to public IP addresses; credentials and fragments are rejected, responses are limited to 5 MB, and image magic bytes are verified.
 - Server images must remain in the configured directory, be no larger than 5 MB, and have PNG/JPEG/WebP magic bytes.
 
 ## Initialization requirements

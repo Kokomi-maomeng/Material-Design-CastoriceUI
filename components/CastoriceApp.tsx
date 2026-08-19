@@ -169,6 +169,12 @@ export function CastoriceApp() {
   const [dashboard, setDashboard] = useState<DashboardPayload>(emptyDashboard);
   const [backendOnline, setBackendOnline] = useState(false);
   const [draftLimit, setDraftLimit] = useState("1");
+  const [draftQuotaAutoReset, setDraftQuotaAutoReset] = useState(false);
+  const [draftQuotaUnit, setDraftQuotaUnit] = useState<"day" | "week" | "month" | "year">("month");
+  const [draftQuotaCount, setDraftQuotaCount] = useState("1");
+  const [draftQuotaAnchor, setDraftQuotaAnchor] = useState("2000-01-01");
+  const [draftQuotaTimezone, setDraftQuotaTimezone] = useState("UTC");
+  const [quotaError, setQuotaError] = useState("");
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -180,6 +186,7 @@ export function CastoriceApp() {
     Record<string, Record<string, string>>
   >({});
   const hasLiveData = useRef(false);
+  const dashboardLoading = useRef(false);
   const toastSequence = useRef(0);
   const dateMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -268,7 +275,8 @@ export function CastoriceApp() {
     window.history.replaceState(null, "", "#/overview");
   }, []);
   const loadDashboard = useCallback(async () => {
-    if (!session) return;
+    if (!session || dashboardLoading.current) return;
+    dashboardLoading.current = true;
     try {
       const payload = await fetchDashboard();
       setDashboard({ ...payload, mode: "live" });
@@ -284,6 +292,8 @@ export function CastoriceApp() {
       setBackendOnline(false);
       if (hasLiveData.current)
         setDashboard((current) => ({ ...current, mode: "stale" }));
+    } finally {
+      dashboardLoading.current = false;
     }
   }, [session, signOut]);
   useEffect(() => {
@@ -412,6 +422,7 @@ export function CastoriceApp() {
     [dashboard.networkTargets],
   );
   const openQuota = useCallback(() => {
+    const quota = dashboard.overview.trafficQuota;
     setDraftLimit(
       String(
         Math.max(
@@ -420,23 +431,37 @@ export function CastoriceApp() {
         ),
       ),
     );
+    setDraftQuotaAutoReset(quota?.autoReset ?? false);
+    setDraftQuotaUnit(quota?.periodUnit ?? "month");
+    setDraftQuotaCount(String(quota?.periodCount ?? 1));
+    setDraftQuotaAnchor(quota?.resetAnchor ?? new Date().toISOString().slice(0, 10));
+    setDraftQuotaTimezone(quota?.timezone ?? "UTC");
+    setQuotaError("");
     setQuotaOpen(true);
-  }, [dashboard.overview.trafficLimitBytes]);
+  }, [dashboard.overview.trafficLimitBytes, dashboard.overview.trafficQuota]);
   const saveQuota = useCallback(async () => {
     const value = Number(draftLimit);
-    if (!Number.isFinite(value) || value <= 0) {
-      showToast(
-        t(
-          "请输入大于 0 的有效流量额度",
-          "Enter a valid traffic quota above zero",
-        ),
-      );
+    const periodCount = Number(draftQuotaCount);
+    if (!Number.isFinite(value) || value < 1 || value > 1_000_000) {
+      setQuotaError(t("流量额度必须在 1 到 1,000,000 GB 之间", "Traffic quota must be between 1 and 1,000,000 GB"));
+      return;
+    }
+    if (!Number.isInteger(periodCount) || periodCount < 1 || periodCount > 365 || !/^\d{4}-\d{2}-\d{2}$/.test(draftQuotaAnchor)) {
+      setQuotaError(t("请检查重置周期数量和重置日期", "Check the reset interval and reset date"));
       return;
     }
     const bytes = Math.round(value * 1_000_000_000);
+    setQuotaError("");
     setQuotaSaving(true);
     try {
-      await updateTrafficLimit(bytes);
+      await updateTrafficLimit({
+        bytes,
+        autoReset: draftQuotaAutoReset,
+        periodUnit: draftQuotaUnit,
+        periodCount,
+        resetAnchor: draftQuotaAnchor,
+        timezone: draftQuotaTimezone,
+      });
       setDashboard((current) => ({
         ...current,
         overview: { ...current.overview, trafficLimitBytes: bytes },
@@ -448,17 +473,16 @@ export function CastoriceApp() {
       setQuotaOpen(false);
       showToast(t("总流量额度已保存", "Traffic quota saved"));
       await loadDashboard();
-    } catch {
-      showToast(
-        t(
-          "保存失败，请检查后端连接",
-          "Save failed. Check the backend connection.",
-        ),
-      );
+    } catch (error) {
+      const message = error instanceof ApiError && error.code !== "request_failed"
+        ? t(`保存失败：${error.code}`, `Save failed: ${error.code}`)
+        : t("保存失败，请检查后端连接", "Save failed. Check the backend connection.");
+      setQuotaError(message);
+      showToast(message);
     } finally {
       setQuotaSaving(false);
     }
-  }, [draftLimit, loadDashboard, showToast, t]);
+  }, [draftLimit, draftQuotaAnchor, draftQuotaAutoReset, draftQuotaCount, draftQuotaTimezone, draftQuotaUnit, loadDashboard, showToast, t]);
   const saveIntegration = useCallback(
     async (id: IntegrationId, values: Record<string, string>) => {
       try {
@@ -664,6 +688,7 @@ export function CastoriceApp() {
             services={dashboard.services}
             networkTargets={dashboard.networkTargets}
             traffic={dashboard.traffic}
+            now={now}
             onEditQuota={openQuota}
             onRefresh={() => {
               void loadDashboard();
@@ -857,13 +882,20 @@ export function CastoriceApp() {
         onColor={setThemeColor}
         uiSettings={uiSettings}
         onUiSettings={async (next) => {
-          const saved = await updateUiSettings(next);
-          setDashboard((current) => ({ ...current, uiSettings: saved }));
+          try {
+            const saved = await updateUiSettings(next);
+            setDashboard((current) => ({ ...current, uiSettings: saved }));
+            showToast(t("面板设置已保存", "Panel settings saved"));
+          } catch (error) {
+            showToast(t("面板设置保存失败，请检查后端连接", "Unable to save panel settings. Check the backend connection."));
+            throw error;
+          }
         }}
         nodeName={dashboard.overview.nodeName}
         onSaveNodeName={async (nodeName) => {
           await saveIntegration("system", { nodeName });
         }}
+        onToast={showToast}
       />
       <SetupWizard
         key={selectedSetup ?? "closed"}
@@ -882,7 +914,7 @@ export function CastoriceApp() {
       />
       <Dialog
         open={quotaOpen}
-        onClose={() => setQuotaOpen(false)}
+        onClose={() => { if (!quotaSaving) setQuotaOpen(false); }}
         title={t("设置总流量额度", "Set total traffic quota")}
         description={t(
           "总览与账号状态会立即使用同一个十进制 GB 额度。",
@@ -926,6 +958,18 @@ export function CastoriceApp() {
             "Live refreshes do not move the unit or overwrite the value while editing.",
           )}
         </p>
+        <div className="settings-row settings-row--switch quota-reset-switch">
+          <span><Icon name="restart_alt" /><span><strong>{t("自动重置流量", "Automatic traffic reset")}</strong><small>{draftQuotaAutoReset ? t("到达所选周期边界时从 0 开始新周期", "Start a new cycle at the selected boundary") : t("持续累计用量，不会自动归零", "Keep accumulating usage without automatic reset")}</small></span></span>
+          <SettingsSwitch checked={draftQuotaAutoReset} label={t("自动重置流量", "Automatic traffic reset")} onChange={() => setDraftQuotaAutoReset((current) => !current)} />
+        </div>
+        {draftQuotaAutoReset ? <div className="quota-schedule-grid">
+          <label className="field"><span>{t("每隔", "Every")}</span><input type="number" min="1" max="365" step="1" inputMode="numeric" value={draftQuotaCount} onChange={(event) => setDraftQuotaCount(event.target.value)} /></label>
+          <label className="field"><span>{t("计费单位", "Billing unit")}</span><select value={draftQuotaUnit} onChange={(event) => setDraftQuotaUnit(event.target.value as typeof draftQuotaUnit)}><option value="day">{t("日", "day(s)")}</option><option value="week">{t("周", "week(s)")}</option><option value="month">{t("月", "month(s)")}</option><option value="year">{t("年", "year(s)")}</option></select></label>
+          <label className="field"><span>{t("重置基准日期", "Reset anchor date")}</span><input type="date" value={draftQuotaAnchor} onChange={(event) => setDraftQuotaAnchor(event.target.value)} /></label>
+          <label className="field"><span>{t("计费时区", "Billing timezone")}</span><input value={draftQuotaTimezone} maxLength={64} placeholder="UTC" onChange={(event) => setDraftQuotaTimezone(event.target.value)} /></label>
+          <p className="field-hint quota-schedule-summary">{t(`每 ${draftQuotaCount || "?"} ${draftQuotaUnit === "day" ? "日" : draftQuotaUnit === "week" ? "周" : draftQuotaUnit === "month" ? "月" : "年"}重置；基准日 ${draftQuotaAnchor || "—"}，时区 ${draftQuotaTimezone || "UTC"}`, `Reset every ${draftQuotaCount || "?"} ${draftQuotaUnit}(s), anchored on ${draftQuotaAnchor || "—"} in ${draftQuotaTimezone || "UTC"}`)}</p>
+        </div> : null}
+        {quotaError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{quotaError}</span></div> : null}
       </Dialog>
       <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={dismissToast} />
     </div>
@@ -958,6 +1002,7 @@ function SettingsDialog({
   onUiSettings,
   nodeName,
   onSaveNodeName,
+  onToast,
 }: {
   open: boolean;
   onClose: () => void;
@@ -969,26 +1014,43 @@ function SettingsDialog({
   onUiSettings: (settings: Partial<UiSettings>) => Promise<void>;
   nodeName: string;
   onSaveNodeName: (name: string) => Promise<void>;
+  onToast: (message: string) => void;
 }) {
   const { preference, setPreference, t } = useI18n();
   const [draftNodeName, setDraftNodeName] = useState(nodeName);
   const [draftPanelTitle, setDraftPanelTitle] = useState(uiSettings.panelTitle);
   const [saving, setSaving] = useState(false);
+  const [draftUiSettings, setDraftUiSettings] = useState(uiSettings);
   const [backgroundType, setBackgroundType] = useState<
     "default" | "url" | "server"
   >("default");
   const [backgroundValue, setBackgroundValue] = useState("");
   const [backgroundFiles, setBackgroundFiles] = useState<string[]>([]);
+  const [backgroundDirectory, setBackgroundDirectory] = useState("");
+  const [backgroundFit, setBackgroundFit] = useState<"cover" | "contain">("cover");
+  const [backgroundPosition, setBackgroundPosition] = useState<"center" | "top" | "bottom" | "left" | "right">("center");
   useEffect(() => {
     if (!open) return;
     void fetchBackgroundOptions()
       .then((result) => {
         setBackgroundFiles(result.files);
+        setBackgroundDirectory(result.directory);
         setBackgroundType(result.configured.type);
         setBackgroundValue(result.configured.value);
+        setBackgroundFit(result.configured.fit ?? "cover");
+        setBackgroundPosition(result.configured.position ?? "center");
       })
       .catch(() => undefined);
   }, [open]);
+  const saveUiSettings = async (next: Partial<UiSettings>) => {
+    const previous = draftUiSettings;
+    setDraftUiSettings((current) => ({ ...current, ...next }));
+    try {
+      await onUiSettings(next);
+    } catch {
+      setDraftUiSettings(previous);
+    }
+  };
   const colors: Array<{
     id: ThemeColor;
     zh: string;
@@ -1097,9 +1159,9 @@ function SettingsDialog({
         <label className="field">
           <span>{t("在线超时时长", "Inactivity timeout")}</span>
           <select
-            value={uiSettings.idleTimeoutMinutes}
+            value={draftUiSettings.idleTimeoutMinutes}
             onChange={(event) =>
-              void onUiSettings({
+              void saveUiSettings({
                 idleTimeoutMinutes: Number(event.target.value) as UiSettings["idleTimeoutMinutes"],
               })
             }
@@ -1129,9 +1191,9 @@ function SettingsDialog({
           </span>
         </span>
         <SettingsSwitch
-          checked={uiSettings.showSetup}
+          checked={draftUiSettings.showSetup}
           label={t("显示初始化向导页面", "Show Setup page")}
-          onChange={() => void onUiSettings({ showSetup: !uiSettings.showSetup })}
+          onChange={() => void saveUiSettings({ showSetup: !draftUiSettings.showSetup })}
         />
       </div>
       <details className="settings-disclosure">
@@ -1142,8 +1204,8 @@ function SettingsDialog({
               <strong>{t("登录背景", "Sign-in background")}</strong>
               <small>
                 {t(
-                  "选择默认背景、服务器允许图片或 HTTPS 链接。",
-                  "Choose the default, an allowed server image, or an HTTPS URL.",
+                  "选择默认背景、服务器目录图片或公网 HTTPS 图库 API。",
+                  "Choose the default, a server-directory image, or a public HTTPS image API.",
                 )}
               </small>
             </span>
@@ -1167,7 +1229,7 @@ function SettingsDialog({
                 {t("默认 Material 背景", "Default Material background")}
               </option>
               <option value="server">{t("服务器图片", "Server image")}</option>
-              <option value="url">HTTPS URL</option>
+              <option value="url">{t("图库 API", "Image API")}</option>
             </select>
           </label>
           {backgroundType === "server" ? (
@@ -1189,25 +1251,27 @@ function SettingsDialog({
                   </option>
                 ))}
               </select>
+              <small className="field-hint">{t(`图片目录：${backgroundDirectory || "读取中…"}（仅读取该目录顶层的 PNG、JPEG、WebP）`, `Image directory: ${backgroundDirectory || "Loading…"} (top-level PNG, JPEG, and WebP files only)`)}</small>
             </label>
           ) : null}
           {backgroundType === "url" ? (
             <label className="field">
-              <span>HTTPS URL</span>
+              <span>{t("图库 API 地址", "Image API URL")}</span>
               <input
                 type="url"
-                placeholder="https://images.example.com/background.webp"
+                placeholder="https://images.example.com/api/random?size=large"
                 value={backgroundValue}
                 onChange={(event) => setBackgroundValue(event.target.value)}
               />
               <small className="field-hint">
                 {t(
-                  "图片由浏览器直接加载；面板后端不会代抓取外链。",
-                  "The browser loads the image directly; the backend never fetches remote URLs.",
+                  "支持直接图片、HTTP 重定向，以及返回 url、image、imageUrl 或 image_url 字段的 JSON；后端只允许公网 HTTPS，限制 5 MB 并缓存 15 分钟。",
+                  "Supports direct images, HTTP redirects, and JSON containing url, image, imageUrl, or image_url. The backend accepts public HTTPS only, limits images to 5 MB, and caches for 15 minutes.",
                 )}
               </small>
             </label>
           ) : null}
+          {backgroundType !== "default" ? <div className="form-grid background-layout-controls"><label className="field"><span>{t("缩放方式", "Image fit")}</span><select value={backgroundFit} onChange={(event) => setBackgroundFit(event.target.value as typeof backgroundFit)}><option value="cover">{t("填满并裁切", "Cover and crop")}</option><option value="contain">{t("完整显示", "Contain")}</option></select></label><label className="field"><span>{t("图片位置", "Image position")}</span><select value={backgroundPosition} onChange={(event) => setBackgroundPosition(event.target.value as typeof backgroundPosition)}><option value="center">{t("居中", "Center")}</option><option value="top">{t("顶部", "Top")}</option><option value="bottom">{t("底部", "Bottom")}</option><option value="left">{t("左侧", "Left")}</option><option value="right">{t("右侧", "Right")}</option></select></label></div> : null}
           <Button
             variant="tonal"
             disabled={
@@ -1215,10 +1279,10 @@ function SettingsDialog({
             }
             onClick={() => {
               setSaving(true);
-              void updateLoginBackground(
-                backgroundType,
-                backgroundValue,
-              ).finally(() => setSaving(false));
+              void updateLoginBackground(backgroundType, backgroundValue, backgroundFit, backgroundPosition)
+                .then(() => onToast(t("登录背景已保存", "Sign-in background saved")))
+                .catch(() => onToast(t("登录背景保存失败，请检查图片地址或服务器目录", "Unable to save the sign-in background. Check the image URL or server directory.")))
+                .finally(() => setSaving(false));
             }}
           >
             {t("保存登录背景", "Save sign-in background")}
@@ -1284,19 +1348,19 @@ function SettingsDialog({
                 <small>{t("选择在导航中显示的功能面板。", "Choose the feature panels shown in navigation.")}</small>
               </span>
             </span>
-            <span className="disclosure-status"><small>{t(`已显示 ${uiSettings.visiblePanels.length} 项`, `${uiSettings.visiblePanels.length} shown`)}</small><Icon name="expand_more" /></span>
+            <span className="disclosure-status"><small>{t(`已显示 ${draftUiSettings.visiblePanels.length} 项`, `${draftUiSettings.visiblePanels.length} shown`)}</small><Icon name="expand_more" /></span>
           </summary>
           <div className="panel-toggle-list disclosure-content">
             {PANEL_IDS.map((id) => {
               const item = navigation.find((candidate) => candidate.id === id)!;
-              const checked = uiSettings.visiblePanels.includes(id);
+              const checked = draftUiSettings.visiblePanels.includes(id);
               return (
                 <div className="panel-toggle-item" key={id}>
                   <span><Icon name={item.icon} />{t(item.labelZh, item.labelEn)}</span>
                   <SettingsSwitch
                     checked={checked}
                     label={t(`${item.labelZh}显示状态`, `Show ${item.labelEn}`)}
-                    onChange={() => void onUiSettings({ visiblePanels: checked ? uiSettings.visiblePanels.filter((panel) => panel !== id) : [...uiSettings.visiblePanels, id] })}
+                    onChange={() => void saveUiSettings({ visiblePanels: checked ? draftUiSettings.visiblePanels.filter((panel) => panel !== id) : [...draftUiSettings.visiblePanels, id] })}
                   />
                 </div>
               );

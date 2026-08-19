@@ -617,6 +617,40 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 @keyframes toast-in-v24 { from { opacity: 0; transform: translate(-50%, 18px) scale(.96); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
 @keyframes toast-out-v24 { from { opacity: 1; transform: translateX(-50%) scale(1); } to { opacity: 0; transform: translate(-50%, 12px) scale(.98); } }
 
+/* v2.6 stable quota, connection and live-network layouts. */
+.toast { z-index: 240; }
+.quota-reset-switch { margin-top: 18px; }
+.quota-schedule-grid { display: grid; grid-template-columns: minmax(90px, .55fr) minmax(150px, 1fr); gap: 12px; margin-top: 14px; }
+.quota-schedule-grid .field:nth-child(n+3) { grid-column: 1 / -1; }
+.quota-schedule-summary { grid-column: 1 / -1; margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-container); }
+.dialog-error { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; padding: 11px 12px; border-radius: 12px; background: var(--error-container); color: var(--on-error-container); }
+.background-layout-controls { margin-top: 2px; }
+.content-grid--traffic-bottom { grid-template-columns: minmax(0, 1fr); }
+.connection-detail-grid.no-destination { grid-template-columns: 34px minmax(110px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr); }
+.network-target { grid-template-columns: 40px minmax(180px, .9fr) minmax(280px, 2fr) repeat(3, minmax(72px, .42fr)) auto; gap: 14px; padding: 15px 4px; }
+.sparkline { min-width: 0; height: 54px; }
+
+@media (max-width: 1180px) {
+  .network-target { grid-template-columns: 40px minmax(160px, 1fr) minmax(220px, 1.5fr) repeat(3, 70px) auto; gap: 10px; }
+}
+
+@media (max-width: 900px) {
+  .network-target { grid-template-columns: 40px minmax(0, 1fr) repeat(3, minmax(62px, auto)) auto; }
+  .network-target .sparkline { grid-column: 2 / -1; grid-row: 2; width: 100%; min-height: 58px; }
+}
+
+@media (max-width: 620px) {
+  .quota-schedule-grid, .background-layout-controls { grid-template-columns: 1fr; }
+  .quota-schedule-grid .field:nth-child(n+3) { grid-column: auto; }
+  .network-target { grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; }
+  .network-target .sparkline { grid-column: 1 / -1; grid-row: auto; }
+  .network-target .network-measure { display: flex; grid-row: auto; }
+  .network-target > .network-measure:nth-child(4) { grid-column: 1; }
+  .network-target > .network-measure:nth-child(5) { grid-column: 2; }
+  .network-target > .network-measure:nth-child(6) { grid-column: 3; }
+  .connection-detail-grid.has-destination, .connection-detail-grid.no-destination { grid-template-columns: 32px 1fr; }
+}
+
 @media (max-width: 760px) {
   .chart--traffic { overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scrollbar-width: thin; }
   .chart--traffic .native-chart { width: 680px; min-width: 680px; }

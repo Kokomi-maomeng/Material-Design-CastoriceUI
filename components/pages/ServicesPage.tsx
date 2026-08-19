@@ -41,8 +41,8 @@ export function ServicesPage({
         eyebrow={t("运行状态", "Runtime status")}
         title={t("服务状态", "Services")}
         description={t(
-          "查看代理核心、系统组件、证书和更新的真实状态。",
-          "Review live status for proxy cores, system components, certificates, and updates.",
+          "查看代理核心、系统组件和证书的真实状态。",
+          "Review live status for proxy cores, system components, and certificates.",
         )}
         actions={
           <Button variant="tonal" icon="refresh" onClick={onRefresh}>
@@ -54,8 +54,8 @@ export function ServicesPage({
         status={integration}
         name="系统服务监控"
         nameEn="System service monitoring"
-        description="连接本机 systemd 与证书读取器后显示真实状态和运行时间。"
-        descriptionEn="Read live state and uptime from local systemd and the certificate reader."
+        description="连接本机 systemd 与证书读取器后显示真实状态；仅服务项显示可用的运行时间。"
+        descriptionEn="Read live state from local systemd and the certificate reader; uptime is shown only for services that provide it."
         onConfigure={onConfigure}
       />
       <div
@@ -126,12 +126,12 @@ export function ServicesPage({
                 <dt>{t("版本", "Version")}</dt>
                 <dd>{service.version}</dd>
               </div>
-              <div>
+              {service.uptime !== undefined || service.uptimeSeconds !== undefined ? <div>
                 <dt>{t("运行时间", "Uptime")}</dt>
                 <dd>
                   {service.uptime ?? formatDuration(service.uptimeSeconds ?? 0)}
                 </dd>
-              </div>
+              </div> : null}
             </dl>
             <div className="service-card__source">
               <Icon name="sync" size={17} />

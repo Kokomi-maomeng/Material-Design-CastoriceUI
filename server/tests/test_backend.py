@@ -9,6 +9,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,10 +18,10 @@ SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
 
 from castoriceui.config import AppConfig  # noqa: E402
-from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot  # noqa: E402
+from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot, traffic_quota_period  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.api import ApiHandler, ApiServer  # noqa: E402
-from castoriceui.security import normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, safe_background_image, validate_probe_target  # noqa: E402
+from castoriceui.security import fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 
 
@@ -270,6 +271,52 @@ class BackendTests(unittest.TestCase):
             self.assertNotEqual(recurring["episodeId"], first["episodeId"])
             self.assertFalse(storage.acknowledge("service-unknown"))
 
+    def test_alerts_are_generated_from_live_backend_conditions_and_persist_acknowledgement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            dashboard = DashboardService(AppConfig(database_path=storage.path), storage)
+            system = {"trafficUsedBytes": 900, "trafficLimitBytes": 1000}
+            services = [{"id": "nginx", "name": "Nginx", "status": "stopped", "detail": "offline"}]
+            network = [{"id": "edge", "name": "Edge", "status": "down", "latency": 999, "loss": 100}]
+            alerts = dashboard.alerts(system, services, network)
+            self.assertEqual({item["id"] for item in alerts}, {"traffic-threshold", "service-nginx", "network-edge"})
+            self.assertTrue(storage.acknowledge("service-nginx"))
+            refreshed = dashboard.alerts(system, services, network)
+            self.assertTrue(next(item for item in refreshed if item["id"] == "service-nginx")["acknowledged"])
+
+    def test_quota_schedule_matches_day_week_month_year_and_disabled_modes(self) -> None:
+        default_start, default_next, default_schedule = traffic_quota_period(
+            datetime(2026, 8, 19, tzinfo=timezone.utc), {},
+        )
+        self.assertFalse(default_schedule["autoReset"])
+        self.assertIsNone(default_next)
+        self.assertLessEqual(default_start, datetime(2026, 8, 19, tzinfo=timezone.utc))
+        monthly_start, monthly_next, _ = traffic_quota_period(
+            datetime(2026, 3, 15, tzinfo=timezone.utc),
+            {"autoReset": True, "periodUnit": "month", "periodCount": 1, "resetAnchor": "2026-01-31", "timezone": "UTC"},
+        )
+        self.assertEqual(monthly_start.date().isoformat(), "2026-02-28")
+        self.assertEqual(monthly_next.date().isoformat(), "2026-03-31")
+        weekly_start, weekly_next, _ = traffic_quota_period(
+            datetime(2026, 1, 20, tzinfo=timezone.utc),
+            {"autoReset": True, "periodUnit": "week", "periodCount": 2, "resetAnchor": "2026-01-05", "timezone": "UTC"},
+        )
+        self.assertEqual(weekly_start.date().isoformat(), "2026-01-19")
+        self.assertEqual(weekly_next.date().isoformat(), "2026-02-02")
+        yearly_start, yearly_next, _ = traffic_quota_period(
+            datetime(2025, 8, 1, tzinfo=timezone.utc),
+            {"autoReset": True, "periodUnit": "year", "periodCount": 1, "resetAnchor": "2024-02-29", "timezone": "UTC"},
+        )
+        self.assertEqual(yearly_start.date().isoformat(), "2025-02-28")
+        self.assertEqual(yearly_next.date().isoformat(), "2026-02-28")
+        fixed_start, fixed_next, normalized = traffic_quota_period(
+            datetime(2026, 8, 19, tzinfo=timezone.utc),
+            {"autoReset": False, "periodUnit": "day", "periodCount": 1, "resetAnchor": "2026-01-01", "fixedCycleStart": "2026-06-01T00:00:00Z", "timezone": "UTC"},
+        )
+        self.assertEqual(fixed_start.date().isoformat(), "2026-06-01")
+        self.assertIsNone(fixed_next)
+        self.assertFalse(normalized["autoReset"])
+
     def test_integration_is_ready_only_after_authenticated_probe(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = AppConfig(database_path=str(Path(directory) / "state.db"))
@@ -336,12 +383,19 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_probe_target("-f")
         self.assertEqual(normalize_https_image_url("https://images.example.test/panel.webp", ["images.example.test"]), "https://images.example.test/panel.webp")
+        self.assertEqual(normalize_https_image_url("https://images.example.test/panel.webp?size=large"), "https://images.example.test/panel.webp?size=large")
         with self.assertRaisesRegex(ValueError, "allowlisted"):
-            normalize_https_image_url("https://images.example.test/panel.webp")
+            normalize_https_image_url("https://other.example.test/panel.webp", ["images.example.test"])
         with self.assertRaises(ValueError):
             normalize_https_image_url("http://127.0.0.1/private.png")
         with self.assertRaises(ValueError):
-            normalize_https_image_url("https://images.example.test/panel.webp?token=secret")
+            normalize_https_image_url("https://user:secret@images.example.test/panel.webp")
+        with self.assertRaisesRegex(ValueError, "public IP"):
+            fetch_https_image_api("https://127.0.0.1/private.png")
+        with patch("castoriceui.security._require_public_host"), patch("castoriceui.security.urlrequest.build_opener") as build_opener:
+            build_opener.return_value.open.side_effect = urllib.error.URLError("offline")
+            with self.assertRaisesRegex(ValueError, "unreachable"):
+                fetch_https_image_api("https://images.example.test/random")
 
     def test_server_background_image_stays_in_allowed_directory_and_checks_magic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -427,6 +481,10 @@ class BackendTests(unittest.TestCase):
                 status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 10_000_000_000}, guard)
                 self.assertEqual(status, 200)
                 self.assertEqual(result["bytes"], 10_000_000_000)
+                status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 20_000_000_000, "autoReset": True, "periodUnit": "week", "periodCount": 2, "resetAnchor": "2026-08-17", "timezone": "UTC"}, guard)
+                self.assertEqual(status, 200)
+                self.assertEqual((result["periodUnit"], result["periodCount"], result["resetAnchor"]), ("week", 2, "2026-08-17"))
+                self.assertEqual(storage.get_setting("traffic_quota", {})["periodUnit"], "week")
                 status, settings = call("/api/v2/settings/ui", "PUT", {"panelTitle": "My VPS", "idleTimeoutMinutes": 10, "showSetup": False}, guard)
                 self.assertEqual(status, 200)
                 self.assertEqual(settings["panelTitle"], "My VPS")

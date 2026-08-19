@@ -27,6 +27,7 @@ export function OverviewPage({
   services,
   networkTargets,
   traffic,
+  now,
   onEditQuota,
   onRefresh,
   onViewServices,
@@ -37,6 +38,7 @@ export function OverviewPage({
   services: ServiceStatus[];
   networkTargets: NetworkTarget[];
   traffic: DashboardPayload["traffic"];
+  now: number;
   onEditQuota: () => void;
   onRefresh: () => void;
   onViewServices: () => void;
@@ -61,10 +63,18 @@ export function OverviewPage({
     0,
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
   );
+  const quota = metrics.trafficQuota;
+  const cycleElapsedDays = Math.max(1 / 1440, (now - new Date(quota?.cycleStart ?? metrics.trafficCycleStart).getTime()) / 86_400_000);
   const estimatedDays =
-    metrics.trafficUsedBytes > 0
-      ? Math.max(1, Math.round((30 * remaining) / metrics.trafficUsedBytes))
+    metrics.trafficCoverageComplete && metrics.trafficUsedBytes > 0
+      ? Math.max(1, Math.round((cycleElapsedDays * remaining) / metrics.trafficUsedBytes))
       : null;
+  const quotaCycleText = quota?.autoReset && quota.nextReset
+    ? t(
+        `每 ${quota.periodCount} ${quota.periodUnit === "day" ? "日" : quota.periodUnit === "week" ? "周" : quota.periodUnit === "month" ? "月" : "年"}重置 · 下次 ${new Date(quota.nextReset).toLocaleDateString("zh-CN")}`,
+        `Resets every ${quota.periodCount} ${quota.periodUnit}(s) · next ${new Date(quota.nextReset).toLocaleDateString("en")}`,
+      )
+    : t("自动重置已关闭 · 持续累计", "Automatic reset off · continuously accumulated");
   const reachableTargets = networkTargets.filter(
     (target) => target.status !== "down",
   ).length;
@@ -124,6 +134,7 @@ export function OverviewPage({
                   `Quota ${formatDecimalBytes(metrics.trafficLimitBytes)} · ${formatDecimalBytes(remaining)} remaining`,
                 )}
               </span>
+              <span className="metric-support">{quotaCycleText}</span>
             </div>
             <Button
               variant="text"
@@ -135,7 +146,7 @@ export function OverviewPage({
           <Progress
             value={usage}
             tone={usage >= 90 ? "danger" : usage >= 75 ? "warning" : "primary"}
-            label={t("月度流量使用率", "Monthly traffic usage")}
+            label={t("当前周期流量使用率", "Current-cycle traffic usage")}
           />
           <div className="traffic-hero__footer">
             <span>
@@ -350,8 +361,8 @@ export function OverviewPage({
           <CardHeader
             title={t("网络质量", "Network quality")}
             description={t(
-              "探测结果最多缓存 5 分钟；不是 5 秒实时探测",
-              "Probe results may be cached for five minutes; they are not five-second live tests",
+              "每 5 秒刷新真实探测结果",
+              "Real probe results refresh every five seconds",
             )}
           />
           <div className="quality-summary">

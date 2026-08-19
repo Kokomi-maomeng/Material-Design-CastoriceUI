@@ -1,4 +1,4 @@
-import type { AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, UiSettings } from "./types";
+import type { AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
@@ -71,8 +71,8 @@ export function fetchSubscriptionUrl(id: string) {
   return request<{ url: string }>(`/api/v2/subscriptions/${encodeURIComponent(id)}/url`);
 }
 
-export function updateTrafficLimit(bytes: number) {
-  return request<{ ok: boolean; bytes: number }>("/api/v2/settings/traffic-limit", { method: "PUT", body: JSON.stringify({ bytes }) }, true);
+export function updateTrafficLimit(settings: Pick<TrafficQuotaSettings, "bytes" | "autoReset" | "periodUnit" | "periodCount" | "resetAnchor" | "timezone">) {
+  return request<{ ok: boolean; bytes: number }>("/api/v2/settings/traffic-limit", { method: "PUT", body: JSON.stringify(settings) }, true);
 }
 
 export function acknowledgeAlert(id: string) {
@@ -92,9 +92,9 @@ export function updateUiSettings(settings: Partial<UiSettings>) {
 }
 
 export function fetchBackgroundOptions() {
-  return request<{ files: string[]; selected: LoginAppearance; configured: { type: "default" | "url" | "server"; value: string } }>("/api/v2/settings/background-options");
+  return request<{ files: string[]; directory: string; selected: LoginAppearance; configured: { type: "default" | "url" | "server"; value: string; fit?: "cover" | "contain"; position?: "center" | "top" | "bottom" | "left" | "right" } }>("/api/v2/settings/background-options");
 }
 
-export function updateLoginBackground(type: "default" | "url" | "server", value: string) {
-  return request<LoginAppearance>("/api/v2/settings/login-background", { method: "PUT", body: JSON.stringify({ type, value }) }, true);
+export function updateLoginBackground(type: "default" | "url" | "server", value: string, fit: "cover" | "contain", position: "center" | "top" | "bottom" | "left" | "right") {
+  return request<LoginAppearance>("/api/v2/settings/login-background", { method: "PUT", body: JSON.stringify({ type, value, fit, position }) }, true);
 }

@@ -133,8 +133,8 @@ export function NetworkPage({
         status={integration}
         name="网络探测"
         nameEn="Network probes"
-        description="设置 IPv4 / IPv6 目标后，后端会周期计算延迟、抖动和丢包。"
-        descriptionEn="After targets are configured, the backend periodically calculates latency, jitter, and packet loss."
+        description="设置 IPv4 / IPv6 目标后，后端按 5 秒刷新周期计算延迟、抖动和丢包。"
+        descriptionEn="After targets are configured, the backend refreshes latency, jitter, and packet loss every five seconds."
         onConfigure={onConfigure}
       />
       <FeatureIntro
@@ -214,8 +214,8 @@ export function NetworkPage({
         <CardHeader
           title={t("目标节点", "Targets")}
           description={t(
-            "每次缓存探测包含最多 8 个真实 ICMP 响应点",
-            "Each cached probe contains up to eight real ICMP responses",
+            "每 5 秒更新，每个目标展示最多 8 个真实 ICMP 响应点",
+            "Updated every five seconds with up to eight real ICMP responses per target",
           )}
           action={
             <div className="segmented-control">
@@ -298,18 +298,6 @@ export function NetworkPage({
               </Chip>
             </div>
           ))}
-        </div>
-      </Card>
-      <Card variant="filled" className="network-note">
-        <Icon name="info" size={22} />
-        <div>
-          <strong>{t("探测说明", "Probe notes")}</strong>
-          <span>
-            {t(
-              "面板只执行小流量 ICMP 探测，不运行测速下载；曲线来自本次真实响应，不插入虚构采样点。",
-              "The panel performs lightweight ICMP probes only, not download tests. Curves use real responses from the probe without invented points.",
-            )}
-          </span>
         </div>
       </Card>
       <Dialog
