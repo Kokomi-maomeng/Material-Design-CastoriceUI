@@ -13,7 +13,8 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -84,6 +85,79 @@ def billing_cycle_start(now: datetime, day: int, timezone_name: str) -> datetime
     return datetime(year, month, day, tzinfo=zone).astimezone(timezone.utc)
 
 
+def _month_at(anchor: date, month_index: int) -> date:
+    year = anchor.year + (anchor.month - 1 + month_index) // 12
+    month = (anchor.month - 1 + month_index) % 12 + 1
+    return date(year, month, min(anchor.day, monthrange(year, month)[1]))
+
+
+def traffic_quota_period(
+    now: datetime,
+    quota: dict[str, Any],
+    legacy_day: int = 1,
+    legacy_timezone: str = "UTC",
+) -> tuple[datetime, datetime | None, dict[str, Any]]:
+    """Return the active quota period and a normalized public schedule."""
+    timezone_name = str(quota.get("timezone") or legacy_timezone or "UTC")
+    zone = timezone.utc if timezone_name == "UTC" else ZoneInfo(timezone_name)
+    local_now = now.astimezone(zone)
+    unit = str(quota.get("periodUnit") or "month")
+    if unit not in {"day", "week", "month", "year"}:
+        unit = "month"
+    try:
+        count = max(1, min(int(quota.get("periodCount", 1)), 365))
+    except (TypeError, ValueError):
+        count = 1
+    try:
+        anchor = date.fromisoformat(str(quota.get("resetAnchor") or ""))
+    except ValueError:
+        anchor = date(2000, 1, max(1, min(int(legacy_day), 28)))
+    auto_reset = bool(quota.get("autoReset", False))
+
+    if not auto_reset:
+        try:
+            fixed = datetime.fromisoformat(str(quota.get("fixedCycleStart", "")).replace("Z", "+00:00"))
+            if fixed.tzinfo is None:
+                fixed = fixed.replace(tzinfo=zone)
+        except ValueError:
+            fixed = datetime.combine(anchor, datetime.min.time(), zone)
+        start = min(fixed.astimezone(timezone.utc), now.astimezone(timezone.utc))
+        return start, None, {
+            "autoReset": False,
+            "periodUnit": unit,
+            "periodCount": count,
+            "resetAnchor": anchor.isoformat(),
+            "timezone": timezone_name,
+        }
+
+    if unit in {"day", "week"}:
+        step_days = count * (7 if unit == "week" else 1)
+        elapsed = (local_now.date() - anchor).days
+        periods = elapsed // step_days
+        start_date = anchor + timedelta(days=periods * step_days)
+        if start_date > local_now.date():
+            start_date -= timedelta(days=step_days)
+        next_date = start_date + timedelta(days=step_days)
+    else:
+        step_months = count * (12 if unit == "year" else 1)
+        elapsed_months = (local_now.year - anchor.year) * 12 + local_now.month - anchor.month
+        periods = elapsed_months // step_months
+        start_date = _month_at(anchor, periods * step_months)
+        if start_date > local_now.date():
+            periods -= 1
+            start_date = _month_at(anchor, periods * step_months)
+        next_date = _month_at(anchor, (periods + 1) * step_months)
+    start = datetime.combine(start_date, datetime.min.time(), zone).astimezone(timezone.utc)
+    next_reset = datetime.combine(next_date, datetime.min.time(), zone).astimezone(timezone.utc)
+    return start, next_reset, {
+        "autoReset": True,
+        "periodUnit": unit,
+        "periodCount": count,
+        "resetAnchor": anchor.isoformat(),
+        "timezone": timezone_name,
+    }
+
+
 class SystemCollector:
     def __init__(self, config: AppConfig, storage: Storage) -> None:
         self.config = config
@@ -91,6 +165,7 @@ class SystemCollector:
         self.interface = detect_interface(config.interface)
         self.previous_cpu: tuple[int, int] | None = None
         self.previous_net: tuple[float, int, int] | None = None
+        self.last_persisted_at = 0
         try:
             self.boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
         except OSError:
@@ -141,9 +216,16 @@ class SystemCollector:
         disk = shutil.disk_usage("/")
         rx, tx, download, upload = self.network()
         now = int(time.time())
-        self.storage.record_sample(now, rx, tx, cpu, memory_pct, self.interface, self.boot_id)
+        if now - self.last_persisted_at >= 60:
+            self.storage.record_sample(now, rx, tx, cpu, memory_pct, self.interface, self.boot_id)
+            self.last_persisted_at = now
         limit = int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes))
-        cycle_start = billing_cycle_start(datetime.now(timezone.utc), self.config.traffic_billing_day, self.config.traffic_billing_timezone)
+        quota_setting = self.storage.get_setting("traffic_quota", {})
+        if not isinstance(quota_setting, dict):
+            quota_setting = {}
+        cycle_start, next_reset, quota_schedule = traffic_quota_period(
+            datetime.now(timezone.utc), quota_setting, self.config.traffic_billing_day, self.config.traffic_billing_timezone
+        )
         traffic_usage = self.storage.traffic_usage_since(
             int(cycle_start.timestamp()),
             self.config.traffic_count_mode,
@@ -170,6 +252,12 @@ class SystemCollector:
             "trafficBaselineBytes": traffic_usage["baselineBytes"],
             "trafficCountMode": traffic_usage["countMode"],
             "trafficQuotaUnit": "GB",
+            "trafficQuota": {
+                "bytes": limit,
+                **quota_schedule,
+                "cycleStart": cycle_start.isoformat().replace("+00:00", "Z"),
+                "nextReset": next_reset.isoformat().replace("+00:00", "Z") if next_reset else None,
+            },
             "downloadBps": download,
             "uploadBps": upload,
             "interface": self.interface,
@@ -309,13 +397,10 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
             status, detail, detail_zh = "warning", "systemd active · statistics adapter unavailable", "systemd 正常 · 统计适配器当前不可用"
         services.append({"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version, "uptimeSeconds": uptime, "icon": icon})
     cert = certificate_info(config.certificate_path)
-    updates = automatic_update_info()
     certificate_zh = "未配置证书路径" if not config.certificate_path else f"证书剩余 {cert['days']} 天" if cert.get("days") else "无法读取证书"
-    updates_zh = "无人值守更新与定时器已启用" if updates["status"] == "running" else "自动更新服务或定时器未完全启用"
     services.extend([
         {"id": "kernel", "name": "Linux kernel", "nameZh": "Linux 内核", "nameEn": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "detailZh": f"{system['cpuCores']} 核 CPU · 负载 {system['load'][0]}", "detailEn": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
-        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "version": "TLS", "uptimeSeconds": 0, "icon": "verified_user"},
-        {"id": "updates", "name": "Automatic updates", "nameZh": "自动更新", "nameEn": "Automatic updates", "detail": updates["detail"], "detailZh": updates_zh, "detailEn": updates["detail"], "status": updates["status"], "version": updates["version"], "uptimeSeconds": 0, "icon": "system_update"},
+        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "version": "TLS", "icon": "verified_user"},
     ])
     return services
 

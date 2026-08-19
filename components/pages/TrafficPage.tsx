@@ -50,11 +50,6 @@ export function TrafficPage({ traffic, integration, onConfigure }: { onToast: (m
           <CardHeader title={t("账号用量排行", "Account usage ranking")} description={t("Hysteria2 核心当前累计值；没有身份映射时保持为 0，不猜测账号", "Current Hysteria2 core totals. Accounts remain zero without an identity mapping; identities are never guessed.")} action={<Chip staticChip>{t(`${accountTraffic.length} 个账号`, `${accountTraffic.length} accounts`)}</Chip>} />
           <div className="ranking-list">{accountTraffic.map((item, index) => <div className="ranking-row" key={item.name}><span className="rank">{index + 1}</span><div><strong>{item.name}</strong><Progress value={(item.value / accountMax) * 100} /></div><b>{item.value.toFixed(1)} GB</b></div>)}</div>
         </Card>
-        <Card variant="filled" className="forecast-card">
-          <span className="forecast-card__icon"><Icon name="auto_graph" size={28} /></span>
-          <div><p>{t("容量预测", "Capacity forecast")}</p><strong>{dailyTraffic.length >= 2 ? t("趋势已建立", "Trend established") : t("持续采样中", "Collecting samples")}</strong><span>{t("更多真实时间桶会让趋势判断更稳定", "More real time buckets improve trend stability")}</span></div>
-          <div className="forecast-card__note"><Icon name="lightbulb" size={20} filled /><span>{t("总览显示重启可连续累计的本机估算；覆盖不完整时不会冒充运营商账单。", "Overview shows a reset-safe local estimate and never presents incomplete coverage as a provider bill.")}</span></div>
-        </Card>
       </section>
     </div>
   );

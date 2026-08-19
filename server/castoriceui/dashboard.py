@@ -274,7 +274,7 @@ class DashboardService:
 
     def network(self) -> list[dict[str, Any]]:
         with self.lock:
-            if time.monotonic() - self.network_at > 300 or not self.cached_network:
+            if time.monotonic() - self.network_at > 5 or not self.cached_network:
                 self.cached_network = network_snapshots(self.config)
                 self.network_at = time.monotonic()
             return self.cached_network
@@ -418,8 +418,6 @@ class DashboardService:
         for group in groups.values():
             if not group.pop("ratesAvailable"):
                 group["uploadBps"] = None; group["downloadBps"] = None
-            if not any(detail.get("destination") for detail in group["details"]):
-                group["details"] = []
         return list(groups.values())
 
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -429,7 +427,7 @@ class DashboardService:
         latency_threshold = float(self.config.alert_thresholds.get("latencyMs", 150))
         loss_threshold = float(self.config.alert_thresholds.get("lossPercent", 5))
         if usage >= traffic_threshold:
-            alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "titleEn": f"Traffic usage reached {usage:.0f}%", "titleZh": f"流量使用已达到 {usage:.0f}%", "description": "Review the remaining monthly quota and recent growth trend.", "descriptionEn": "Review the remaining monthly quota and recent growth trend.", "descriptionZh": "请检查剩余额度和近期增长趋势。", "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Traffic quota", "sourceEn": "Traffic quota", "sourceZh": "流量额度"})
+            alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "titleEn": f"Traffic usage reached {usage:.0f}%", "titleZh": f"流量使用已达到 {usage:.0f}%", "description": "Review the remaining quota for the configured billing cycle.", "descriptionEn": "Review the remaining quota for the configured billing cycle.", "descriptionZh": "请检查当前自定义计费周期的剩余额度。", "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Traffic quota", "sourceEn": "Traffic quota", "sourceZh": "流量额度"})
         for service in services:
             if service["status"] == "stopped":
                 alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "titleEn": f"{service.get('nameEn', service['name'])} is offline", "titleZh": f"{service.get('nameZh', service['name'])} 已离线", "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Service monitor", "sourceEn": "Service monitor", "sourceZh": "服务监控"})
@@ -528,7 +526,7 @@ class DashboardService:
         subscription_count = len(self.config.subscriptions)
         update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified", summary_zh=f"已读取 {subscription_count} 条受保护配置记录；未验证发布器外部可达性")
         reachable = sum(1 for target in network if target.get("status") != "down")
-        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary=f"Last cached probe: {reachable}/{len(network)} targets reachable; results may be up to 5 minutes old" if network else "No network probe result is available", summary_zh=f"最近缓存探测：{reachable}/{len(network)} 个目标可达；结果最多可能延迟 5 分钟" if network else "当前没有网络探测结果")
+        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary=f"Live probe loop: {reachable}/{len(network)} targets reachable" if network else "No network probe result is available", summary_zh=f"实时探测：{reachable}/{len(network)} 个目标可达" if network else "当前没有网络探测结果")
         update("alerts", ready=True, summary="Local threshold evaluation enabled", summary_zh="本地阈值告警评估已启用")
         update("audit", ready=True, summary="Local audit records loaded from protected storage", summary_zh="已从受保护存储读取本地审计记录")
         return list(states.values())
@@ -567,7 +565,7 @@ class DashboardService:
                     detail["sourceIp"] = self._mask_ip(detail.get("sourceIp"))
                     detail["account"] = self._mask_identity(detail.get("account"))
                     if detail.get("destination"):
-                        detail["destination"] = "已隐藏"
+                        detail["destination"] = None
         traffic = self.traffic_series()
         accounts = self.account_metrics(copy.deepcopy(self.config.managed_accounts), hy2)
         for account in accounts:

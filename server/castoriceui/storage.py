@@ -113,7 +113,6 @@ class Storage:
                 "INSERT OR REPLACE INTO samples(captured_at,rx_bytes,tx_bytes,cpu,memory,interface,boot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (captured_at, rx, tx, cpu, memory, interface[:32], boot_id[:64]),
             )
-            connection.execute("DELETE FROM samples WHERE captured_at < ?", (captured_at - 90 * 86400,))
 
     def samples_since(self, timestamp: int) -> list[dict[str, Any]]:
         with self.connect() as connection:

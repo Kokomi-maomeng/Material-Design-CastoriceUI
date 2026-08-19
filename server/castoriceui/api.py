@@ -5,17 +5,20 @@ import ipaddress
 import json
 import threading
 import time
+from datetime import date, datetime, timezone
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import __version__
 from .config import AppConfig
+from .collectors import traffic_quota_period
 from .dashboard import DashboardService
-from .security import list_background_images, normalize_https_image_url, safe_background_image
+from .security import fetch_https_image_api, list_background_images, normalize_https_image_url, safe_background_image
 from .storage import Storage
 
 
@@ -46,7 +49,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_image(self, path: Path, mime: str) -> None:
-        body = path.read_bytes()
+        self.send_image_bytes(path.read_bytes(), mime)
+
+    def send_image_bytes(self, body: bytes, mime: str) -> None:
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
@@ -136,18 +141,21 @@ class ApiHandler(BaseHTTPRequestHandler):
     def login_appearance(self) -> dict[str, str]:
         value = self.app.storage.get_setting("login_background", {"type": "default", "value": ""})
         if not isinstance(value, dict):
-            return {"type": "default", "url": ""}
+            return {"type": "default", "url": "", "fit": "cover", "position": "center"}
         background_type = str(value.get("type", "default"))
         background_value = str(value.get("value", ""))
+        fit = str(value.get("fit", "cover")) if value.get("fit") in {"cover", "contain"} else "cover"
+        position = str(value.get("position", "center")) if value.get("position") in {"center", "top", "bottom", "left", "right"} else "center"
         try:
             if background_type == "url":
-                return {"type": "url", "url": normalize_https_image_url(background_value, self.app.config.external_background_hosts)}
+                normalize_https_image_url(background_value, self.app.config.external_background_hosts)
+                return {"type": "url", "url": "/api/v2/auth/background", "fit": fit, "position": position}
             if background_type == "server":
                 safe_background_image(self.app.config.login_background_directory, background_value)
-                return {"type": "server", "url": "/api/v2/auth/background"}
+                return {"type": "server", "url": "/api/v2/auth/background", "fit": fit, "position": position}
         except ValueError:
-            return {"type": "default", "url": ""}
-        return {"type": "default", "url": ""}
+            return {"type": "default", "url": "", "fit": "cover", "position": "center"}
+        return {"type": "default", "url": "", "fit": "cover", "position": "center"}
 
     def do_GET(self) -> None:
         parsed_request = urlparse(self.path)
@@ -165,14 +173,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         if path == "/api/v2/auth/background":
             setting = self.app.storage.get_setting("login_background", {})
             try:
-                if not isinstance(setting, dict) or setting.get("type") != "server":
+                if not isinstance(setting, dict):
                     raise ValueError("No server background is selected")
-                image_path, mime = safe_background_image(self.app.config.login_background_directory, str(setting.get("value", "")))
+                if setting.get("type") == "server":
+                    image_path, mime = safe_background_image(self.app.config.login_background_directory, str(setting.get("value", "")))
+                    self.send_image(image_path, mime)
+                    return
+                if setting.get("type") == "url":
+                    body, mime = self.app.remote_background(str(setting.get("value", "")))
+                    self.send_image_bytes(body, mime)
+                    return
+                raise ValueError("No background is selected")
             except ValueError:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "background_not_found"})
                 return
-            self.send_image(image_path, mime)
-            return
         if path == "/api/v2/auth/session":
             session = self.require_session()
             if session is not None:
@@ -211,7 +225,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "subscription_not_found"})
         elif path == "/api/v2/settings/background-options":
             configured = self.app.storage.get_setting("login_background", {"type": "default", "value": ""})
-            self.send_json(HTTPStatus.OK, {"files": list_background_images(self.app.config.login_background_directory), "selected": self.login_appearance(), "configured": configured if isinstance(configured, dict) else {"type": "default", "value": ""}})
+            self.send_json(HTTPStatus.OK, {"files": list_background_images(self.app.config.login_background_directory), "directory": self.app.config.login_background_directory, "selected": self.login_appearance(), "configured": configured if isinstance(configured, dict) else {"type": "default", "value": ""}})
         else:
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
@@ -226,9 +240,46 @@ class ApiHandler(BaseHTTPRequestHandler):
                 value = int(payload.get("bytes", 0))
                 if not 1_000_000_000 <= value <= 1_000_000_000_000_000:
                     raise ValueError("Traffic limit must be between 1 GB and 1 PB")
+                previous = self.app.storage.get_setting("traffic_quota", {})
+                if not isinstance(previous, dict):
+                    previous = {}
+                auto_reset = bool(payload.get("autoReset", previous.get("autoReset", False)))
+                period_unit = str(payload.get("periodUnit", previous.get("periodUnit", "month")))
+                if period_unit not in {"day", "week", "month", "year"}:
+                    raise ValueError("periodUnit must be day, week, month, or year")
+                period_count = int(payload.get("periodCount", previous.get("periodCount", 1)))
+                if not 1 <= period_count <= 365:
+                    raise ValueError("periodCount must be between 1 and 365")
+                reset_anchor = date.fromisoformat(str(payload.get("resetAnchor", previous.get("resetAnchor", f"2000-01-{self.app.config.traffic_billing_day:02d}"))))
+                timezone_name = str(payload.get("timezone", previous.get("timezone", self.app.config.traffic_billing_timezone))).strip() or "UTC"
+                try:
+                    if timezone_name != "UTC":
+                        ZoneInfo(timezone_name)
+                except (ZoneInfoNotFoundError, TypeError) as error:
+                    raise ValueError("timezone must be UTC or an installed IANA timezone") from error
+                fixed_cycle_start = ""
+                if not auto_reset:
+                    if not bool(previous.get("autoReset", False)) and previous.get("fixedCycleStart"):
+                        fixed_cycle_start = str(previous["fixedCycleStart"])
+                    else:
+                        current_start, _, _ = traffic_quota_period(
+                            datetime.now(timezone.utc), previous, self.app.config.traffic_billing_day, self.app.config.traffic_billing_timezone
+                        )
+                        fixed_cycle_start = current_start.isoformat().replace("+00:00", "Z")
+                quota_setting = {
+                    "autoReset": auto_reset,
+                    "periodUnit": period_unit,
+                    "periodCount": period_count,
+                    "resetAnchor": reset_anchor.isoformat(),
+                    "timezone": timezone_name,
+                }
+                if fixed_cycle_start:
+                    quota_setting["fixedCycleStart"] = fixed_cycle_start
                 self.app.storage.set_setting("traffic_limit_bytes", value)
-                self.app.storage.add_audit("更新流量额度", "配置", "总流量额度已更新", self.source_ip(), actor=str(session["username"]))
-                self.send_json(HTTPStatus.OK, {"ok": True, "bytes": value})
+                self.app.storage.set_setting("traffic_quota", quota_setting)
+                reset_detail = f"每 {period_count} {period_unit} 自动重置" if auto_reset else "自动重置已关闭"
+                self.app.storage.add_audit("更新流量额度", "配置", f"总流量额度已更新；{reset_detail}", self.source_ip(), actor=str(session["username"]))
+                self.send_json(HTTPStatus.OK, {"ok": True, "bytes": value, **quota_setting})
                 return
             if path.startswith("/api/v1/integrations/") or path.startswith("/api/v2/integrations/"):
                 integration_id = path.rsplit("/", 1)[-1]
@@ -270,6 +321,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v2/settings/login-background":
                 background_type = str(payload.get("type", "default"))
                 background_value = str(payload.get("value", ""))
+                fit = str(payload.get("fit", "cover"))
+                position = str(payload.get("position", "center"))
+                if fit not in {"cover", "contain"} or position not in {"center", "top", "bottom", "left", "right"}:
+                    raise ValueError("Invalid background fit or position")
                 if background_type == "url":
                     background_value = normalize_https_image_url(background_value, self.app.config.external_background_hosts)
                 elif background_type == "server":
@@ -278,7 +333,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     background_value = ""
                 else:
                     raise ValueError("Unknown background type")
-                setting = {"type": background_type, "value": background_value}
+                setting = {"type": background_type, "value": background_value, "fit": fit, "position": position}
                 self.app.storage.set_setting("login_background", setting)
                 self.app.storage.add_audit("更新登录背景", "配置", f"登录背景类型已设为 {background_type}", self.source_ip(), actor=str(session["username"]))
                 self.send_json(HTTPStatus.OK, self.login_appearance())
@@ -377,6 +432,8 @@ class ApiServer(ThreadingHTTPServer):
         self.storage = storage
         self.dashboard = dashboard
         self.authentication_lock = threading.Lock()
+        self.background_cache_lock = threading.Lock()
+        self.background_cache: tuple[str, float, bytes, str] | None = None
         self.request_slots = threading.BoundedSemaphore(self.max_request_workers)
         super().__init__((config.listen_host, config.listen_port), ApiHandler)
 
@@ -427,3 +484,13 @@ class ApiServer(ThreadingHTTPServer):
 
     def clear_login_failures(self, source_ip: str) -> None:
         self.storage.clear_login_failures(source_ip)
+
+    def remote_background(self, url: str) -> tuple[bytes, str]:
+        normalized = normalize_https_image_url(url, self.config.external_background_hosts)
+        with self.background_cache_lock:
+            if self.background_cache and self.background_cache[0] == normalized and self.background_cache[1] > time.monotonic():
+                return self.background_cache[2], self.background_cache[3]
+        body, mime, _ = fetch_https_image_api(normalized, self.config.external_background_hosts)
+        with self.background_cache_lock:
+            self.background_cache = (normalized, time.monotonic() + 900, body, mime)
+        return body, mime

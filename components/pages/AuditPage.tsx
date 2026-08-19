@@ -102,7 +102,6 @@ export function AuditPage({ integration, onConfigure }: { integration?: Integrat
   return <div className="page-content page-enter">
     <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} description={t("记录登录、配置、告警确认与服务生命周期等关键操作。", "Record sign-ins, configuration, alert acknowledgements, and service lifecycle events.")} />
     <IntegrationGate status={integration} name="操作审计" nameEn="Audit log" description="记录配置更新、告警确认和服务生命周期事件。" descriptionEn="Record configuration changes, alert acknowledgements, and service lifecycle events." onConfigure={onConfigure} />
-    <div className="audit-retention"><Icon name="policy" size={23} /><div><strong>{t("审计保留策略", "Audit retention")}</strong><span>{t("保留周期由服务器配置管理；密码、Token 和私钥不会写入详情，记录不能从面板删除。", "Retention is managed on the server. Passwords, tokens, and private keys are excluded, and records cannot be deleted from the panel.")}</span></div><Chip staticChip tone="success">{t("策略生效", "Policy active")}</Chip></div>
     <Card variant="outlined" className="table-panel">
       <div className="table-toolbar table-toolbar--wrap">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={t("搜索操作、账号或 IP", "Search action, account, or IP")} aria-label={t("搜索审计记录", "Search audit records")} /></label>

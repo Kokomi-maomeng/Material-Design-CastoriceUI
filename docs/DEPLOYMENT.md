@@ -1,4 +1,4 @@
-# CastoriceUI v2.5 deployment / 部署手册
+# CastoriceUI v2.6 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -12,7 +12,7 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 - Node.js 20.19+ on the build machine
 - Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
 
-Do not deploy the backend directly on a public address. The v2.5 login cookie is Secure by default and therefore requires HTTPS in production.
+Do not deploy the backend directly on a public address. The v2.6 login cookie is Secure by default and therefore requires HTTPS in production.
 
 ## 2. Build and inspect / 构建与检查
 
@@ -95,7 +95,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `2.5.0`.
+Expected version: `2.6.0`.
 
 For a new database, generate the first-admin token once:
 
@@ -110,7 +110,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v2.5.0
+release=v2.6.0
 sudo install -d "/var/www/castorice-ui/releases/$release"
 sudo cp -a dist/. "/var/www/castorice-ui/releases/$release/"
 sudo ln -sfn "/var/www/castorice-ui/releases/$release" /var/www/castorice-ui/current.next
@@ -128,7 +128,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Do **not** enable `auth_basic`. v2.5 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out.
+Do **not** enable `auth_basic`. v2.6 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out.
 
 Recommended validation before using a browser:
 
@@ -156,7 +156,7 @@ For an existing v1.5 database, v2.0 reports setup required until a v2.0 administ
 
 ## 10. Login backgrounds / 登录背景
 
-Server images must be PNG, JPEG, or WebP, no larger than 5 MB, and stored directly inside the configured `login_background_directory`. The backend rejects path traversal, symlinks outside that directory, unsupported magic bytes, and nested paths. External backgrounds are disabled by default. To enable one, add its exact host to `external_background_hosts` and add the same host to the Nginx `img-src` CSP; URLs with credentials, queries, or fragments remain invalid.
+Server images must be PNG, JPEG, or WebP, no larger than 5 MB, and stored directly inside the configured `login_background_directory` (default: `/var/lib/castoriceui/login-backgrounds`). The settings page displays this exact directory. The backend rejects traversal, nested paths, unsupported magic bytes, and files outside the directory. Image API mode accepts a public HTTPS image, redirect, or small JSON object containing `url`, `image`, `imageUrl`, or `image_url`; it rejects credentials, fragments, private/reserved DNS results, responses over 5 MB, and non-image magic bytes. Results are served same-origin and cached for 15 minutes, so no CSP host change is required. Set `external_background_hosts` only when an explicit host allowlist is desired.
 
 ## 11. Upgrade and rollback / 升级与回滚
 
@@ -184,7 +184,7 @@ If this VPS also carries the operator's active proxy traffic, do not reboot the 
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `2.5.0`
+- loopback and HTTPS health report `2.6.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate
