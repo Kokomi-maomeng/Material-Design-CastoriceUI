@@ -9,7 +9,7 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 
 项目由 React 前端和轻量 Python/SQLite 后端组成。后端仅需接入本机数据源，浏览器不会直接访问协议管理接口，也不会用模拟数据替代不可用的生产数据。
 
-![CastoriceUI desktop overview](docs/images/dashboard-desktop.png)
+![CastoriceUI promotional overview](public/og.png)
 
 <details>
 <summary>移动端导航（390 × 844）</summary>
