@@ -379,7 +379,6 @@ class DashboardService:
                 "status": account.get("status", "active") if account.get("status") in {"active", "disabled", "expiring"} else "active",
                 "protocols": [str(value)[:80] for value in account.get("protocols", [])[:20]] if isinstance(account.get("protocols", []), list) else [],
                 "expiresAt": str(account.get("expiresAt", ""))[:80],
-                "note": str(account.get("note", ""))[:500],
                 "usedBytes": sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in identities),
                 "onlineDevices": sum(int(online.get(identity, 0)) for identity in identities),
                 "quotaBytes": int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)),
@@ -486,10 +485,7 @@ class DashboardService:
             item = {
                 "id": str(source.get("id", ""))[:160],
                 "account": str(source.get("account", "account"))[:160],
-                "tokenHint": str(source.get("tokenHint", ""))[:80],
                 "protocols": [str(value)[:80] for value in source.get("protocols", [])[:20]] if isinstance(source.get("protocols", []), list) else [],
-                "updatedAt": str(source.get("updatedAt", ""))[:80],
-                "lastFetchedAt": str(source.get("lastFetchedAt", ""))[:80],
                 "enabled": bool(source.get("enabled", True)),
             }
             if self.config.redact_live_data:
@@ -520,15 +516,14 @@ class DashboardService:
             update(integration_id, configured=configured, ready=bool(configured and singbox.get("available")), summary=f"{label} inbound tags are mapped to the sing-box connection API" if configured and singbox.get("available") else f"{label} is not configured or the sing-box API is unavailable", summary_zh=f"{label} 入站标签已映射到 sing-box 连接 API" if configured and singbox.get("available") else f"{label} 未配置或 sing-box API 当前不可用")
         hy2_streams_ready = bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available")))
         adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
-        update("connections", ready=adapters_ready, summary="Protocol connection snapshots are available; individual fields may be absent" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="协议连接快照可用；个别字段可能由核心省略" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")
-        update("system", ready=True, summary="Local /proc, filesystem and systemd data collected", summary_zh="已采集本机 /proc、文件系统和 systemd 数据")
-        update("traffic", ready=True, summary=f"Interface {self.system_collector.interface} deltas persist across counter resets; incomplete cycle coverage is disclosed", summary_zh=f"网卡 {self.system_collector.interface} 增量会跨计数器归零持续累计；周期覆盖不完整时会明确提示")
+        update("connections", ready=adapters_ready, summary="" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")
+        update("system", ready=True, summary="", summary_zh="")
+        update("traffic", ready=True, summary="", summary_zh="")
         subscription_count = len(self.config.subscriptions)
         update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified", summary_zh=f"已读取 {subscription_count} 条受保护配置记录；未验证发布器外部可达性")
-        reachable = sum(1 for target in network if target.get("status") != "down")
-        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary=f"Live probe loop: {reachable}/{len(network)} targets reachable" if network else "No network probe result is available", summary_zh=f"实时探测：{reachable}/{len(network)} 个目标可达" if network else "当前没有网络探测结果")
-        update("alerts", ready=True, summary="Local threshold evaluation enabled", summary_zh="本地阈值告警评估已启用")
-        update("audit", ready=True, summary="Local audit records loaded from protected storage", summary_zh="已从受保护存储读取本地审计记录")
+        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary="" if network else "No network probe result is available", summary_zh="" if network else "当前没有网络探测结果")
+        update("alerts", ready=True, summary="", summary_zh="")
+        update("audit", ready=True, summary="", summary_zh="")
         return list(states.values())
 
     def subscription_url(self, subscription_id: str) -> str | None:
@@ -573,8 +568,6 @@ class DashboardService:
             if self.config.redact_live_data:
                 account["name"] = self._mask_identity(identity)
                 account["email"] = self._mask_identity(account.get("email", ""))
-                if account.get("note"):
-                    account["note"] = "已设置备注（内容已隐藏）"
         singbox_label = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") and not self.config.protocol_adapters else "sing-box combined"
         protocol = [
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},

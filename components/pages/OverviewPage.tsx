@@ -27,7 +27,6 @@ export function OverviewPage({
   services,
   networkTargets,
   traffic,
-  now,
   onEditQuota,
   onRefresh,
   onViewServices,
@@ -38,7 +37,6 @@ export function OverviewPage({
   services: ServiceStatus[];
   networkTargets: NetworkTarget[];
   traffic: DashboardPayload["traffic"];
-  now: number;
   onEditQuota: () => void;
   onRefresh: () => void;
   onViewServices: () => void;
@@ -64,17 +62,12 @@ export function OverviewPage({
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
   );
   const quota = metrics.trafficQuota;
-  const cycleElapsedDays = Math.max(1 / 1440, (now - new Date(quota?.cycleStart ?? metrics.trafficCycleStart).getTime()) / 86_400_000);
-  const estimatedDays =
-    metrics.trafficCoverageComplete && metrics.trafficUsedBytes > 0
-      ? Math.max(1, Math.round((cycleElapsedDays * remaining) / metrics.trafficUsedBytes))
-      : null;
   const quotaCycleText = quota?.autoReset && quota.nextReset
     ? t(
         `每 ${quota.periodCount} ${quota.periodUnit === "day" ? "日" : quota.periodUnit === "week" ? "周" : quota.periodUnit === "month" ? "月" : "年"}重置 · 下次 ${new Date(quota.nextReset).toLocaleDateString("zh-CN")}`,
         `Resets every ${quota.periodCount} ${quota.periodUnit}(s) · next ${new Date(quota.nextReset).toLocaleDateString("en")}`,
       )
-    : t("自动重置已关闭 · 持续累计", "Automatic reset off · continuously accumulated");
+    : "";
   const reachableTargets = networkTargets.filter(
     (target) => target.status !== "down",
   ).length;
@@ -99,17 +92,10 @@ export function OverviewPage({
     <div className="page-content page-enter">
       <PageHeader
         title={metrics.nodeName}
-        description={
-          stale
-            ? t(
-                "当前是最后一次成功快照，后端连接已中断；这些值不是当前实时状态。",
-                "This is the last successful snapshot. The backend is disconnected, so these values are not live.",
-              )
-            : t(
-                "服务器资源来自后端实时快照；协议与网络字段按数据源实际能力展示。",
-                "Server resources come from the live backend snapshot. Protocol and network fields follow each data source's real capabilities.",
-              )
-        }
+        description={stale ? t(
+          "当前是最后一次成功快照，后端连接已中断；这些值不是当前实时状态。",
+          "This is the last successful snapshot. The backend is disconnected, so these values are not live.",
+        ) : undefined}
         actions={
           <Button variant="tonal" icon="refresh" onClick={onRefresh}>
             {t("刷新数据", "Refresh")}
@@ -124,9 +110,7 @@ export function OverviewPage({
         <Card className="traffic-hero" variant="elevated">
           <div className="traffic-hero__top">
             <div>
-              <span className="metric-label">
-                {t("计费周期本机估算", "Local billing-cycle estimate")}
-              </span>
+              <span className="metric-label">{t("流量用量", "Traffic usage")}</span>
               <strong>{formatDecimalBytes(metrics.trafficUsedBytes)}</strong>
               <span className="metric-support">
                 {t(
@@ -134,7 +118,7 @@ export function OverviewPage({
                   `Quota ${formatDecimalBytes(metrics.trafficLimitBytes)} · ${formatDecimalBytes(remaining)} remaining`,
                 )}
               </span>
-              <span className="metric-support">{quotaCycleText}</span>
+              {quotaCycleText ? <span className="metric-support">{quotaCycleText}</span> : null}
             </div>
             <Button
               variant="text"
@@ -150,23 +134,11 @@ export function OverviewPage({
           />
           <div className="traffic-hero__footer">
             <span>
-              <Icon name="calendar_month" size={18} />{" "}
-              {!metrics.trafficCoverageComplete
-                ? t(
-                    `覆盖不完整${metrics.trafficCoverageStart ? `，从 ${new Date(metrics.trafficCoverageStart).toLocaleDateString("zh-CN")} 起` : ""}`,
-                    `Incomplete coverage${metrics.trafficCoverageStart ? ` since ${new Date(metrics.trafficCoverageStart).toLocaleDateString("en")}` : ""}`,
-                  )
-                : estimatedDays
-                ? t(
-                    `按当前均值约 ${estimatedDays} 天`,
-                    `About ${estimatedDays} days at the current average`,
-                  )
-                : t("正在建立用量基线", "Establishing a usage baseline")}
+              <Icon name="data_usage" size={18} />
+              {t(`剩余 ${formatDecimalBytes(remaining)}`, `${formatDecimalBytes(remaining)} remaining`)}
             </span>
-            <Chip staticChip tone={metrics.trafficCoverageComplete ? "warning" : "danger"}>
-              {metrics.trafficCoverageComplete
-                ? t(`已用 ${usage.toFixed(0)}%`, `${usage.toFixed(0)}% used`)
-                : t("估算不完整", "Incomplete estimate")}
+            <Chip staticChip tone={usage >= 90 ? "danger" : usage >= 75 ? "warning" : "default"}>
+              {t(`已用 ${usage.toFixed(0)}%`, `${usage.toFixed(0)}% used`)}
             </Chip>
           </div>
         </Card>
@@ -207,10 +179,6 @@ export function OverviewPage({
         <Card className="resource-panel" variant="outlined">
           <CardHeader
             title={t("流量使用趋势", "Traffic usage trend")}
-            description={t(
-              "基于主网卡真实采样，按所选时间范围汇总",
-              "Aggregated from real primary-interface samples for the selected range",
-            )}
             action={
               <RangeControl value={trafficRange} onChange={setTrafficRange} />
             }
@@ -233,17 +201,10 @@ export function OverviewPage({
         <Card className="live-summary" variant="filled">
           <CardHeader
             title={t("协议连接快照", "Protocol connection snapshot")}
-            description={
-              stale
-                ? t(
-                    "后端中断前的最后一次真实快照",
-                    "Last real snapshot before the backend disconnected",
-                  )
-                : t(
-                    "每 5 秒刷新；字段取决于协议核心实际输出",
-                    "Refreshed every five seconds; fields depend on real core output",
-                  )
-            }
+            description={stale ? t(
+              "后端中断前的最后一次真实快照",
+              "Last real snapshot before the backend disconnected",
+            ) : undefined}
             action={
               <Chip
                 staticChip
@@ -303,67 +264,9 @@ export function OverviewPage({
             </span>
           </div>
         </Card>
-      </section>
-
-      <section className="content-grid content-grid--dashboard-bottom">
-        <Card variant="outlined">
-          <CardHeader
-            title={t("服务健康度", "Service health")}
-            description={t(
-              "核心组件与证书的真实状态",
-              "Live status of core components and certificates",
-            )}
-            action={
-              <Button
-                variant="text"
-                compact
-                trailingIcon="arrow_forward"
-                onClick={onViewServices}
-              >
-                {t("查看全部", "View all")}
-              </Button>
-            }
-          />
-          <div className="service-compact-list">
-            {services.slice(0, 4).map((service) => (
-              <div className="service-compact" key={service.id}>
-                <span
-                  className={`service-icon service-icon--${service.status}`}
-                >
-                  <Icon name={service.icon} />
-                </span>
-                <div>
-                  <strong>
-                    {language === "zh"
-                      ? service.nameZh || service.name
-                      : service.nameEn || service.name}
-                  </strong>
-                  <span>
-                    {language === "zh"
-                      ? service.detailZh || service.detail
-                      : service.detailEn || service.detail}
-                  </span>
-                </div>
-                <Chip
-                  staticChip
-                  tone={service.status === "running" ? "success" : "warning"}
-                >
-                  {service.status === "running"
-                    ? t("运行中", "Running")
-                    : t("需关注", "Attention")}
-                </Chip>
-              </div>
-            ))}
-          </div>
-        </Card>
-
         <Card variant="filled" className="quality-card">
           <CardHeader
             title={t("网络质量", "Network quality")}
-            description={t(
-              "每 5 秒刷新真实探测结果",
-              "Real probe results refresh every five seconds",
-            )}
           />
           <div className="quality-summary">
             <span>
@@ -421,6 +324,55 @@ export function OverviewPage({
                 }
               />
             </div>
+          </div>
+        </Card>
+      </section>
+
+      <section className="content-grid content-grid--dashboard-bottom">
+        <Card variant="outlined">
+          <CardHeader
+            title={t("服务健康度", "Service health")}
+            action={
+              <Button
+                variant="text"
+                compact
+                trailingIcon="arrow_forward"
+                onClick={onViewServices}
+              >
+                {t("查看全部", "View all")}
+              </Button>
+            }
+          />
+          <div className="service-compact-list">
+            {services.slice(0, 4).map((service) => (
+              <div className="service-compact" key={service.id}>
+                <span
+                  className={`service-icon service-icon--${service.status}`}
+                >
+                  <Icon name={service.icon} />
+                </span>
+                <div>
+                  <strong>
+                    {language === "zh"
+                      ? service.nameZh || service.name
+                      : service.nameEn || service.name}
+                  </strong>
+                  <span>
+                    {language === "zh"
+                      ? service.detailZh || service.detail
+                      : service.detailEn || service.detail}
+                  </span>
+                </div>
+                <Chip
+                  staticChip
+                  tone={service.status === "running" ? "success" : "warning"}
+                >
+                  {service.status === "running"
+                    ? t("运行中", "Running")
+                    : t("需关注", "Attention")}
+                </Chip>
+              </div>
+            ))}
           </div>
         </Card>
       </section>

@@ -26,6 +26,31 @@ SESSION_COOKIE = "castorice_session"
 VISIBLE_PANELS = {"accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"}
 
 
+def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple[str, str, int] | None:
+    """Return a comparable origin tuple without dropping non-standard ports."""
+    scheme = scheme.strip().lower()
+    if scheme not in {"http", "https"} or not authority or "," in authority:
+        return None
+    parsed = urlparse(f"{scheme}://{authority.strip()}")
+    if (
+        not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.path
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    try:
+        port = parsed.port
+        if port is None and port_hint:
+            port = int(port_hint)
+    except ValueError:
+        return None
+    return scheme, parsed.hostname.lower(), port or (443 if scheme == "https" else 80)
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     server_version = f"CastoriceUI/{__version__}"
 
@@ -83,10 +108,22 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "cross_site_request_rejected"})
             return False
         origin = self.headers.get("Origin", "").strip()
-        host = self.headers.get("Host", "").strip().lower()
         if origin:
             parsed = urlparse(origin)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.netloc.lower() != host:
+            try:
+                peer_is_loopback = ipaddress.ip_address(self.client_address[0]).is_loopback
+            except (AttributeError, ValueError):
+                peer_is_loopback = False
+            forwarded_scheme = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip() if peer_is_loopback else ""
+            forwarded_host = self.headers.get("X-Forwarded-Host", "").strip() if peer_is_loopback else ""
+            forwarded_port = self.headers.get("X-Forwarded-Port", "").strip() if peer_is_loopback else ""
+            supplied = normalized_origin(parsed.scheme, parsed.netloc)
+            expected = normalized_origin(
+                forwarded_scheme or parsed.scheme,
+                forwarded_host or self.headers.get("Host", ""),
+                forwarded_port,
+            )
+            if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment or supplied is None or supplied != expected:
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "origin_mismatch"})
                 return False
         return True
@@ -277,8 +314,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     quota_setting["fixedCycleStart"] = fixed_cycle_start
                 self.app.storage.set_setting("traffic_limit_bytes", value)
                 self.app.storage.set_setting("traffic_quota", quota_setting)
-                reset_detail = f"每 {period_count} {period_unit} 自动重置" if auto_reset else "自动重置已关闭"
-                self.app.storage.add_audit("更新流量额度", "配置", f"总流量额度已更新；{reset_detail}", self.source_ip(), actor=str(session["username"]))
+                self.app.storage.add_audit("更新流量额度", "配置", "总流量额度已更新", self.source_ip(), actor=str(session["username"]))
                 self.send_json(HTTPStatus.OK, {"ok": True, "bytes": value, **quota_setting})
                 return
             if path.startswith("/api/v1/integrations/") or path.startswith("/api/v2/integrations/"):

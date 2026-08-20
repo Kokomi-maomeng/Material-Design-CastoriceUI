@@ -22,7 +22,6 @@ export interface Account {
   usedBytes: number;
   quotaBytes: number;
   expiresAt: string;
-  note: string;
   onlineDevices: number;
 }
 
@@ -132,8 +131,6 @@ export interface OverviewMetrics {
   trafficUsedBytes: number;
   trafficLimitBytes: number;
   trafficCycleStart: string;
-  trafficCoverageStart: string | null;
-  trafficCoverageComplete: boolean;
   trafficBaselineBytes: number;
   trafficCountMode: "sum" | "max";
   trafficQuotaUnit: "GB";
@@ -253,10 +250,7 @@ export interface AuditPageResponse {
 export interface Subscription {
   id: string;
   account: string;
-  tokenHint: string;
   protocols: Protocol[];
-  updatedAt: string;
-  lastFetchedAt: string;
   enabled: boolean;
   url?: string;
 }

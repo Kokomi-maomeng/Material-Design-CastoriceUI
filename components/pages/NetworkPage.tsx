@@ -7,7 +7,7 @@ import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
 import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
-import { Card, CardHeader } from "../ui/Card";
+import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
@@ -119,10 +119,6 @@ export function NetworkPage({
       <PageHeader
         eyebrow={t("链路可观测性", "Link observability")}
         title={t("网络质量", "Network quality")}
-        description={t(
-          "持续观测自定义 IPv4 / IPv6 目标的延迟、抖动和丢包。",
-          "Observe latency, jitter, and packet loss for custom IPv4 and IPv6 targets.",
-        )}
         actions={
           <Button variant="tonal" icon="edit" onClick={openEditor}>
             {t("自定义", "Customize")}
@@ -210,96 +206,55 @@ export function NetworkPage({
           }
         />
       </div>
-      <Card variant="outlined" className="network-panel">
-        <CardHeader
-          title={t("目标节点", "Targets")}
-          description={t(
-            "每 5 秒更新，每个目标展示最多 8 个真实 ICMP 响应点",
-            "Updated every five seconds with up to eight real ICMP responses per target",
-          )}
-          action={
-            <div className="segmented-control">
-              <button
-                className={version === "all" ? "is-selected" : ""}
-                onClick={() => setVersion("all")}
-              >
-                {t("全部", "All")}
-              </button>
-              <button
-                className={version === 4 ? "is-selected" : ""}
-                onClick={() => setVersion(4)}
-              >
-                IPv4
-              </button>
-              <button
-                className={version === 6 ? "is-selected" : ""}
-                onClick={() => setVersion(6)}
-              >
-                IPv6
-              </button>
-            </div>
-          }
-        />
-        <div className="network-target-list">
+      <section className="network-targets-section">
+        <div className="network-targets-heading">
+          <h2>{t("目标节点", "Targets")}</h2>
+          <div className="segmented-control">
+            <button
+              className={version === "all" ? "is-selected" : ""}
+              onClick={() => setVersion("all")}
+            >
+              {t("全部", "All")}
+            </button>
+            <button
+              className={version === 4 ? "is-selected" : ""}
+              onClick={() => setVersion(4)}
+            >
+              IPv4
+            </button>
+            <button
+              className={version === 6 ? "is-selected" : ""}
+              onClick={() => setVersion(6)}
+            >
+              IPv6
+            </button>
+          </div>
+        </div>
+        <div className="network-target-grid">
           {filtered.map((target) => (
-            <div className="network-target" key={target.id}>
-              <div className="provider-mark">{target.name.slice(0, 1)}</div>
-              <div className="network-target__identity">
-                <strong>{target.name}</strong>
-                <span>
-                  {target.address} · IPv{target.ipVersion}
-                </span>
+            <Card variant="outlined" className="network-target-card" key={target.id}>
+              <div className="network-target-card__header">
+                <div className="provider-mark">{target.name.slice(0, 1)}</div>
+                <div className="network-target__identity"><strong>{target.name}</strong><span>{target.address} · IPv{target.ipVersion}</span></div>
+                <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "degraded" ? "warning" : "danger"}>
+                  {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : t("不可达", "Down")}
+                </Chip>
               </div>
-              <div
-                className="sparkline"
-                aria-label={t(
-                  `${target.name} 延迟趋势`,
-                  `${target.name} latency trend`,
-                )}
-              >
-                <Sparkline
-                  values={target.history}
-                  degraded={target.status === "degraded"}
-                  label={t(
-                    `${target.name} 延迟趋势`,
-                    `${target.name} latency trend`,
-                  )}
-                />
+              <div className="network-target-card__chart">
+                <div className="network-target-card__chart-title"><span>{t("延迟趋势", "Latency trend")}</span><b>{target.latency.toFixed(1)} ms</b></div>
+                <div className="sparkline" aria-label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)}>
+                  <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)} />
+                </div>
               </div>
-              <div className="network-measure">
-                <span>{t("延迟", "Latency")}</span>
-                <b>{target.latency.toFixed(1)} ms</b>
+              <div className="network-target-card__metrics">
+                <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency.toFixed(1)} ms</b></div>
+                <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter.toFixed(1)} ms</b></div>
+                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.loss > 1 ? "text-warning" : ""}>{target.loss.toFixed(1)}%</b></div>
               </div>
-              <div className="network-measure">
-                <span>{t("抖动", "Jitter")}</span>
-                <b>{target.jitter.toFixed(1)} ms</b>
-              </div>
-              <div className="network-measure">
-                <span>{t("丢包", "Loss")}</span>
-                <b className={target.loss > 1 ? "text-warning" : ""}>
-                  {target.loss.toFixed(1)}%
-                </b>
-              </div>
-              <Chip
-                staticChip
-                tone={
-                  target.status === "healthy"
-                    ? "success"
-                    : target.status === "degraded"
-                      ? "warning"
-                      : "danger"
-                }
-              >
-                {target.status === "healthy"
-                  ? t("正常", "Healthy")
-                  : target.status === "degraded"
-                    ? t("波动", "Degraded")
-                    : t("不可达", "Down")}
-              </Chip>
-            </div>
+            </Card>
           ))}
         </div>
-      </Card>
+      </section>
       <Dialog
         open={editorOpen}
         onClose={() => setEditorOpen(false)}

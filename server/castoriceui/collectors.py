@@ -247,8 +247,6 @@ class SystemCollector:
             "trafficUsedBytes": traffic_usage["usedBytes"],
             "trafficLimitBytes": limit,
             "trafficCycleStart": cycle_start.isoformat().replace("+00:00", "Z"),
-            "trafficCoverageStart": datetime.fromtimestamp(traffic_usage["firstSampleAt"], timezone.utc).isoformat().replace("+00:00", "Z") if traffic_usage["firstSampleAt"] is not None else None,
-            "trafficCoverageComplete": traffic_usage["coverageComplete"],
             "trafficBaselineBytes": traffic_usage["baselineBytes"],
             "trafficCountMode": traffic_usage["countMode"],
             "trafficQuotaUnit": "GB",
