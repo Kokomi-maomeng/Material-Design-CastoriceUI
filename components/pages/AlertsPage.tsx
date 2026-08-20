@@ -58,7 +58,6 @@ export function AlertsPage({
           </span>
           <div>
             <strong>{t("严重", "Critical")}</strong>
-            <p>{t("需要尽快处理", "Needs prompt attention")}</p>
           </div>
         </Card>
         <Card variant="filled">
@@ -71,7 +70,6 @@ export function AlertsPage({
           </span>
           <div>
             <strong>{t("警告", "Warning")}</strong>
-            <p>{t("建议持续关注", "Monitor closely")}</p>
           </div>
         </Card>
         <Card variant="filled">
@@ -84,7 +82,6 @@ export function AlertsPage({
           </span>
           <div>
             <strong>{t("提醒", "Info")}</strong>
-            <p>{t("一般信息通知", "General information")}</p>
           </div>
         </Card>
       </section>

@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchAudits } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
-import type { AuditEvent, IntegrationStatus } from "../../lib/types";
-import { IntegrationGate } from "../setup/IntegrationGate";
+import type { AuditEvent } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -51,7 +50,7 @@ function pageItems(current: number, total: number): Array<number | "ellipsis-lef
   return result;
 }
 
-export function AuditPage({ integration, onConfigure }: { integration?: IntegrationStatus; onConfigure: () => void }) {
+export function AuditPage() {
   const { language, t } = useI18n();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"全部" | AuditEvent["category"]>("全部");
@@ -100,8 +99,7 @@ export function AuditPage({ integration, onConfigure }: { integration?: Integrat
   }, [category, expanded, page, search]);
 
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} description={t("记录登录、配置、告警确认与服务生命周期等关键操作。", "Record sign-ins, configuration, alert acknowledgements, and service lifecycle events.")} />
-    <IntegrationGate status={integration} name="操作审计" nameEn="Audit log" description="记录配置更新、告警确认和服务生命周期事件。" descriptionEn="Record configuration changes, alert acknowledgements, and service lifecycle events." onConfigure={onConfigure} />
+    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} />
     <Card variant="outlined" className="table-panel">
       <div className="table-toolbar table-toolbar--wrap">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={t("搜索操作、账号或 IP", "Search action, account, or IP")} aria-label={t("搜索审计记录", "Search audit records")} /></label>
@@ -121,7 +119,7 @@ export function AuditPage({ integration, onConfigure }: { integration?: Integrat
         <button onClick={() => go(currentPage + 1)} disabled={currentPage === totalPages} aria-label={t("下一页", "Next page")}><Icon name="chevron_right" size={18} /></button>
         <form onSubmit={(event) => { event.preventDefault(); go(Number(jump)); setJump(""); }}><label><span>{t("跳至", "Go to")}</span><input inputMode="numeric" pattern="[0-9]*" value={jump} onChange={(event) => setJump(event.target.value.replace(/\D/g, ""))} aria-label={t("输入页码", "Enter page number")} /><span>/ {totalPages}</span></label><Button type="submit" compact disabled={!jump}>{t("跳转", "Go")}</Button></form>
       </nav> : null}
-      <div className="table-footer"><span>{t("展开后每页显示 50 条", "Expanded view shows 50 records per page")}</span><span>{t("敏感参数在写入前由后端移除", "Sensitive parameters are removed before storage")}</span></div>
+      <div className="table-footer"><span>{t("展开后每页显示 50 条", "Expanded view shows 50 records per page")}</span></div>
     </Card>
   </div>;
 }

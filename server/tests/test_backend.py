@@ -20,7 +20,7 @@ sys.path.insert(0, str(SERVER_ROOT))
 from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot, traffic_quota_period  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
-from castoriceui.api import ApiHandler, ApiServer  # noqa: E402
+from castoriceui.api import ApiHandler, ApiServer, normalized_origin  # noqa: E402
 from castoriceui.security import fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 
@@ -209,7 +209,6 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(usage["receivedBytes"], 120)
             self.assertEqual(usage["transmittedBytes"], 90)
             self.assertEqual(usage["usedBytes"], 210)
-            self.assertTrue(usage["coverageComplete"])
             self.assertEqual(storage.traffic_usage_since(100, "max")["usedBytes"], 120)
 
     def test_mid_cycle_baseline_is_explicit_and_scoped_by_caller(self) -> None:
@@ -219,8 +218,6 @@ class BackendTests(unittest.TestCase):
             storage.record_sample(560, 30, 50, 0, 0, "eth0", "boot")
             without_baseline = storage.traffic_usage_since(100, "sum")
             with_baseline = storage.traffic_usage_since(100, "sum", 1_000_000_000)
-            self.assertFalse(without_baseline["coverageComplete"])
-            self.assertTrue(with_baseline["coverageComplete"])
             self.assertEqual(with_baseline["usedBytes"], without_baseline["usedBytes"] + 1_000_000_000)
 
     def test_saved_traffic_baseline_keeps_its_original_cycle_on_restart(self) -> None:
@@ -424,6 +421,19 @@ class BackendTests(unittest.TestCase):
         handler.send_json.reset_mock()
         self.assertFalse(handler.require_mutation_header())
         handler.send_json.assert_called_once()
+        handler.headers = {
+            "X-CastoriceUI-Request": "1",
+            "Host": "127.0.0.1:8765",
+            "Origin": "https://panel.example.test:2087",
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "panel.example.test:2087",
+            "X-Forwarded-Port": "2087",
+        }
+        handler.send_json.reset_mock()
+        self.assertTrue(handler.require_mutation_header())
+        self.assertEqual(normalized_origin("https", "panel.example.test:2087"), ("https", "panel.example.test", 2087))
+        handler.headers["Origin"] = "https://panel.example.test"
+        self.assertFalse(handler.require_mutation_header())
 
     def test_server_enforces_session_idle_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

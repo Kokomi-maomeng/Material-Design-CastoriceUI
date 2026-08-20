@@ -1,13 +1,8 @@
 "use client";
 
-import type {
-  IntegrationStatus,
-  OverviewMetrics,
-  ServiceStatus,
-} from "../../lib/types";
+import type { OverviewMetrics, ServiceStatus } from "../../lib/types";
 import { formatBytes, formatDuration } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
-import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -19,14 +14,10 @@ export function ServicesPage({
   services,
   metrics,
   onRefresh,
-  integration,
-  onConfigure,
 }: {
   services: ServiceStatus[];
   metrics: OverviewMetrics;
   onRefresh: () => void;
-  integration?: IntegrationStatus;
-  onConfigure: () => void;
 }) {
   const { language, t } = useI18n();
   const running = services.filter(
@@ -40,23 +31,11 @@ export function ServicesPage({
       <PageHeader
         eyebrow={t("运行状态", "Runtime status")}
         title={t("服务状态", "Services")}
-        description={t(
-          "查看代理核心、系统组件和证书的真实状态。",
-          "Review live status for proxy cores, system components, and certificates.",
-        )}
         actions={
           <Button variant="tonal" icon="refresh" onClick={onRefresh}>
             {t("重新检查", "Check again")}
           </Button>
         }
-      />
-      <IntegrationGate
-        status={integration}
-        name="系统服务监控"
-        nameEn="System service monitoring"
-        description="连接本机 systemd 与证书读取器后显示真实状态；仅服务项显示可用的运行时间。"
-        descriptionEn="Read live state from local systemd and the certificate reader; uptime is shown only for services that provide it."
-        onConfigure={onConfigure}
       />
       <div
         className={`status-banner ${unhealthy ? "status-banner--warning" : "status-banner--success"}`}
@@ -133,13 +112,6 @@ export function ServicesPage({
                 </dd>
               </div> : null}
             </dl>
-            <div className="service-card__source">
-              <Icon name="sync" size={17} />
-              {t(
-                "由 systemd 与本机程序自动读取",
-                "Read automatically from systemd and local programs",
-              )}
-            </div>
           </Card>
         ))}
       </section>

@@ -22,6 +22,7 @@ import {
   updateUiSettings,
 } from "../lib/api";
 import { emptyDashboard } from "../lib/empty-dashboard";
+import { formatDecimalBytes } from "../lib/format";
 import { useI18n, type LanguagePreference } from "../lib/i18n";
 import { navigation } from "../lib/navigation";
 import type {
@@ -563,10 +564,9 @@ export function CastoriceApp() {
           }}
         />
         <SetupWizard
-          key={selectedSetup ?? "closed"}
+          key={`setup-${selectedSetup ?? "closed"}`}
           selected={selectedSetup}
           status={selectedSetup ? integrationFor(selectedSetup) : undefined}
-          preview={false}
           drafts={setupDrafts}
           onDraft={(id, field, value) =>
             setSetupDrafts((current) => ({
@@ -577,7 +577,7 @@ export function CastoriceApp() {
           onClose={() => setSelectedSetup(null)}
           onSave={saveIntegration}
         />
-        <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={dismissToast} />
+        <Toast key={`toast-${toast?.id ?? "closed"}`} message={toast?.message ?? null} onDismiss={dismissToast} />
       </>
     );
 
@@ -587,7 +587,6 @@ export function CastoriceApp() {
         return (
           <SetupPage
             statuses={dashboard.integrations}
-            preview={false}
             onOpen={configurePage}
           />
         );
@@ -612,7 +611,6 @@ export function CastoriceApp() {
       case "traffic":
         return (
           <TrafficPage
-            onToast={showToast}
             traffic={dashboard.traffic}
             integration={integrationFor("traffic")}
             onConfigure={() => configurePage("traffic")}
@@ -622,8 +620,6 @@ export function CastoriceApp() {
         return (
           <SubscriptionsPage
             subscriptions={dashboard.subscriptions}
-            integration={integrationFor("subscriptions")}
-            onConfigure={() => configurePage("subscriptions")}
             onToast={showToast}
           />
         );
@@ -646,8 +642,6 @@ export function CastoriceApp() {
               void loadDashboard();
               showToast(t("正在重新读取服务状态", "Refreshing service status"));
             }}
-            integration={integrationFor("system")}
-            onConfigure={() => configurePage("system")}
           />
         );
       case "alerts":
@@ -674,10 +668,7 @@ export function CastoriceApp() {
         );
       case "audit":
         return (
-          <AuditPage
-            integration={integrationFor("audit")}
-            onConfigure={() => configurePage("audit")}
-          />
+          <AuditPage />
         );
       default:
         return (
@@ -688,7 +679,6 @@ export function CastoriceApp() {
             services={dashboard.services}
             networkTargets={dashboard.networkTargets}
             traffic={dashboard.traffic}
-            now={now}
             onEditQuota={openQuota}
             onRefresh={() => {
               void loadDashboard();
@@ -872,36 +862,41 @@ export function CastoriceApp() {
           <small>{t("更多", "More")}</small>
         </button>
       </nav>
-    <SettingsDialog
-      key={`${settingsOpen}-${dashboard.overview.nodeName}-${uiSettings.panelTitle}`}
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        mode={themeMode}
-        color={themeColor}
-        onMode={setThemeMode}
-        onColor={setThemeColor}
-        uiSettings={uiSettings}
-        onUiSettings={async (next) => {
-          try {
-            const saved = await updateUiSettings(next);
-            setDashboard((current) => ({ ...current, uiSettings: saved }));
-            showToast(t("面板设置已保存", "Panel settings saved"));
-          } catch (error) {
-            showToast(t("面板设置保存失败，请检查后端连接", "Unable to save panel settings. Check the backend connection."));
-            throw error;
-          }
-        }}
-        nodeName={dashboard.overview.nodeName}
-        onSaveNodeName={async (nodeName) => {
-          await saveIntegration("system", { nodeName });
-        }}
-        onToast={showToast}
-      />
+      {settingsOpen ? (
+        <SettingsDialog
+          open
+          onClose={() => setSettingsOpen(false)}
+          mode={themeMode}
+          color={themeColor}
+          onMode={setThemeMode}
+          onColor={setThemeColor}
+          uiSettings={uiSettings}
+          onUiSettings={async (next) => {
+            try {
+              const saved = await updateUiSettings(next);
+              setDashboard((current) => ({ ...current, uiSettings: saved }));
+              showToast(t("面板设置已保存", "Panel settings saved"));
+            } catch (error) {
+              showToast(t("面板设置保存失败，请检查后端连接", "Unable to save panel settings. Check the backend connection."));
+              throw error;
+            }
+          }}
+          nodeName={dashboard.overview.nodeName}
+          trafficLimitBytes={dashboard.overview.trafficLimitBytes}
+          onEditQuota={() => {
+            setSettingsOpen(false);
+            openQuota();
+          }}
+          onSaveNodeName={async (nodeName) => {
+            await saveIntegration("system", { nodeName });
+          }}
+          onToast={showToast}
+        />
+      ) : null}
       <SetupWizard
-        key={selectedSetup ?? "closed"}
+        key={`setup-${selectedSetup ?? "closed"}`}
         selected={selectedSetup}
         status={selectedSetup ? integrationFor(selectedSetup) : undefined}
-        preview={false}
         drafts={setupDrafts}
         onDraft={(id, field, value) =>
           setSetupDrafts((current) => ({
@@ -916,10 +911,6 @@ export function CastoriceApp() {
         open={quotaOpen}
         onClose={() => { if (!quotaSaving) setQuotaOpen(false); }}
         title={t("设置总流量额度", "Set total traffic quota")}
-        description={t(
-          "总览与账号状态会立即使用同一个十进制 GB 额度。",
-          "Overview and account management use the same quota immediately.",
-        )}
         size="small"
         actions={
           <>
@@ -952,12 +943,6 @@ export function CastoriceApp() {
             <span>GB</span>
           </div>
         </label>
-        <p className="field-hint">
-          {t(
-            "输入期间的实时刷新不会移动单位或覆盖当前值。",
-            "Live refreshes do not move the unit or overwrite the value while editing.",
-          )}
-        </p>
         <div className="settings-row settings-row--switch quota-reset-switch">
           <span><Icon name="restart_alt" /><span><strong>{t("自动重置流量", "Automatic traffic reset")}</strong><small>{draftQuotaAutoReset ? t("到达所选周期边界时从 0 开始新周期", "Start a new cycle at the selected boundary") : t("持续累计用量，不会自动归零", "Keep accumulating usage without automatic reset")}</small></span></span>
           <SettingsSwitch checked={draftQuotaAutoReset} label={t("自动重置流量", "Automatic traffic reset")} onChange={() => setDraftQuotaAutoReset((current) => !current)} />
@@ -966,12 +951,12 @@ export function CastoriceApp() {
           <label className="field"><span>{t("每隔", "Every")}</span><input type="number" min="1" max="365" step="1" inputMode="numeric" value={draftQuotaCount} onChange={(event) => setDraftQuotaCount(event.target.value)} /></label>
           <label className="field"><span>{t("计费单位", "Billing unit")}</span><select value={draftQuotaUnit} onChange={(event) => setDraftQuotaUnit(event.target.value as typeof draftQuotaUnit)}><option value="day">{t("日", "day(s)")}</option><option value="week">{t("周", "week(s)")}</option><option value="month">{t("月", "month(s)")}</option><option value="year">{t("年", "year(s)")}</option></select></label>
           <label className="field"><span>{t("重置基准日期", "Reset anchor date")}</span><input type="date" value={draftQuotaAnchor} onChange={(event) => setDraftQuotaAnchor(event.target.value)} /></label>
-          <label className="field"><span>{t("计费时区", "Billing timezone")}</span><input value={draftQuotaTimezone} maxLength={64} placeholder="UTC" onChange={(event) => setDraftQuotaTimezone(event.target.value)} /></label>
+          <label className="field"><span>{t("时区设定", "Timezone")}</span><input value={draftQuotaTimezone} maxLength={64} placeholder="UTC" onChange={(event) => setDraftQuotaTimezone(event.target.value)} /></label>
           <p className="field-hint quota-schedule-summary">{t(`每 ${draftQuotaCount || "?"} ${draftQuotaUnit === "day" ? "日" : draftQuotaUnit === "week" ? "周" : draftQuotaUnit === "month" ? "月" : "年"}重置；基准日 ${draftQuotaAnchor || "—"}，时区 ${draftQuotaTimezone || "UTC"}`, `Reset every ${draftQuotaCount || "?"} ${draftQuotaUnit}(s), anchored on ${draftQuotaAnchor || "—"} in ${draftQuotaTimezone || "UTC"}`)}</p>
         </div> : null}
         {quotaError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{quotaError}</span></div> : null}
       </Dialog>
-      <Toast key={toast?.id ?? "closed"} message={toast?.message ?? null} onDismiss={dismissToast} />
+      <Toast key={`toast-${toast?.id ?? "closed"}`} message={toast?.message ?? null} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -1001,6 +986,8 @@ function SettingsDialog({
   uiSettings,
   onUiSettings,
   nodeName,
+  trafficLimitBytes,
+  onEditQuota,
   onSaveNodeName,
   onToast,
 }: {
@@ -1013,6 +1000,8 @@ function SettingsDialog({
   uiSettings: UiSettings;
   onUiSettings: (settings: Partial<UiSettings>) => Promise<void>;
   nodeName: string;
+  trafficLimitBytes: number;
+  onEditQuota: () => void;
   onSaveNodeName: (name: string) => Promise<void>;
   onToast: (message: string) => void;
 }) {
@@ -1020,6 +1009,7 @@ function SettingsDialog({
   const [draftNodeName, setDraftNodeName] = useState(nodeName);
   const [draftPanelTitle, setDraftPanelTitle] = useState(uiSettings.panelTitle);
   const [saving, setSaving] = useState(false);
+  const [uiSaving, setUiSaving] = useState(false);
   const [draftUiSettings, setDraftUiSettings] = useState(uiSettings);
   const [backgroundType, setBackgroundType] = useState<
     "default" | "url" | "server"
@@ -1043,12 +1033,16 @@ function SettingsDialog({
       .catch(() => undefined);
   }, [open]);
   const saveUiSettings = async (next: Partial<UiSettings>) => {
+    if (uiSaving) return;
     const previous = draftUiSettings;
     setDraftUiSettings((current) => ({ ...current, ...next }));
+    setUiSaving(true);
     try {
       await onUiSettings(next);
     } catch {
       setDraftUiSettings(previous);
+    } finally {
+      setUiSaving(false);
     }
   };
   const colors: Array<{
@@ -1074,10 +1068,6 @@ function SettingsDialog({
       open
       onClose={onClose}
       title={t("设置", "Settings")}
-      description={t(
-        "管理语言、节点、导航、登录背景和外观。",
-        "Manage language, node, navigation, sign-in background, and appearance.",
-      )}
       actions={<Button onClick={onClose}>{t("完成", "Done")}</Button>}
     >
       <div className="theme-section">
@@ -1094,12 +1084,6 @@ function SettingsDialog({
             <option value="zh">中文</option>
             <option value="en">English</option>
           </select>
-          <small className="field-hint">
-            {t(
-              "系统语言不是中文或 English 时默认使用 English。",
-              "English is used when the system language is neither Chinese nor English.",
-            )}
-          </small>
         </label>
         <label className="field">
           <span>{t("节点显示名称", "Node display name")}</span>
@@ -1177,22 +1161,21 @@ function SettingsDialog({
           </small>
         </label>
       </div>
+      <div className="settings-row settings-row--action">
+        <span><Icon name="data_usage" /><span><strong>{t("总流量额度", "Total traffic quota")}</strong><small>{formatDecimalBytes(trafficLimitBytes)}</small></span></span>
+        <Button variant="tonal" compact icon="edit" onClick={onEditQuota}>{t("设置", "Set")}</Button>
+      </div>
       <div className="settings-row settings-row--switch">
         <span>
           <Icon name="checklist" />
           <span>
             <strong>{t("显示初始化向导页面", "Show Setup page")}</strong>
-            <small>
-              {t(
-                "控制左侧导航中的独立初始化向导入口。",
-                "Controls the standalone Setup entry in navigation.",
-              )}
-            </small>
           </span>
         </span>
         <SettingsSwitch
           checked={draftUiSettings.showSetup}
           label={t("显示初始化向导页面", "Show Setup page")}
+          disabled={uiSaving}
           onChange={() => void saveUiSettings({ showSetup: !draftUiSettings.showSetup })}
         />
       </div>
@@ -1360,6 +1343,7 @@ function SettingsDialog({
                   <SettingsSwitch
                     checked={checked}
                     label={t(`${item.labelZh}显示状态`, `Show ${item.labelEn}`)}
+                    disabled={uiSaving}
                     onChange={() => void saveUiSettings({ visiblePanels: checked ? draftUiSettings.visiblePanels.filter((panel) => panel !== id) : [...draftUiSettings.visiblePanels, id] })}
                   />
                 </div>
@@ -1372,7 +1356,7 @@ function SettingsDialog({
   );
 }
 
-function SettingsSwitch({ checked, label, onChange }: { checked: boolean; label: string; onChange: () => void }) {
+export function SettingsSwitch({ checked, label, disabled = false, onChange }: { checked: boolean; label: string; disabled?: boolean; onChange: () => void }) {
   return (
     <button
       type="button"
@@ -1380,6 +1364,7 @@ function SettingsSwitch({ checked, label, onChange }: { checked: boolean; label:
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={onChange}
     >
       <span aria-hidden="true" />

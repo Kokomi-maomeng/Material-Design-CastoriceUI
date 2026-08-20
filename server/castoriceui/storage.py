@@ -134,14 +134,11 @@ class Storage:
                 transmitted += max(0, current[1] - previous[1])
             last_by_source[source] = current
         measured = max(received, transmitted) if count_mode == "max" else received + transmitted
-        first_sample = int(samples[0]["captured_at"]) if samples else None
         baseline = max(0, int(initial_used_bytes))
         return {
             "usedBytes": baseline + measured,
             "receivedBytes": received,
             "transmittedBytes": transmitted,
-            "firstSampleAt": first_sample,
-            "coverageComplete": bool(first_sample is not None and first_sample <= timestamp + 120) or baseline > 0,
             "baselineBytes": baseline,
             "countMode": count_mode,
         }

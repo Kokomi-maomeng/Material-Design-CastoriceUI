@@ -1,7 +1,6 @@
 import type { IntegrationStatus } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { useI18n } from "../../lib/i18n";
 
@@ -30,23 +29,7 @@ export function IntegrationGate({
       )
     : fallback;
   if (status?.configured && status.status === "ready") {
-    return (
-      <Card
-        variant="filled"
-        className="integration-gate integration-gate--ready"
-      >
-        <span className="integration-gate__icon">
-          <Icon name="check_circle" filled />
-        </span>
-        <div>
-          <strong>{t(`${label} 可用`, `${label} ready`)}</strong>
-          <p>{summary}</p>
-        </div>
-        <Chip staticChip tone="success">
-          {t("运行态正常", "Runtime healthy")}
-        </Chip>
-      </Card>
-    );
+    return null;
   }
   if (status?.configured && status.status === "error") {
     return (
@@ -61,7 +44,7 @@ export function IntegrationGate({
               `${label} configured but unavailable`,
             )}
           </strong>
-          <p>{summary}</p>
+          {summary ? <p>{summary}</p> : null}
         </div>
         <Button variant="tonal" compact icon="settings" onClick={onConfigure}>
           {t("检查配置", "Check configuration")}

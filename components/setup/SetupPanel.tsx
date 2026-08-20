@@ -11,7 +11,6 @@ export function SetupPanel({
 }: {
   statuses: IntegrationStatus[];
   onOpen: (id: IntegrationId) => void;
-  preview?: boolean;
 }) {
   const { language, t } = useI18n();
   const statusMap = new Map(statuses.map((item) => [item.id, item]));
@@ -22,23 +21,10 @@ export function SetupPanel({
     (item) => statusMap.get(item.id)?.configured,
   );
   const local = (value: { zh: string; en: string }) => value[language];
-  const runtimeSummary = (
-    status: IntegrationStatus | undefined,
-    fallback: string,
-  ) =>
-    status
-      ? (language === "zh" ? status.summaryZh : status.summaryEn) ||
-        status.summary ||
-        fallback
-      : fallback;
   return (
     <Card variant="outlined" className="setup-panel">
       <CardHeader
         title={t("初始化向导", "Setup")}
-        description={t(
-          "按步骤连接真实数据源；未提交内容刷新后自动清除。",
-          "Connect live data sources step by step. Unsubmitted values are cleared on refresh.",
-        )}
         action={
           <Chip staticChip tone={pending.length ? "warning" : "success"}>
             {pending.length
@@ -57,9 +43,6 @@ export function SetupPanel({
               <Icon name={isReady ? "check_circle" : "error"} filled />
               <span>
                 <strong>{local(item.name)}</strong>
-                <small>
-                  {runtimeSummary(statusMap.get(item.id), local(item.outcome))}
-                </small>
               </span>
               <Chip staticChip tone={isReady ? "success" : "warning"}>
                 {isReady ? t("正常", "Ready") : t("需检查", "Check")}
