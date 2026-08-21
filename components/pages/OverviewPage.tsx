@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 
 import { formatBytes, formatDecimalBytes, percent } from "../../lib/format";
 import type {
@@ -151,27 +151,21 @@ export function OverviewPage({
             `${metrics.cpuCores} 核 · 负载 ${metrics.load[0] ?? 0}`,
             `${metrics.cpuCores} cores · load ${metrics.load[0] ?? 0}`,
           )}
-          trend={
-            metrics.cpuPercent < 80 ? t("稳定", "Stable") : t("繁忙", "Busy")
-          }
+          trend={metrics.cpuPercent >= 80 ? t("繁忙", "Busy") : undefined}
         />
         <MetricCard
           icon="memory_alt"
           label={t("内存", "Memory")}
           value={`${metrics.memoryPercent.toFixed(0)}%`}
           detail={`${formatBytes(metrics.memoryUsedBytes)} / ${formatBytes(metrics.memoryTotalBytes)}`}
-          trend={
-            metrics.memoryPercent < 85 ? t("正常", "Normal") : t("偏高", "High")
-          }
+          trend={metrics.memoryPercent >= 85 ? t("偏高", "High") : undefined}
         />
         <MetricCard
           icon="hard_drive"
-          label={t("磁盘", "Disk")}
+          label={t("存储", "Storage")}
           value={`${metrics.diskPercent.toFixed(0)}%`}
           detail={`${formatBytes(metrics.diskUsedBytes)} / ${formatBytes(metrics.diskTotalBytes)}`}
-          trend={
-            metrics.diskPercent < 85 ? t("正常", "Normal") : t("偏高", "High")
-          }
+          trend={metrics.diskPercent >= 85 ? t("偏高", "High") : undefined}
         />
       </section>
 
@@ -358,9 +352,11 @@ export function OverviewPage({
                       : service.nameEn || service.name}
                   </strong>
                   <span>
-                    {language === "zh"
-                      ? service.detailZh || service.detail
-                      : service.detailEn || service.detail}
+                    {withoutTerminalPeriod(
+                      language === "zh"
+                        ? service.detailZh || service.detail
+                        : service.detailEn || service.detail,
+                    )}
                   </span>
                 </div>
                 <Chip
@@ -418,7 +414,7 @@ function MetricCard({
   label: string;
   value: string;
   detail: string;
-  trend: string;
+  trend?: string;
 }) {
   return (
     <Card className="metric-card" variant="filled">
@@ -430,7 +426,7 @@ function MetricCard({
         <strong>{value}</strong>
         <small>{detail}</small>
       </div>
-      <Chip staticChip>{trend}</Chip>
+      {trend ? <Chip staticChip tone="warning">{trend}</Chip> : null}
     </Card>
   );
 }

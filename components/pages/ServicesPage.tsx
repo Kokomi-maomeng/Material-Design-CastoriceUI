@@ -2,7 +2,7 @@
 
 import type { OverviewMetrics, ServiceStatus } from "../../lib/types";
 import { formatBytes, formatDuration } from "../../lib/format";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { Chip } from "../ui/Chip";
@@ -24,6 +24,7 @@ export function ServicesPage({
     (service) => service.status === "running",
   ).length;
   const unhealthy = services.length - running;
+  const allHealthy = services.length > 0 && unhealthy === 0;
   const adapterServices = services.filter((item) => item.id === "hysteria2" || item.id === "anytls");
   const runningAdapters = adapterServices.filter((item) => item.status === "running").length;
   return (
@@ -31,33 +32,20 @@ export function ServicesPage({
       <PageHeader
         eyebrow={t("运行状态", "Runtime status")}
         title={t("服务状态", "Services")}
-        actions={
+        actions={<div className="service-header-actions">
+          <div className={`service-health-card ${allHealthy ? "is-healthy" : "is-warning"}`} role="status">
+            <Icon name={allHealthy ? "check_circle" : "warning"} size={20} filled />
+            <strong>{allHealthy
+              ? t("系统运行正常", "System is healthy")
+              : services.length
+                ? t("部分组件需要关注", "Some components need attention")
+                : t("暂无服务状态", "No service status")}</strong>
+          </div>
           <Button variant="tonal" icon="refresh" onClick={onRefresh}>
-            {t("重新检查", "Check again")}
+            {t("刷新", "Refresh")}
           </Button>
-        }
+        </div>}
       />
-      <div
-        className={`status-banner ${unhealthy ? "status-banner--warning" : "status-banner--success"}`}
-      >
-        <span>
-          <Icon
-            name={unhealthy ? "warning" : "check_circle"}
-            size={30}
-            filled
-          />
-        </span>
-        <div>
-          <strong>
-            {unhealthy
-              ? t("部分组件需要关注", "Some components need attention")
-              : t("系统运行正常", "System is healthy")}
-          </strong>
-        </div>
-        <Chip staticChip tone={unhealthy ? "warning" : "success"}>
-          {t("实时检查", "Live check")}
-        </Chip>
-      </div>
       <section className="service-card-grid">
         {services.map((service) => (
           <Card variant="outlined" className="service-card" key={service.id}>
@@ -90,8 +78,8 @@ export function ServicesPage({
               </h3>
               <p>
                 {language === "zh"
-                  ? service.detailZh || service.detail
-                  : service.detailEn || service.detail}
+                  ? withoutTerminalPeriod(service.detailZh || service.detail)
+                  : withoutTerminalPeriod(service.detailEn || service.detail)}
               </p>
             </div>
             <dl>
@@ -175,7 +163,7 @@ export function ServicesPage({
                 value={
                   adapterServices.length ? (runningAdapters / adapterServices.length) * 100 : 0
                 }
-                tone="success"
+                tone={!adapterServices.length || runningAdapters < adapterServices.length ? "warning" : "success"}
               />
             </div>
           </div>

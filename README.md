@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-3.1.0-6750A4)
+![Version](https://img.shields.io/badge/version-3.2.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -22,7 +22,7 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 
 ## 功能范围
 
-- Linux 主机 CPU、内存、磁盘、负载、运行时间及网卡计数器
+- Linux 主机 CPU、内存、存储、负载、运行时间及网卡计数器
 - 1 小时至 7 天的自适应流量趋势、跨重启统一增量账本、默认关闭或按日/周/月/年自定义的额度重置周期
 - 在线连接、连接速率、来源与目标信息（以协议核心实际输出为准）
 - IPv4/IPv6 网络质量探测、服务健康、告警确认及操作审计
@@ -58,7 +58,7 @@ npm run dev
 
 部署与升级步骤见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。升级前应备份受保护配置、完整的 `state.db*`、当前前后端目录、systemd 单元和 Nginx 站点，并保留可验证的回滚版本。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v3.1.0.md`](docs/RELEASE_NOTES_v3.1.0.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v3.2.0.md`](docs/RELEASE_NOTES_v3.2.0.md)。
 
 ## English
 

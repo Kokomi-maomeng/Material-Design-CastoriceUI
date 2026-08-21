@@ -12,6 +12,10 @@ interface I18nValue {
 
 const STORAGE_KEY = "castorice-language";
 
+export function withoutTerminalPeriod(value: string): string {
+  return value.replace(/[。.]+$/u, "");
+}
+
 function browserLanguage(): ResolvedLanguage {
   const languages = typeof navigator === "undefined" ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];
   const first = String(languages[0] ?? "").toLowerCase();
@@ -46,7 +50,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* The selection still applies for this tab. */ }
   }, []);
   const language = preference === "system" ? systemLanguage : preference;
-  const t = useCallback((chinese: string, english: string) => language === "zh" ? chinese : english, [language]);
+  const t = useCallback((chinese: string, english: string) => withoutTerminalPeriod(language === "zh" ? chinese : english), [language]);
   const value = useMemo(() => ({ preference, language, setPreference, t }), [language, preference, setPreference, t]);
 
   useEffect(() => {

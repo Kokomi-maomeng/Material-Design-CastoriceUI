@@ -10,7 +10,7 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private s
 
 ## Supported production boundary
 
-CastoriceUI v3.1 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
+CastoriceUI v3.2 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
 
 1. Nginx terminates valid TLS and serves both the frontend and same-origin `/api/`.
 2. `castoriceui-backend` listens only on `127.0.0.1` or `::1`.
@@ -18,7 +18,7 @@ CastoriceUI v3.1 includes a browser application, application authentication, and
 4. The browser authenticates through the CastoriceUI login page; Nginx `auth_basic` is not used.
 5. Protected config is `0640 root:castoriceui`; SQLite, bootstrap token, and login image state are restricted to the service identity.
 
-The backend is not designed for direct public exposure. v3.1 supports authenticated password changes but does not implement MFA, out-of-band password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
+The backend is not designed for direct public exposure. v3.2 supports authenticated password changes but does not implement MFA, out-of-band password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
 
 ## Authentication and sessions
 
@@ -39,7 +39,7 @@ Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`. Th
 
 Dashboard account and subscription payloads are constructed from explicit field allowlists. They exclude password hashes, session values, CSRF values other than the current authenticated session response, upstream Secrets, unknown config fields, raw configs, private keys, and full subscription URLs. Complete subscription URLs are returned only by a separate authenticated endpoint after an explicit copy/QR action.
 
-Redaction is enabled by default. When `redact_live_data` is explicitly false, a private authenticated panel may display real adapter-provided account names, source IPs, destinations, and audit sources. Redaction is not a substitute for access control.
+Authenticated administrators see real configured account names, account email fields, connection source IPs, subscription account labels, audit actors, and audit source IPs so multi-account operations remain identifiable. `redact_live_data` continues to suppress connection destinations in the shared dashboard payload, while complete subscription URLs remain isolated behind the explicit authenticated copy/QR endpoint. Access control, not cosmetic masking, protects operator-only identity data.
 
 ## URL, SSRF, command, and file boundaries
 
