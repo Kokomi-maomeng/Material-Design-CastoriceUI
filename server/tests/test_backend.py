@@ -51,14 +51,14 @@ class BackendTests(unittest.TestCase):
         self.assertIsNone(payload[0]["connectedAt"])
         self.assertEqual(len(payload), 1, "untagged sing-box connections must remain hidden")
 
-    def test_single_account_single_hysteria_identity_is_mapped_without_guessing_between_multiple_users(self) -> None:
+    def test_unmapped_hysteria_identity_is_not_assigned_to_an_account(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = AppConfig(database_path=str(Path(directory) / "state.db"))
             dashboard = DashboardService(config, Storage(config.database_path))
             accounts = [{"id": "display-id", "name": "Display name"}]
             mapped = dashboard.account_metrics(accounts, {"traffic": {"protocol-user": {"tx": 7, "rx": 5}}, "online": {"protocol-user": 2}}, 400)
-            self.assertEqual(mapped[0]["usedBytes"], 400)
-            self.assertEqual(mapped[0]["onlineDevices"], 2)
+            self.assertEqual(mapped[0]["usedBytes"], 0)
+            self.assertEqual(mapped[0]["onlineDevices"], 0)
             ambiguous = dashboard.account_metrics([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], {"traffic": {"u1": {"tx": 9, "rx": 0}, "u2": {"tx": 8, "rx": 0}}, "online": {}}, 17)
             self.assertEqual([item["usedBytes"] for item in ambiguous], [0, 0])
 
@@ -68,7 +68,7 @@ class BackendTests(unittest.TestCase):
             dashboard = DashboardService(config, Storage(config.database_path))
             accounts = [{"id": "a", "name": "A", "trafficIdentities": {"hysteria2": ["u1"]}}, {"id": "b", "name": "B", "trafficIdentities": ["u2"]}]
             mapped = dashboard.account_metrics(accounts, {"traffic": {"u1": {"tx": 9, "rx": 1}, "u2": {"tx": 8, "rx": 2}}, "online": {"u1": 1, "u2": 3}}, 400)
-            self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(200, 1), (200, 3)])
+            self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(10, 1), (10, 3)])
 
     def test_protocol_breakdowns_reconcile_exactly_to_the_durable_ledger(self) -> None:
         allocated = DashboardService.reconcile_breakdown([
@@ -201,8 +201,9 @@ class BackendTests(unittest.TestCase):
             self.assertTrue(states["hysteria2"]["configured"])
             self.assertEqual(states["hysteria2"]["status"], "error")
             self.assertEqual(states["connections"]["status"], "error")
-            self.assertEqual(states["subscriptions"]["status"], "ready")
+            self.assertEqual(states["subscriptions"]["status"], "error")
             self.assertIn("not verified", states["subscriptions"]["summary"])
+            self.assertEqual(states["system"]["status"], "error")
 
     def test_config_merges_safe_integration_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -587,7 +588,7 @@ class BackendTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-    def test_live_payload_masks_addresses_and_subscription_secrets(self) -> None:
+    def test_authenticated_payload_shows_identity_while_subscription_secrets_stay_server_side(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = AppConfig(database_path=str(Path(directory) / "state.db"))
             config.redact_live_data = True
@@ -596,9 +597,12 @@ class BackendTests(unittest.TestCase):
             dashboard = DashboardService(config, storage)
             public = dashboard.public_subscriptions()
             self.assertNotIn("private-token", json.dumps(public))
-            self.assertNotEqual(public[0]["account"], "alice")
+            self.assertEqual(public[0]["account"], "alice")
             self.assertEqual(dashboard.subscription_url("sub-1"), "https://example.test/subscription/private-token")
-            self.assertEqual(dashboard._mask_ip("203.0.113.42"), "203.0.113.*")
+            storage.add_audit("test", "系统", "detail", "203.0.113.42", actor="operator")
+            event = dashboard.audit_page(1, 30)["items"][0]
+            self.assertEqual(event["actor"], "operator")
+            self.assertEqual(event["ip"], "203.0.113.42")
 
     def test_live_payload_can_show_authenticated_operator_data(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

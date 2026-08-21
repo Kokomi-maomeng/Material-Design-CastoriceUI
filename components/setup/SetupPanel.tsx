@@ -1,7 +1,7 @@
 import { integrationDefinitions } from "../../lib/integrations";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 import type { IntegrationId, IntegrationStatus } from "../../lib/types";
-import { Card, CardHeader } from "../ui/Card";
+import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 
@@ -20,17 +20,9 @@ export function SetupPanel({
   const completed = integrationDefinitions.filter(
     (item) => statusMap.get(item.id)?.configured,
   );
-  const local = (value: { zh: string; en: string }) => value[language];
+  const local = (value: { zh: string; en: string }) => withoutTerminalPeriod(value[language]);
   return (
     <Card variant="outlined" className="setup-panel">
-      <CardHeader
-        title={t("初始化向导", "Setup")}
-        action={!pending.length ? (
-          <Chip staticChip tone={pending.length ? "warning" : "success"}>
-            {t("全部完成", "All complete")}
-          </Chip>
-        ) : undefined}
-      />
       {completed.length ? (
         <div className="setup-completed setup-completed--first">
           <h3>{t("已完成", "Completed")}</h3>

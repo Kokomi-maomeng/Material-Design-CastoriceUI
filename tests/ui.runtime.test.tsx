@@ -5,7 +5,8 @@ import { SettingsSwitch } from "../components/CastoriceApp";
 import { AccountsPage } from "../components/pages/AccountsPage";
 import { ServicesPage } from "../components/pages/ServicesPage";
 import { FirstRunConfiguration } from "../components/setup/FirstRunConfiguration";
-import { I18nProvider } from "../lib/i18n";
+import { MaterialDatePicker } from "../components/ui/MaterialDatePicker";
+import { I18nProvider, withoutTerminalPeriod } from "../lib/i18n";
 import { formatDecimalBytes } from "../lib/format";
 import type { OverviewMetrics, ServiceStatus } from "../lib/types";
 
@@ -43,7 +44,11 @@ const renderEnglish = (view: React.ReactNode) => {
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
-describe("v3.1 runtime behavior", () => {
+describe("v3.2 runtime behavior", () => {
+  it("removes only terminal Chinese and English sentence periods", () => {
+    expect(withoutTerminalPeriod("第一句。第二句。")).toBe("第一句。第二句");
+    expect(withoutTerminalPeriod("First sentence. Second sentence.")).toBe("First sentence. Second sentence");
+  });
   it("uses decimal provider units instead of binary GiB math", () => {
     expect(formatDecimalBytes(1_000_000_000_000)).toBe("1.0 TB");
     renderEnglish(
@@ -56,7 +61,7 @@ describe("v3.1 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v3.1")).toBeTruthy();
+    expect(screen.getByText("v3.2")).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -99,13 +104,23 @@ describe("v3.1 runtime behavior", () => {
     expect(onChange).toHaveBeenCalledOnce();
   });
 
+  it("opens a year layer before selecting a month and day", () => {
+    const onChange = vi.fn();
+    renderEnglish(<MaterialDatePicker value="2026-08-22" onChange={onChange} ariaLabel="Reset anchor date" />);
+    fireEvent.click(screen.getByRole("button", { name: "Reset anchor date" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose year and month" }));
+    expect(screen.getAllByRole("option")).toHaveLength(20);
+    fireEvent.click(screen.getByRole("option", { name: "2025" }));
+    expect(screen.getByRole("button", { name: "Aug" })).toBeTruthy();
+  });
+
   it("derives database and adapter health from runtime data", () => {
     const services: ServiceStatus[] = [{
       id: "hysteria2",
       name: "Hysteria2",
       status: "running",
       detail: "healthy",
-      version: "3.1.0",
+      version: "3.2.0",
       uptimeSeconds: 60,
       icon: "bolt",
     }];

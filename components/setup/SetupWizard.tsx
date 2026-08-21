@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { integrationDefinitions } from "../../lib/integrations";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 import type { IntegrationId, IntegrationStatus } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
@@ -14,7 +14,7 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   if (!definition || !selected) return null;
-  const local = (value: { zh: string; en: string }) => value[language];
+  const local = (value: { zh: string; en: string }) => withoutTerminalPeriod(value[language]);
   const values = drafts[selected] ?? {};
   const resolvedValues = Object.fromEntries(definition.fields.map((field) => [field.id, values[field.id] ?? field.options?.[0]?.value ?? ""]));
   const requiredComplete = definition.fields.filter((field) => field.required).every((field) => resolvedValues[field.id]?.trim());

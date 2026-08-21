@@ -1,4 +1,4 @@
-# CastoriceUI v3.1 backend integration guide
+# CastoriceUI v3.2 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -60,7 +60,7 @@ Display names are not assumed to equal protocol authentication identities. For m
 }
 ```
 
-Only the unambiguous one-account/one-identity case is automatically associated. Unknown or ambiguous identities remain unattributed rather than assigned to the wrong account. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
+Only explicit account names, IDs, or `trafficIdentities` mappings are associated. Unknown identities remain unattributed rather than assigned to the wrong account. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
 
 ## sing-box protocol adapters
 

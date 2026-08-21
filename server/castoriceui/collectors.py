@@ -62,7 +62,7 @@ def semantic_version(value: str, service_id: str) -> str:
         "nginx": r"(?i)nginx(?:\s+version)?:\s*nginx/(\d+\.\d+(?:\.\d+)?)",
     }
     match = re.search(patterns[service_id], cleaned)
-    return match.group(1) if match else "installed"
+    return match.group(1) if match else "unknown"
 
 
 def detect_interface(configured: str) -> str:
@@ -70,7 +70,14 @@ def detect_interface(configured: str) -> str:
         return configured
     output = run(["ip", "-o", "route", "show", "default"])
     match = re.search(r"\bdev\s+(\S+)", output)
-    return match.group(1) if match else "eth0"
+    if match:
+        return match.group(1)
+    network_root = Path("/sys/class/net")
+    try:
+        candidates = sorted(path.name for path in network_root.iterdir() if path.name != "lo" and (path / "statistics" / "rx_bytes").is_file())
+    except OSError:
+        return ""
+    return candidates[0] if candidates else ""
 
 
 def billing_cycle_start(now: datetime, day: int, timezone_name: str) -> datetime:
@@ -198,6 +205,8 @@ class SystemCollector:
         return total, used, round(100 * used / total, 1)
 
     def network(self) -> tuple[int, int, float, float]:
+        if not self.interface:
+            raise RuntimeError("No usable network interface is configured or detected")
         root = Path("/sys/class/net") / self.interface / "statistics"
         rx, tx = int((root / "rx_bytes").read_text()), int((root / "tx_bytes").read_text())
         now = time.monotonic()
@@ -261,7 +270,7 @@ class SystemCollector:
             "interface": self.interface,
             "kernel": platform.release(),
             "databaseBytes": self.storage.database_size(),
-            "databaseWritable": True,
+            "databaseWritable": self.storage.is_writable(),
         }
 
 

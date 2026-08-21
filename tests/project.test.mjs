@@ -32,7 +32,7 @@ test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "3\.1\.0"/);
+  assert.match(backendPackage, /__version__ = "3\.2\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -278,4 +278,36 @@ test("v3.1 fails closed for config, payload fields, traffic resets, login abuse,
   assert.match(sensitiveScan, /cwd: root/);
   assert.doesNotMatch(sensitiveScan, /cwd: new URL\("\.\."/);
   assert.match(sensitiveScan, /GITHUB_EVENT_NAME === "pull_request" \? "HEAD\^2" : "HEAD"/);
+});
+
+test("v3.2 operator identity, layout, settings, and truthful status requirements remain enforced", async () => {
+  const [overview, connections, network, services, setup, app, datePicker, styles, dashboard, collector, storage, i18n] = await Promise.all([
+    read("components/pages/OverviewPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/NetworkPage.tsx"),
+    read("components/pages/ServicesPage.tsx"), read("components/setup/SetupPanel.tsx"), read("components/CastoriceApp.tsx"),
+    read("components/ui/MaterialDatePicker.tsx"), read("app/globals.css"), read("server/castoriceui/dashboard.py"),
+    read("server/castoriceui/collectors.py"), read("server/castoriceui/storage.py"), read("lib/i18n.tsx"),
+  ]);
+  assert.doesNotMatch(overview, /t\("稳定"|t\("正常"/);
+  assert.match(overview, /label=\{t\("存储", "Storage"\)\}/);
+  assert.match(datePicker, /md-date-picker__year-grid/);
+  assert.match(datePicker, /md-date-picker__month-grid/);
+  assert.doesNotMatch(setup, /title=\{t\("初始化向导"/);
+  assert.doesNotMatch(dashboard, /_mask_identity|_mask_ip/);
+  assert.match(dashboard, /"actor": row\["actor"\]/);
+  assert.match(dashboard, /"ip": row\["source_ip"\]/);
+  assert.match(connections, /<colgroup>/);
+  assert.match(styles, /\.connections-table table \{ min-width: 1240px; table-layout: fixed; \}/);
+  assert.match(network, /preserveAspectRatio="xMidYMid meet"/);
+  assert.doesNotMatch(network, /preserveAspectRatio="none"/);
+  assert.match(services, /t\("刷新", "Refresh"\)/);
+  assert.doesNotMatch(services, /实时检查|Live check|重新检查|Check again/);
+  assert.doesNotMatch(app, /显示在左上角品牌位置|Shown in the upper-left brand area|前后端都会执行该空闲时限|Both client and server enforce this inactivity limit|验证旧密码后更新当前管理员密码|Verify the current password before updating the administrator password/);
+  assert.match(app, /页面自定义/);
+  assert.ok(app.indexOf("显示初始化向导页面") < app.indexOf("面板自定义"));
+  for (const label of ["语言", "节点显示名称", "面板标题", "在线超时时长", "显示模式"]) assert.match(app, new RegExp(`settings-disclosure[^]*${label}`));
+  assert.doesNotMatch(collector, /match else "eth0"/);
+  assert.match(storage, /def is_writable/);
+  assert.match(dashboard, /network_ready = bool\(network and any/);
+  assert.match(dashboard, /subscriptions_configured/);
+  assert.match(i18n, /withoutTerminalPeriod/);
 });

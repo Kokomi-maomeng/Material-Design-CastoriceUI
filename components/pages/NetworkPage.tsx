@@ -180,7 +180,7 @@ export function NetworkPage({
         <NetworkMetric
           icon="timer"
           label={t("平均延迟", "Average latency")}
-          value={`${avgLatency.toFixed(1)} ms`}
+          value={filtered.length ? `${avgLatency.toFixed(1)} ms` : "—"}
           state={
             filtered.length
               ? t("最近探测", "Latest probe")
@@ -190,8 +190,8 @@ export function NetworkPage({
         <NetworkMetric
           icon="ssid_chart"
           label={t("平均抖动", "Average jitter")}
-          value={`${avgJitter.toFixed(1)} ms`}
-          state={t("真实响应样本", "Real response samples")}
+          value={filtered.length ? `${avgJitter.toFixed(1)} ms` : "—"}
+          state={filtered.length ? t("真实响应样本", "Real response samples") : t("等待探测", "Waiting")}
         />
         <NetworkMetric
           icon="public"
@@ -260,8 +260,8 @@ export function NetworkPage({
         onClose={() => setEditorOpen(false)}
         title={t("自定义网络探测", "Customize network probes")}
         description={t(
-          "编辑名称、地址和顺序；最多 12 个目标。",
-          "Edit names, addresses, and order for up to 12 targets.",
+          "编辑名称、地址和顺序；最多 12 个目标",
+          "Edit names, addresses, and order for up to 12 targets",
         )}
         size="large"
         actions={
@@ -398,14 +398,17 @@ function Sparkline({
   const [active, setActive] = useState<number | null>(null);
   const gradientId = useId();
   const safeValues = values.filter(Number.isFinite);
+  const width = 320;
+  const height = 148;
+  const plot = { left: 16, right: 304, top: 16, bottom: 126 };
   if (safeValues.length === 0)
     return (
-      <svg viewBox="0 0 100 32" aria-hidden="true">
+      <svg className="network-trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
         <line
-          x1="0"
-          y1="16"
-          x2="100"
-          y2="16"
+          x1={plot.left}
+          y1={(plot.top + plot.bottom) / 2}
+          x2={plot.right}
+          y2={(plot.top + plot.bottom) / 2}
           stroke="var(--outline)"
           strokeDasharray="4 4"
         />
@@ -413,49 +416,50 @@ function Sparkline({
     );
   const max = Math.max(...safeValues);
   const min = Math.min(...safeValues);
-  const range = max - min || 1;
+  const range = max - min;
   const points =
     safeValues.length === 1
-      ? [{ x: 50, y: 16 }]
+      ? [{ x: (plot.left + plot.right) / 2, y: (plot.top + plot.bottom) / 2 }]
       : safeValues.map((value, index) => ({
-          x: (index / (safeValues.length - 1)) * 100,
-          y: 28 - ((value - min) / range) * 24,
+          x: plot.left + (index / (safeValues.length - 1)) * (plot.right - plot.left),
+          y: range === 0 ? (plot.top + plot.bottom) / 2 : plot.bottom - ((value - min) / range) * (plot.bottom - plot.top),
         }));
   const stroke = degraded ? "var(--warning)" : "var(--primary)";
   const pick = (event: PointerEvent<SVGSVGElement>) => {
     const matrix = event.currentTarget.getScreenCTM();
     if (!matrix) return;
     const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-    const ratio = Math.max(0, Math.min(1, cursor.x / 100));
+    const ratio = Math.max(0, Math.min(1, (cursor.x - plot.left) / (plot.right - plot.left)));
     setActive(Math.round(ratio * (safeValues.length - 1)));
   };
   return (
     <>
-    <svg className="sparkline-chart" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" tabIndex={0} aria-label={label} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive(safeValues.length - 1)} onBlur={() => setActive(null)}>
+    <svg className="sparkline-chart network-trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" tabIndex={0} aria-label={label} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive(safeValues.length - 1)} onBlur={() => setActive(null)}>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={stroke} stopOpacity=".2" />
           <stop offset="100%" stopColor={stroke} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {points.length > 1 ? <path d={`${smoothPath(points)} L 100,32 L 0,32 Z`} fill={`url(#${gradientId})`} /> : null}
+      {[0, .5, 1].map((ratio) => <line key={ratio} className="chart-grid-line" x1={plot.left} x2={plot.right} y1={plot.top + (plot.bottom - plot.top) * ratio} y2={plot.top + (plot.bottom - plot.top) * ratio} />)}
+      {points.length > 1 ? <path d={`${smoothPath(points)} L ${plot.right},${plot.bottom} L ${plot.left},${plot.bottom} Z`} fill={`url(#${gradientId})`} /> : null}
       <path
         d={smoothPath(points)}
         fill="none"
         stroke={stroke}
-        strokeWidth="2.5"
+        strokeWidth="3"
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
       />
       {points.map((point, index) => (
         <g key={index} pointerEvents="none">
-          <circle cx={point.x} cy={point.y} r={active === index ? "2.8" : "1.8"} fill={stroke} />
+          <circle className={`network-trend-point ${active === index ? "is-active" : ""}`} cx={point.x} cy={point.y} r={active === index ? "5" : "3.5"} fill={stroke} />
         </g>
       ))}
-      <rect className="sparkline-hit-area" x="0" y="0" width="100" height="32" />
+      <rect className="sparkline-hit-area" x={plot.left} y={plot.top} width={plot.right - plot.left} height={plot.bottom - plot.top} />
     </svg>
-    {active !== null ? <span className="sparkline-tooltip" style={{ left: `${points[active].x}%` }}>{safeValues[Math.min(active, safeValues.length - 1)].toFixed(1)} ms</span> : null}
+    {active !== null ? <span className="sparkline-tooltip" style={{ left: `${((points[active].x - plot.left) / (plot.right - plot.left)) * 100}%` }}>{safeValues[Math.min(active, safeValues.length - 1)].toFixed(1)} ms</span> : null}
     </>
   );
 }

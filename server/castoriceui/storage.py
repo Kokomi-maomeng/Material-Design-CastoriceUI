@@ -114,6 +114,16 @@ class Storage:
                 (captured_at, rx, tx, cpu, memory, interface[:32], boot_id[:64]),
             )
 
+    def is_writable(self) -> bool:
+        try:
+            with self.lock, self.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("UPDATE settings SET updated_at=updated_at WHERE 0")
+                connection.execute("ROLLBACK")
+            return True
+        except sqlite3.Error:
+            return False
+
     def samples_since(self, timestamp: int) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 import type { AlertItem, IntegrationStatus } from "../../lib/types";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
@@ -145,9 +145,11 @@ export function AlertsPage({
                   </Chip>
                 </div>
                 <p>
-                  {language === "zh"
-                    ? alert.descriptionZh || alert.description
-                    : alert.descriptionEn || alert.description}
+                  {withoutTerminalPeriod(
+                    language === "zh"
+                      ? alert.descriptionZh || alert.description
+                      : alert.descriptionEn || alert.description,
+                  )}
                 </p>
                 <span>
                   {language === "zh"

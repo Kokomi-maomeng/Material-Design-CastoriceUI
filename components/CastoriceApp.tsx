@@ -1125,106 +1125,40 @@ function SettingsDialog({
       title={t("设置", "Settings")}
       actions={<Button onClick={closeSettings}>{t("完成", "Done")}</Button>}
     >
-      <div className="theme-section">
+      <section className="theme-section general-settings-group">
         <h3>{t("常规", "General")}</h3>
-        <div className="field">
-          <span>{t("语言", "Language")}</span>
-          <MaterialSelect
-            ariaLabel={t("语言", "Language")}
-            value={preference}
-            options={[{ value: "system", label: t("跟随系统", "Follow system") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]}
-            onChange={(value) => setPreference(value as LanguagePreference)}
-          />
-        </div>
-        <label className="field">
-          <span>{t("节点显示名称", "Node display name")}</span>
-          <div className="settings-inline-field">
-            <input
-              value={draftNodeName}
-              maxLength={80}
-              onChange={(event) => setDraftNodeName(event.target.value)}
-            />
-            <Button
-              compact
-              disabled={
-                saving ||
-                !draftNodeName.trim() ||
-                draftNodeName.trim() === nodeName
-              }
-              onClick={() => {
-                setSaving(true);
-                void onSaveNodeName(draftNodeName.trim()).finally(() =>
-                  setSaving(false),
-                );
-              }}
-            >
-              {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
-            </Button>
+        <details className="settings-disclosure general-setting-item">
+          <summary><span><Icon name="translate" /><span><strong>{t("语言", "Language")}</strong><small>{preference === "system" ? t("跟随系统", "Follow system") : preference === "zh" ? "中文" : "English"}</small></span></span><Icon name="expand_more" /></summary>
+          <div className="disclosure-content general-setting-content">
+            <div className="field"><span>{t("语言", "Language")}</span><MaterialSelect ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "Follow system") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as LanguagePreference)} /></div>
           </div>
-        </label>
-        <label className="field">
-          <span>{t("面板标题", "Panel title")}</span>
-          <div className="settings-inline-field">
-            <input
-              value={draftPanelTitle}
-              maxLength={40}
-              onChange={(event) => setDraftPanelTitle(event.target.value)}
-            />
-            <Button
-              compact
-              disabled={
-                saving ||
-                !draftPanelTitle.trim() ||
-                draftPanelTitle.trim() === uiSettings.panelTitle
-              }
-              onClick={() => {
-                setSaving(true);
-                void onUiSettings({ panelTitle: draftPanelTitle.trim() }).finally(() =>
-                  setSaving(false),
-                );
-              }}
-            >
-              {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
-            </Button>
+        </details>
+        <details className="settings-disclosure general-setting-item">
+          <summary><span><Icon name="dns" /><span><strong>{t("节点显示名称", "Node display name")}</strong><small>{nodeName}</small></span></span><Icon name="expand_more" /></summary>
+          <div className="disclosure-content general-setting-content">
+            <label className="field"><span>{t("节点显示名称", "Node display name")}</span><div className="settings-inline-field"><input value={draftNodeName} maxLength={80} onChange={(event) => setDraftNodeName(event.target.value)} /><Button compact disabled={saving || !draftNodeName.trim() || draftNodeName.trim() === nodeName} onClick={() => { setSaving(true); void onSaveNodeName(draftNodeName.trim()).finally(() => setSaving(false)); }}>{saving ? t("保存中…", "Saving…") : t("保存", "Save")}</Button></div></label>
           </div>
-          <small className="field-hint">
-            {t("显示在左上角品牌位置。", "Shown in the upper-left brand area.")}
-          </small>
-        </label>
-        <div className="field">
-          <span>{t("在线超时时长", "Inactivity timeout")}</span>
-          <MaterialSelect
-            ariaLabel={t("在线超时时长", "Inactivity timeout")}
-            value={String(draftUiSettings.idleTimeoutMinutes)}
-            options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: t(`${minutes} 分钟`, `${minutes} minutes`) }))}
-            onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })}
-          />
-          <small className="field-hint">
-            {t("前后端都会执行该空闲时限；会话不能设置为永久有效。", "Both client and server enforce this inactivity limit; sessions cannot be made permanent.")}
-          </small>
-        </div>
-      </div>
+        </details>
+        <details className="settings-disclosure general-setting-item">
+          <summary><span><Icon name="title" /><span><strong>{t("面板标题", "Panel title")}</strong><small>{uiSettings.panelTitle}</small></span></span><Icon name="expand_more" /></summary>
+          <div className="disclosure-content general-setting-content">
+            <label className="field"><span>{t("面板标题", "Panel title")}</span><div className="settings-inline-field"><input value={draftPanelTitle} maxLength={40} onChange={(event) => setDraftPanelTitle(event.target.value)} /><Button compact disabled={saving || !draftPanelTitle.trim() || draftPanelTitle.trim() === uiSettings.panelTitle} onClick={() => { setSaving(true); void onUiSettings({ panelTitle: draftPanelTitle.trim() }).finally(() => setSaving(false)); }}>{saving ? t("保存中…", "Saving…") : t("保存", "Save")}</Button></div></label>
+          </div>
+        </details>
+        <details className="settings-disclosure general-setting-item">
+          <summary><span><Icon name="timer" /><span><strong>{t("在线超时时长", "Inactivity timeout")}</strong><small>{t(`${draftUiSettings.idleTimeoutMinutes} 分钟`, `${draftUiSettings.idleTimeoutMinutes} minutes`)}</small></span></span><Icon name="expand_more" /></summary>
+          <div className="disclosure-content general-setting-content">
+            <div className="field"><span>{t("在线超时时长", "Inactivity timeout")}</span><MaterialSelect ariaLabel={t("在线超时时长", "Inactivity timeout")} value={String(draftUiSettings.idleTimeoutMinutes)} options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: t(`${minutes} 分钟`, `${minutes} minutes`) }))} onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })} /></div>
+          </div>
+        </details>
+      </section>
       <div className="settings-row settings-row--action">
         <span><Icon name="data_usage" /><span><strong>{t("总流量额度", "Total traffic quota")}</strong><small>{formatDecimalBytes(trafficLimitBytes)}</small></span></span>
         <Button variant="tonal" compact icon="edit" onClick={onEditQuota}>{t("设置", "Set")}</Button>
       </div>
-      <div className="settings-row settings-row--switch">
-        <span>
-          <Icon name="checklist" />
-          <span>
-            <strong>{t("显示初始化向导页面", "Show Setup page")}</strong>
-          </span>
-        </span>
-        <SettingsSwitch
-          checked={draftUiSettings.showSetup}
-          label={t("显示初始化向导页面", "Show Setup page")}
-          disabled={uiSaving}
-          onChange={() => void saveUiSettings({ showSetup: !draftUiSettings.showSetup })}
-        />
-      </div>
       <details className="settings-disclosure security-settings">
         <summary>
-          <span><Icon name="password" /><span><strong>{t("更换密码", "Change password")}</strong><small>{t("验证旧密码后更新当前管理员密码。", "Verify the current password before updating the administrator password.")}</small></span></span>
+          <span><Icon name="password" /><span><strong>{t("更换密码", "Change password")}</strong></span></span>
           <Icon name="expand_more" />
         </summary>
         <div className="password-settings disclosure-content">
@@ -1237,15 +1171,12 @@ function SettingsDialog({
       </details>
       <section className="theme-section theme-style-group">
         <h3>{t("主题风格", "Theme style")}</h3>
-        <div className="theme-style-item">
-          <div className="theme-style-heading">
-            <Icon name="contrast" />
-            <div>
-              <strong>{t("显示模式", "Display mode")}</strong>
-              <small>{t("选择浅色、深色或跟随系统。", "Choose light, dark, or system appearance.")}</small>
-            </div>
-          </div>
-          <div className="theme-mode-grid">
+        <details className="settings-disclosure theme-style-item">
+          <summary>
+            <span><Icon name="contrast" /><span><strong>{t("显示模式", "Display mode")}</strong><small>{mode === "light" ? t("浅色", "Light") : mode === "dark" ? t("深色", "Dark") : t("跟随系统", "System")}</small></span></span>
+            <Icon name="expand_more" />
+          </summary>
+          <div className="theme-mode-grid disclosure-content">
             {THEME_MODES.map((item) => (
               <button key={item} className={mode === item ? "is-selected" : ""} onClick={() => onMode(item)}>
                 <span className={`theme-preview theme-preview--${item}`}><i /><i /><i /></span>
@@ -1253,10 +1184,10 @@ function SettingsDialog({
               </button>
             ))}
           </div>
-        </div>
+        </details>
         <details className="settings-disclosure theme-style-item">
           <summary>
-            <span><Icon name="palette" /><span><strong>{t("主题色彩", "Theme color")}</strong><small>{t("选择面板的 Material 配色。", "Choose the panel's Material color palette.")}</small></span></span>
+            <span><Icon name="palette" /><span><strong>{t("主题色彩", "Theme color")}</strong><small>{t("选择面板的 Material 配色", "Choose the panel's Material color palette")}</small></span></span>
             <span className="disclosure-status"><i className="selected-color-dot" style={{ background: colors.find((item) => item.id === color)?.value }} /><Icon name="expand_more" /></span>
           </summary>
           <div className="color-options disclosure-content">
@@ -1345,13 +1276,20 @@ function SettingsDialog({
           </Button>
         </div>
       </details>
+      </section>
+      <section className="theme-section page-customization-group">
+        <h3>{t("页面自定义", "Page customization")}</h3>
+        <div className="settings-row settings-row--switch page-customization-switch">
+          <span><Icon name="checklist" /><span><strong>{t("显示初始化向导页面", "Show Setup page")}</strong></span></span>
+          <SettingsSwitch checked={draftUiSettings.showSetup} label={t("显示初始化向导页面", "Show Setup page")} disabled={uiSaving} onChange={() => void saveUiSettings({ showSetup: !draftUiSettings.showSetup })} />
+        </div>
         <details className="settings-disclosure theme-style-item">
           <summary>
             <span>
               <Icon name="dashboard_customize" />
               <span>
                 <strong>{t("面板自定义", "Panel customization")}</strong>
-                <small>{t("选择在导航中显示的功能面板。", "Choose the feature panels shown in navigation.")}</small>
+                <small>{t("选择在导航中显示的功能面板", "Choose the feature panels shown in navigation")}</small>
               </span>
             </span>
             <span className="disclosure-status"><small>{t(`已显示 ${draftUiSettings.visiblePanels.length} 项`, `${draftUiSettings.visiblePanels.length} shown`)}</small><Icon name="expand_more" /></span>

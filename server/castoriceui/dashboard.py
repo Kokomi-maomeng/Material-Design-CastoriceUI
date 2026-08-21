@@ -3,7 +3,6 @@ from __future__ import annotations
 import threading
 import time
 import copy
-import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -370,7 +369,7 @@ class DashboardService:
             running += value
         return allocated
 
-    def account_metrics(self, accounts: list[dict[str, Any]], hy2: dict[str, Any], total_bytes: int) -> list[dict[str, Any]]:
+    def account_metrics(self, accounts: list[dict[str, Any]], hy2: dict[str, Any], _total_bytes: int) -> list[dict[str, Any]]:
         traffic = hy2.get("traffic", {}) if isinstance(hy2.get("traffic"), dict) else {}
         online = hy2.get("online", {}) if isinstance(hy2.get("online"), dict) else {}
         identities = set(traffic) | set(online)
@@ -386,10 +385,6 @@ class DashboardService:
             matches = [candidate for candidate in candidates if candidate and candidate in identities and candidate not in assigned]
             assigned.update(matches)
             mappings.append(matches)
-        unmatched_accounts = [index for index, values in enumerate(mappings) if not values]
-        unmatched_identities = [identity for identity in identities if identity not in assigned]
-        if len(unmatched_accounts) == 1 and len(unmatched_identities) == 1:
-            mappings[unmatched_accounts[0]] = [unmatched_identities[0]]
         public_accounts: list[dict[str, Any]] = []
         for account, identities in zip(accounts, mappings):
             public_accounts.append({
@@ -403,17 +398,6 @@ class DashboardService:
                 "onlineDevices": sum(int(online.get(identity, 0)) for identity in identities),
                 "quotaBytes": int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)),
             })
-        if len(public_accounts) == 1:
-            public_accounts[0]["usedBytes"] = max(0, int(total_bytes))
-        elif public_accounts:
-            allocated = self.reconcile_breakdown(
-                [{"name": item["id"], "value": item["usedBytes"]} for item in public_accounts],
-                total_bytes,
-                "unattributed",
-            )
-            allocated_by_id = {str(item["name"]): int(item["value"]) for item in allocated}
-            for item in public_accounts:
-                item["usedBytes"] = allocated_by_id.get(str(item["id"]), 0)
         return public_accounts
 
     def aggregate_connections(self, raw_connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -477,8 +461,8 @@ class DashboardService:
                 "id": f"audit-{row['id']}",
                 "action": row["action"],
                 "category": row["category"],
-                "actor": self._mask_identity(row["actor"]) if self.config.redact_live_data else row["actor"],
-                "ip": self._mask_ip(row["source_ip"]) if self.config.redact_live_data else row["source_ip"],
+                "actor": row["actor"],
+                "ip": row["source_ip"],
                 "time": row["created_at"],
                 "result": row["result"],
                 "detail": row["detail"],
@@ -486,29 +470,6 @@ class DashboardService:
             for row in result["items"]
         ]
         return result
-
-    @staticmethod
-    def _mask_identity(value: Any) -> str:
-        text = str(value or "unknown")
-        if "@" in text:
-            local, domain = text.split("@", 1)
-            return f"{local[:1]}***@{domain}"
-        if len(text) <= 2:
-            return text[:1] + "*"
-        return text[:1] + "*" * min(6, len(text) - 2) + text[-1:]
-
-    @staticmethod
-    def _mask_ip(value: Any) -> str:
-        text = str(value or "unknown")
-        try:
-            address = ipaddress.ip_address(text)
-        except ValueError:
-            return text if text in {"unknown", "provided by protocol core"} else "masked"
-        if address.version == 4:
-            parts = text.split(".")
-            return ".".join((*parts[:3], "*"))
-        groups = address.exploded.split(":")
-        return ":".join((*groups[:2], "****", "****", "****", "****", "****", "****"))
 
     def public_subscriptions(self) -> list[dict[str, Any]]:
         public: list[dict[str, Any]] = []
@@ -519,12 +480,10 @@ class DashboardService:
                 "protocols": [str(value)[:80] for value in source.get("protocols", [])[:20]] if isinstance(source.get("protocols", []), list) else [],
                 "enabled": bool(source.get("enabled", True)),
             }
-            if self.config.redact_live_data:
-                item["account"] = self._mask_identity(item.get("account", "account"))
             public.append(item)
         return public
 
-    def runtime_integrations(self, hy2: dict[str, Any], singbox: dict[str, Any], network: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def runtime_integrations(self, hy2: dict[str, Any], singbox: dict[str, Any], network: list[dict[str, Any]], system: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         states = {item["id"]: item for item in self.config.public_integrations()}
 
         def update(integration_id: str, *, configured: bool | None = None, ready: bool, summary: str, summary_zh: str) -> None:
@@ -548,13 +507,17 @@ class DashboardService:
         hy2_streams_ready = bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available")))
         adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
         update("connections", ready=adapters_ready, summary="" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")
-        update("system", ready=True, summary="", summary_zh="")
-        update("traffic", ready=True, summary="", summary_zh="")
+        system_ready = bool(system and system.get("kernel") and system.get("memoryTotalBytes"))
+        storage_ready = bool(system_ready and system and system.get("databaseWritable"))
+        update("system", ready=system_ready, summary="Host metrics are available" if system_ready else "Host metrics are unavailable", summary_zh="主机指标可用" if system_ready else "主机指标当前不可用")
+        update("traffic", ready=storage_ready, summary="Traffic sampling and storage are writable" if storage_ready else "Traffic sampling storage is unavailable or read-only", summary_zh="流量采样与存储可写" if storage_ready else "流量采样存储不可用或只读")
         subscription_count = len(self.config.subscriptions)
-        update("subscriptions", configured=subscription_count > 0 or bool(self.config.subscription_base_url), ready=subscription_count > 0, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified", summary_zh=f"已读取 {subscription_count} 条受保护配置记录；未验证发布器外部可达性")
-        update("network", configured=bool(self.config.network_targets), ready=bool(network), summary="" if network else "No network probe result is available", summary_zh="" if network else "当前没有网络探测结果")
-        update("alerts", ready=True, summary="", summary_zh="")
-        update("audit", ready=True, summary="", summary_zh="")
+        subscriptions_configured = subscription_count > 0 or bool(self.config.subscription_base_url)
+        update("subscriptions", configured=subscriptions_configured, ready=False, summary=f"{subscription_count} protected configuration record(s) loaded; publisher reachability is not verified", summary_zh=f"已读取 {subscription_count} 条受保护配置记录；未验证发布器外部可达性")
+        network_ready = bool(network and any(item.get("status") != "down" for item in network))
+        update("network", configured=bool(self.config.network_targets), ready=network_ready, summary="At least one network target is reachable" if network_ready else "No configured network target is currently reachable", summary_zh="至少一个网络目标可达" if network_ready else "当前没有已配置的网络目标可达")
+        update("alerts", ready=system_ready, summary="Alert evaluation is active" if system_ready else "Alert evaluation is unavailable without host metrics", summary_zh="告警计算正在运行" if system_ready else "缺少主机指标，告警计算不可用")
+        update("audit", ready=storage_ready, summary="Audit storage is writable" if storage_ready else "Audit storage is unavailable or read-only", summary_zh="审计存储可写" if storage_ready else "审计存储不可用或只读")
         return list(states.values())
 
     def subscription_url(self, subscription_id: str) -> str | None:
@@ -582,24 +545,15 @@ class DashboardService:
             network = network_future.result()
         services = service_snapshots(self.config, system, hy2, singbox)
         connections = self.aggregate_connections(connection_snapshots(hy2, singbox, self.config.protocol_adapters))
-        integrations = self.runtime_integrations(hy2, singbox, network)
+        integrations = self.runtime_integrations(hy2, singbox, network, system)
         if self.config.redact_live_data:
             for connection in connections:
-                connection["sourceIp"] = self._mask_ip(connection.get("sourceIp"))
-                connection["account"] = self._mask_identity(connection.get("account"))
                 for detail in connection.get("details", []):
-                    detail["sourceIp"] = self._mask_ip(detail.get("sourceIp"))
-                    detail["account"] = self._mask_identity(detail.get("account"))
                     if detail.get("destination"):
                         detail["destination"] = None
         traffic = self.traffic_series()
         authoritative_total = int(system["trafficUsedBytes"])
         accounts = self.account_metrics(copy.deepcopy(self.config.managed_accounts), hy2, authoritative_total)
-        for account in accounts:
-            identity = account.get("name", "")
-            if self.config.redact_live_data:
-                account["name"] = self._mask_identity(identity)
-                account["email"] = self._mask_identity(account.get("email", ""))
         singbox_label = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") and not self.config.protocol_adapters else "sing-box combined"
         raw_protocol = [
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},
