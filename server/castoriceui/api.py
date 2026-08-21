@@ -436,6 +436,25 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.app.storage.add_audit("退出登录", "认证", "管理员会话已注销", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True}, {"Set-Cookie": self.session_cookie("", 0)})
             return
+        if path == "/api/v2/auth/change-password":
+            try:
+                payload = self.read_json()
+                changed = self.app.storage.change_password(
+                    int(session["user_id"]),
+                    str(payload.get("currentPassword", "")),
+                    str(payload.get("newPassword", "")),
+                    self.session_token(),
+                )
+            except (ValueError, json.JSONDecodeError) as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            if not changed:
+                self.app.storage.add_audit("修改密码失败", "认证", "旧密码验证失败", self.source_ip(), result="失败", actor=str(session["username"]))
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_current_password"})
+                return
+            self.app.storage.add_audit("修改密码", "认证", "管理员密码已更新，其他会话已失效", self.source_ip(), actor=str(session["username"]))
+            self.send_json(HTTPStatus.OK, {"ok": True})
+            return
         if path == "/api/v2/initialization/complete":
             overrides = self.app.storage.get_setting("integration_overrides", {})
             system_values = overrides.get("system", {}).get("values", {}) if isinstance(overrides, dict) else {}

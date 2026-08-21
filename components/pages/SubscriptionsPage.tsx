@@ -77,10 +77,6 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
         open={Boolean(qrSubscription)}
         onClose={closeQr}
         title={t(`${qrSubscription?.account ?? ""} 的订阅二维码`, `${qrSubscription?.account ?? ""} subscription QR code`)}
-        description={t(
-          "二维码按需读取且不会写入浏览器存储，请只在可信设备上导入。",
-          "The QR code is loaded on demand and never stored in browser storage. Import it only on a trusted device.",
-        )}
         size="small"
         actions={<Button onClick={closeQr}>{t("完成", "Done")}</Button>}
       >
@@ -89,7 +85,6 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
             <div className="qr-surface">
               <QRCodeSVG value={qrUrl} size={216} level="H" bgColor="transparent" fgColor="currentColor" />
             </div>
-            <code>{t("完整地址已隐藏 · 关闭后立即从页面内存清除", "Full URL hidden · cleared from page memory when closed")}</code>
           </div>
         ) : null}
       </Dialog>

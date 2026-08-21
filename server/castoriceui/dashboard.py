@@ -326,14 +326,16 @@ class DashboardService:
         def series(duration: int, interval: int) -> list[dict[str, Any]]:
             start = now - duration
             buckets: dict[int, dict[str, int]] = {}
-            previous: dict[str, Any] | None = None
+            previous_by_source: dict[tuple[str, str], dict[str, Any]] = {}
             for sample in samples:
+                source = (str(sample.get("interface") or "legacy"), str(sample.get("boot_id") or "legacy"))
+                previous = previous_by_source.get(source)
                 if previous is not None and sample["captured_at"] >= start:
                     bucket = (sample["captured_at"] // interval) * interval
                     item = buckets.setdefault(bucket, {"upload": 0, "download": 0})
                     item["upload"] += max(0, sample["tx_bytes"] - previous["tx_bytes"])
                     item["download"] += max(0, sample["rx_bytes"] - previous["rx_bytes"])
-                previous = sample
+                previous_by_source[source] = sample
             result = []
             ordered_buckets = sorted(buckets.items())
             for captured_at, values in ordered_buckets:
@@ -350,7 +352,25 @@ class DashboardService:
         ranges = {key: series(duration, interval) for key, (duration, interval) in definitions.items()}
         return {"ranges": ranges, "hourly": ranges["24h"], "daily": ranges["7day"]}
 
-    def account_metrics(self, accounts: list[dict[str, Any]], hy2: dict[str, Any]) -> list[dict[str, Any]]:
+    @staticmethod
+    def reconcile_breakdown(items: list[dict[str, Any]], total_bytes: int, fallback_name: str) -> list[dict[str, Any]]:
+        """Scale volatile core counters to the durable interface ledger without changing their proportions."""
+        total_bytes = max(0, int(total_bytes))
+        cleaned = [{**item, "value": max(0, int(item.get("value", 0)))} for item in items]
+        raw_total = sum(item["value"] for item in cleaned)
+        if total_bytes == 0:
+            return [{**item, "value": 0} for item in cleaned]
+        if raw_total == 0:
+            return [{"name": fallback_name, "value": total_bytes}]
+        allocated: list[dict[str, Any]] = []
+        running = 0
+        for index, item in enumerate(cleaned):
+            value = total_bytes - running if index == len(cleaned) - 1 else (item["value"] * total_bytes) // raw_total
+            allocated.append({**item, "value": value})
+            running += value
+        return allocated
+
+    def account_metrics(self, accounts: list[dict[str, Any]], hy2: dict[str, Any], total_bytes: int) -> list[dict[str, Any]]:
         traffic = hy2.get("traffic", {}) if isinstance(hy2.get("traffic"), dict) else {}
         online = hy2.get("online", {}) if isinstance(hy2.get("online"), dict) else {}
         identities = set(traffic) | set(online)
@@ -383,6 +403,17 @@ class DashboardService:
                 "onlineDevices": sum(int(online.get(identity, 0)) for identity in identities),
                 "quotaBytes": int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)),
             })
+        if len(public_accounts) == 1:
+            public_accounts[0]["usedBytes"] = max(0, int(total_bytes))
+        elif public_accounts:
+            allocated = self.reconcile_breakdown(
+                [{"name": item["id"], "value": item["usedBytes"]} for item in public_accounts],
+                total_bytes,
+                "unattributed",
+            )
+            allocated_by_id = {str(item["name"]): int(item["value"]) for item in allocated}
+            for item in public_accounts:
+                item["usedBytes"] = allocated_by_id.get(str(item["id"]), 0)
         return public_accounts
 
     def aggregate_connections(self, raw_connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -562,17 +593,23 @@ class DashboardService:
                     if detail.get("destination"):
                         detail["destination"] = None
         traffic = self.traffic_series()
-        accounts = self.account_metrics(copy.deepcopy(self.config.managed_accounts), hy2)
+        authoritative_total = int(system["trafficUsedBytes"])
+        accounts = self.account_metrics(copy.deepcopy(self.config.managed_accounts), hy2, authoritative_total)
         for account in accounts:
             identity = account.get("name", "")
             if self.config.redact_live_data:
                 account["name"] = self._mask_identity(identity)
                 account["email"] = self._mask_identity(account.get("email", ""))
         singbox_label = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") and not self.config.protocol_adapters else "sing-box combined"
-        protocol = [
+        raw_protocol = [
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},
             {"name": singbox_label, "value": int(singbox.get("traffic", {}).get("up", 0)) + int(singbox.get("traffic", {}).get("down", 0))},
         ]
+        protocol = self.reconcile_breakdown(raw_protocol, authoritative_total, "未归属 / Unattributed")
+        account_breakdown = [{"name": item.get("name", "account"), "value": item.get("usedBytes", 0)} for item in accounts]
+        attributed_accounts = sum(int(item["value"]) for item in account_breakdown)
+        if authoritative_total > attributed_accounts:
+            account_breakdown.append({"name": "未归属 / Unattributed", "value": authoritative_total - attributed_accounts})
         saved_ui_settings = self.storage.get_setting("ui_settings", {})
         if not isinstance(saved_ui_settings, dict):
             saved_ui_settings = {}
@@ -584,7 +621,7 @@ class DashboardService:
             "overview": system,
             "accounts": accounts,
             "connections": connections,
-            "traffic": {**traffic, "protocol": protocol, "account": [{"name": item.get("name", "account"), "value": item.get("usedBytes", 0)} for item in accounts]},
+            "traffic": {**traffic, "totalBytes": authoritative_total, "protocol": protocol, "account": account_breakdown},
             "subscriptions": self.public_subscriptions(),
             "networkTargets": network,
             "services": services,

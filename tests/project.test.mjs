@@ -13,7 +13,7 @@ test("production entry contains metadata, viewport, and mount point", async () =
   assert.match(html, /name="viewport"/i);
 });
 
-test("v3.0 production UI never falls back to fabricated dashboard data", async () => {
+test("v3.1 production UI never falls back to fabricated dashboard data", async () => {
   const [app, empty] = await Promise.all([read("components/CastoriceApp.tsx"), read("lib/empty-dashboard.ts")]);
   assert.doesNotMatch(app, /previewDashboard|mode === "preview"|示例数据模式/);
   assert.match(app, /没有显示任何示例数据/);
@@ -22,7 +22,7 @@ test("v3.0 production UI never falls back to fabricated dashboard data", async (
   await assert.rejects(read("lib/demo-data.ts"));
 });
 
-test("v3.0 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
+test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
   const [client, server, nginx, backendPackage] = await Promise.all([
     read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"),
   ]);
@@ -32,7 +32,7 @@ test("v3.0 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "3\.0\.0"/);
+  assert.match(backendPackage, /__version__ = "3\.1\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -105,7 +105,7 @@ test("network targets are editable and charts use real smooth sample paths", asy
   assert.match(api, /settings\/network-targets/);
 });
 
-test("v3.0 settings and floating surfaces follow the requested Material interactions", async () => {
+test("v3.1 settings and floating surfaces follow the requested Material interactions", async () => {
   const [app, styles, types, backend] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("app/globals.css"), read("lib/types.ts"), read("server/castoriceui/api.py"),
   ]);
@@ -127,7 +127,25 @@ test("v3.0 settings and floating surfaces follow the requested Material interact
   assert.match(backend, /panelTitle must contain 1 to 40 printable characters/);
 });
 
-test("v3.0 keeps chart time, mobile scrolling, setup order, and toast motion consistent", async () => {
+test("v3.1 uses Material selection surfaces and a real password-change path", async () => {
+  const [app, client, api, storage, materialSelect, materialDate] = await Promise.all([
+    read("components/CastoriceApp.tsx"), read("lib/api.ts"), read("server/castoriceui/api.py"),
+    read("server/castoriceui/storage.py"), read("components/ui/MaterialSelect.tsx"), read("components/ui/MaterialDatePicker.tsx"),
+  ]);
+  const componentFiles = (await readdir(new URL("components/", root), { recursive: true })).filter((name) => /\.(?:ts|tsx)$/.test(name));
+  const componentSource = (await Promise.all(componentFiles.map((name) => read(`components/${name.replaceAll("\\", "/")}`)))).join("\n");
+  assert.doesNotMatch(componentSource, /<select\b/);
+  assert.doesNotMatch(componentSource, /type=["']date["']/);
+  assert.match(materialSelect, /role="listbox"/);
+  assert.match(materialSelect, /searchable/);
+  assert.match(materialDate, /md-date-picker/);
+  assert.match(app, /TIMEZONE_NAMES/);
+  assert.match(client, /auth\/change-password/);
+  assert.match(api, /invalid_current_password/);
+  assert.match(storage, /DELETE FROM sessions WHERE user_id=\? AND token_hash<>\?/);
+});
+
+test("v3.1 keeps chart time, mobile scrolling, setup order, and toast motion consistent", async () => {
   const [chart, network, setup, toast, styles, types, dashboard] = await Promise.all([
     read("components/charts/TrafficChart.tsx"), read("components/pages/NetworkPage.tsx"), read("components/setup/SetupPanel.tsx"),
     read("components/ui/Toast.tsx"), read("app/globals.css"), read("lib/types.ts"), read("server/castoriceui/dashboard.py"),
@@ -135,6 +153,8 @@ test("v3.0 keeps chart time, mobile scrolling, setup order, and toast motion con
   assert.match(types, /capturedAt\?: string/);
   assert.match(dashboard, /"capturedAt"/);
   assert.match(chart, /Intl\.DateTimeFormat/);
+  assert.match(chart, /ResizeObserver/);
+  assert.match(chart, /viewWidth/);
   assert.match(chart, /index === data\.length - 1/);
   assert.match(styles, /\.chart--traffic \.native-chart \{ width: 680px; min-width: 680px; \}/);
   assert.match(network, /const pick = \(event: PointerEvent<SVGSVGElement>\)/);
@@ -155,7 +175,7 @@ test("subscription hints are removed and traffic quota remains one shared value"
   assert.match(app, /quota-input-stable/);
 });
 
-test("v3.0 quota schedules, stable live layouts, and requested removals stay wired end to end", async () => {
+test("v3.1 quota schedules, stable live layouts, and requested removals stay wired end to end", async () => {
   const [app, api, collector, dashboard, connections, traffic, network, overview, services, audit, styles, security] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("server/castoriceui/api.py"), read("server/castoriceui/collectors.py"),
     read("server/castoriceui/dashboard.py"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/TrafficPage.tsx"),
@@ -190,7 +210,7 @@ test("common sing-box protocols are explicit and unmatched connections stay hidd
   assert.match(definitions, /Reality/);
 });
 
-test("v3.0 detail interactions avoid native or stale UI artifacts", async () => {
+test("v3.1 detail interactions avoid native or stale UI artifacts", async () => {
   const [app, styles, audit, traffic, donut, login] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("app/globals.css"), read("components/pages/AuditPage.tsx"),
     read("components/charts/TrafficChart.tsx"), read("components/charts/DonutChart.tsx"), read("components/auth/AuthPage.tsx"),
@@ -211,7 +231,7 @@ test("v3.0 detail interactions avoid native or stale UI artifacts", async () => 
   assert.doesNotMatch(login, /凭据只发送到当前面板后端|Use your panel account to access live server data/);
 });
 
-test("v3.0 scopes alert acknowledgement and audit history on the server", async () => {
+test("v3.1 scopes alert acknowledgement and audit history on the server", async () => {
   const [app, client, dashboard, storage, packageJson, packager] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("lib/api.ts"), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/storage.py"), read("package.json"), read("scripts/package-release.mjs"),
@@ -238,7 +258,7 @@ test("backend examples remain loopback-only and secret-free", async () => {
   assert.doesNotMatch(JSON.stringify(config), /BEGIN (?:RSA |OPENSSH )?PRIVATE KEY/);
 });
 
-test("v3.0 fails closed for config, payload fields, traffic resets, login abuse, and repository metadata", async () => {
+test("v3.1 fails closed for config, payload fields, traffic resets, login abuse, and repository metadata", async () => {
   const [config, dashboard, storage, collector, nginx, security, sensitiveScan] = await Promise.all([
     read("server/castoriceui/config.py"), read("server/castoriceui/dashboard.py"), read("server/castoriceui/storage.py"),
     read("server/castoriceui/collectors.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/security.py"),

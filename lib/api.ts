@@ -52,6 +52,10 @@ export async function logout() {
   return result;
 }
 
+export function changePassword(currentPassword: string, newPassword: string) {
+  return request<{ ok: boolean }>("/api/v2/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }, true);
+}
+
 export function completeInitialization() {
   return request<{ ok: boolean }>("/api/v2/initialization/complete", { method: "POST" }, true);
 }

@@ -25,13 +25,11 @@ export function SetupPanel({
     <Card variant="outlined" className="setup-panel">
       <CardHeader
         title={t("初始化向导", "Setup")}
-        action={
+        action={!pending.length ? (
           <Chip staticChip tone={pending.length ? "warning" : "success"}>
-            {pending.length
-              ? t(`${pending.length} 项待配置`, `${pending.length} pending`)
-              : t("全部完成", "All complete")}
+            {t("全部完成", "All complete")}
           </Chip>
-        }
+        ) : undefined}
       />
       {completed.length ? (
         <div className="setup-completed setup-completed--first">
@@ -40,7 +38,7 @@ export function SetupPanel({
             const isReady = statusMap.get(item.id)?.status === "ready";
             return (
             <button key={item.id} onClick={() => onOpen(item.id)}>
-              <Icon name={isReady ? "check_circle" : "error"} filled />
+              <Icon name={isReady ? "check_circle" : "error"} filled className={isReady ? "setup-status-icon--ready" : "setup-status-icon--error"} />
               <span>
                 <strong>{local(item.name)}</strong>
               </span>
@@ -55,6 +53,9 @@ export function SetupPanel({
       {pending.length ? (
         <div className="setup-pending-heading">
           <h3>{t("待配置", "Pending")}</h3>
+          <Chip staticChip tone="warning">
+            {t(`${pending.length} 项待配置`, `${pending.length} pending`)}
+          </Chip>
         </div>
       ) : null}
       {pending.length ? (

@@ -110,7 +110,7 @@ export function AuditPage() {
         {!loading && events.length === 0 ? <tr><td colSpan={7}><span className="muted">{loadError ? t("审计记录加载失败，请稍后重试。", "Unable to load audit records. Try again later.") : t("没有符合条件的审计记录。", "No audit records match these filters.")}</span></td></tr> : null}
       </tbody></table></div>
       <div className="audit-controls">
-        <div><strong>{loading ? t("正在读取审计记录", "Loading audit records") : expanded ? t(`第 ${currentPage}/${totalPages} 页`, `Page ${currentPage} of ${totalPages}`) : t(`默认显示最近 ${Math.min(30, total)} 条`, `Showing the latest ${Math.min(30, total)} by default`)}</strong><span>{t(`筛选结果共 ${total} 条`, `${total} filtered records`)}</span></div>
+        <div><strong>{loading ? t("正在读取审计记录", "Loading audit records") : expanded ? t(`第 ${currentPage}/${totalPages} 页`, `Page ${currentPage} of ${totalPages}`) : t(`默认显示最近 ${Math.min(30, total)} 条`, `Showing the latest ${Math.min(30, total)} by default`)}</strong><span>{t(`总计 ${total} 条`, `${total} total records`)}</span></div>
         {!expanded ? <Button variant="outlined" icon="unfold_more" onClick={() => { setExpanded(true); setPage(1); }}>{t("展开全部日志", "Show all logs")}</Button> : <Button variant="text" icon="unfold_less" onClick={() => { setExpanded(false); setPage(1); }}>{t("收起到最近 30 条", "Collapse to latest 30")}</Button>}
       </div>
       {expanded && totalPages > 1 ? <nav className="md-pagination" aria-label={t("审计日志分页", "Audit log pagination")}>

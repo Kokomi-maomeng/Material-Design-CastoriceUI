@@ -10,7 +10,7 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private s
 
 ## Supported production boundary
 
-CastoriceUI v3.0 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
+CastoriceUI v3.1 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
 
 1. Nginx terminates valid TLS and serves both the frontend and same-origin `/api/`.
 2. `castoriceui-backend` listens only on `127.0.0.1` or `::1`.
@@ -18,12 +18,13 @@ CastoriceUI v3.0 includes a browser application, application authentication, and
 4. The browser authenticates through the CastoriceUI login page; Nginx `auth_basic` is not used.
 5. Protected config is `0640 root:castoriceui`; SQLite, bootstrap token, and login image state are restricted to the service identity.
 
-The backend is not designed for direct public exposure. v3.0 does not implement MFA, password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
+The backend is not designed for direct public exposure. v3.1 supports authenticated password changes but does not implement MFA, out-of-band password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
 
 ## Authentication and sessions
 
 - First administrator creation requires a server-generated, one-time Bootstrap Token stored with mode `0600`.
 - Passwords require at least 12 characters and three character classes and are stored as salted scrypt hashes.
+- Password changes require the current password and invalidate every other active session.
 - Session identifiers are random, stored only as hashes server-side, time-limited, HttpOnly, SameSite=Strict, and Secure by default.
 - Mutations require an in-memory CSRF token, the custom-request header, and same-origin browser metadata when supplied.
 - Login failures are persisted across backend restarts, expensive password checks are serialized, and concurrent request workers are bounded to protect small VPS memory/CPU.

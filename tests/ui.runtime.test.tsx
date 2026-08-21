@@ -43,7 +43,7 @@ const renderEnglish = (view: React.ReactNode) => {
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
-describe("v3.0 runtime behavior", () => {
+describe("v3.1 runtime behavior", () => {
   it("uses decimal provider units instead of binary GiB math", () => {
     expect(formatDecimalBytes(1_000_000_000_000)).toBe("1.0 TB");
     renderEnglish(
@@ -56,7 +56,7 @@ describe("v3.0 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v3.0")).toBeTruthy();
+    expect(screen.getByText("v3.1")).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -105,7 +105,7 @@ describe("v3.0 runtime behavior", () => {
       name: "Hysteria2",
       status: "running",
       detail: "healthy",
-      version: "3.0.0",
+      version: "3.1.0",
       uptimeSeconds: 60,
       icon: "bolt",
     }];

@@ -42,7 +42,7 @@ export function FirstRunConfiguration({ metrics, integrations, onConfigure, onSa
   });
 
   return <main className="first-run-page">
-    <div className="first-run-header"><div className="auth-brand"><span className="brand-mark"><Icon name="ac_unit" size={26} filled /></span><div><strong>CastoriceUI</strong><span>v3.0</span></div></div><Chip staticChip tone="warning" icon="checklist">{t("首次初始化", "First-run setup")}</Chip></div>
+    <div className="first-run-header"><div className="auth-brand"><span className="brand-mark"><Icon name="ac_unit" size={26} filled /></span><div><strong>CastoriceUI</strong><span>v3.1</span></div></div><Chip staticChip tone="warning" icon="checklist">{t("首次初始化", "First-run setup")}</Chip></div>
     <section className="first-run-content">
       <header><p>{t("开始使用前", "Before you begin")}</p><h1>{t("确认真实数据接入", "Confirm live data integrations")}</h1><span>{t("完成节点与流量配置后才能进入总览；未接入的协议会明确显示为未配置。", "Configure the node and traffic quota before opening the dashboard. Protocols without an adapter remain clearly unconfigured.")}</span></header>
       <div className="first-run-steps" aria-label={t("初始化进度", "Setup progress")}><span className="is-done"><b><Icon name="check" size={17} /></b>{t("管理员", "Administrator")}</span><span className={saved ? "is-done" : "is-current"}><b>{saved ? <Icon name="check" size={17} /> : 2}</b>{t("基础设置", "Basics")}</span><span className={saved ? "is-current" : ""}><b>3</b>{t("数据源", "Data sources")}</span><span><b>4</b>{t("完成", "Finish")}</span></div>

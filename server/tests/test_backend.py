@@ -56,10 +56,10 @@ class BackendTests(unittest.TestCase):
             config = AppConfig(database_path=str(Path(directory) / "state.db"))
             dashboard = DashboardService(config, Storage(config.database_path))
             accounts = [{"id": "display-id", "name": "Display name"}]
-            mapped = dashboard.account_metrics(accounts, {"traffic": {"protocol-user": {"tx": 7, "rx": 5}}, "online": {"protocol-user": 2}})
-            self.assertEqual(mapped[0]["usedBytes"], 12)
+            mapped = dashboard.account_metrics(accounts, {"traffic": {"protocol-user": {"tx": 7, "rx": 5}}, "online": {"protocol-user": 2}}, 400)
+            self.assertEqual(mapped[0]["usedBytes"], 400)
             self.assertEqual(mapped[0]["onlineDevices"], 2)
-            ambiguous = dashboard.account_metrics([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], {"traffic": {"u1": {"tx": 9, "rx": 0}, "u2": {"tx": 8, "rx": 0}}, "online": {}})
+            ambiguous = dashboard.account_metrics([{"id": "a", "name": "A"}, {"id": "b", "name": "B"}], {"traffic": {"u1": {"tx": 9, "rx": 0}, "u2": {"tx": 8, "rx": 0}}, "online": {}}, 17)
             self.assertEqual([item["usedBytes"] for item in ambiguous], [0, 0])
 
     def test_explicit_hysteria_identity_mapping_supports_multiple_accounts(self) -> None:
@@ -67,8 +67,17 @@ class BackendTests(unittest.TestCase):
             config = AppConfig(database_path=str(Path(directory) / "state.db"))
             dashboard = DashboardService(config, Storage(config.database_path))
             accounts = [{"id": "a", "name": "A", "trafficIdentities": {"hysteria2": ["u1"]}}, {"id": "b", "name": "B", "trafficIdentities": ["u2"]}]
-            mapped = dashboard.account_metrics(accounts, {"traffic": {"u1": {"tx": 9, "rx": 1}, "u2": {"tx": 8, "rx": 2}}, "online": {"u1": 1, "u2": 3}})
-            self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(10, 1), (10, 3)])
+            mapped = dashboard.account_metrics(accounts, {"traffic": {"u1": {"tx": 9, "rx": 1}, "u2": {"tx": 8, "rx": 2}}, "online": {"u1": 1, "u2": 3}}, 400)
+            self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(200, 1), (200, 3)])
+
+    def test_protocol_breakdowns_reconcile_exactly_to_the_durable_ledger(self) -> None:
+        allocated = DashboardService.reconcile_breakdown([
+            {"name": "Hysteria2", "value": 200},
+            {"name": "AnyTLS", "value": 100},
+        ], 400, "Unattributed")
+        self.assertEqual(sum(item["value"] for item in allocated), 400)
+        self.assertEqual([item["value"] for item in allocated], [266, 134])
+        self.assertEqual(DashboardService.reconcile_breakdown([], 400, "Unattributed"), [{"name": "Unattributed", "value": 400}])
 
     def test_connections_group_by_source_and_calculate_rates_from_consecutive_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -106,6 +115,23 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(set(traffic["ranges"]), {"1h", "6h", "24h", "3day", "7day"})
             self.assertGreaterEqual(len(traffic["ranges"]["1h"]), 2)
             self.assertEqual(traffic["ranges"]["1h"][-1]["capturedAt"], "2033-05-18T03:33:20Z")
+
+    def test_traffic_ranges_never_subtract_counters_across_boots_or_interfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            storage = Storage(config.database_path)
+            now = 2_000_000_000
+            storage.record_sample(now - 240, 100, 200, 1, 1, "eth0", "boot-a")
+            storage.record_sample(now - 180, 160, 230, 1, 1, "eth0", "boot-a")
+            storage.record_sample(now - 120, 10_000, 20_000, 1, 1, "eth0", "boot-b")
+            storage.record_sample(now - 60, 10_040, 20_050, 1, 1, "eth0", "boot-b")
+            storage.record_sample(now - 30, 50_000, 60_000, 1, 1, "ens3", "boot-b")
+            storage.record_sample(now, 50_020, 60_030, 1, 1, "ens3", "boot-b")
+            dashboard = DashboardService(config, storage)
+            with patch("castoriceui.dashboard.time.time", return_value=now):
+                traffic = dashboard.traffic_series()["ranges"]["1h"]
+            self.assertEqual(sum(item["download"] for item in traffic), 120)
+            self.assertEqual(sum(item["upload"] for item in traffic), 110)
 
     def test_named_network_targets_and_node_name_are_validated_and_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -502,6 +528,16 @@ class BackendTests(unittest.TestCase):
                 self.assertFalse(settings["showSetup"])
                 status, _ = call("/api/v2/settings/ui", "PUT", {"idleTimeoutMinutes": 3}, guard)
                 self.assertEqual(status, 400)
+                user_id, _ = storage.authenticate("operator", "Valid-Password-123") or (0, "")
+                other_token, _, _ = storage.create_session(user_id, 3600)
+                status, result = call("/api/v2/auth/change-password", "POST", {"currentPassword": "wrong", "newPassword": "New-Password-456!"}, guard)
+                self.assertEqual(status, 400)
+                self.assertEqual(result["error"], "invalid_current_password")
+                status, _ = call("/api/v2/auth/change-password", "POST", {"currentPassword": "Valid-Password-123", "newPassword": "New-Password-456!"}, guard)
+                self.assertEqual(status, 200)
+                self.assertIsNone(storage.authenticate("operator", "Valid-Password-123"))
+                self.assertIsNotNone(storage.authenticate("operator", "New-Password-456!"))
+                self.assertIsNone(storage.session(other_token))
                 storage.reconcile_alerts(["service-nginx"])
                 status, _ = call("/api/v2/alerts/service-nginx/ack", "POST", {}, guard)
                 self.assertEqual(status, 200)
@@ -579,7 +615,7 @@ class BackendTests(unittest.TestCase):
             config.managed_accounts = [{"id": "a", "name": "Alice", "password": "must-not-leak", "nested": {"token": "hidden"}}]
             config.subscriptions = [{"id": "s", "account": "Alice", "url": "https://example.test/private", "secret": "must-not-leak", "nested": {"token": "hidden"}}]
             dashboard = DashboardService(config, Storage(config.database_path))
-            accounts = dashboard.account_metrics(copy.deepcopy(config.managed_accounts), {"traffic": {}, "online": {}})
+            accounts = dashboard.account_metrics(copy.deepcopy(config.managed_accounts), {"traffic": {}, "online": {}}, 0)
             subscriptions = dashboard.public_subscriptions()
             serialized = json.dumps({"accounts": accounts, "subscriptions": subscriptions})
             self.assertNotIn("password", serialized)

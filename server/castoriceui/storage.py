@@ -282,6 +282,22 @@ class Storage:
             connection.execute("UPDATE users SET last_login_at=? WHERE id=?", (utc_now(), int(row["id"])))
         return int(row["id"]), str(row["username"])
 
+    def change_password(self, user_id: int, current_password: str, new_password: str, current_session_token: str) -> bool:
+        new_password = validate_password(new_password)
+        with self.lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT password_hash FROM users WHERE id=?", (int(user_id),)).fetchone()
+            if row is None or not verify_password(current_password, str(row["password_hash"])):
+                return False
+            if verify_password(new_password, str(row["password_hash"])):
+                raise ValueError("New password must be different from the current password")
+            connection.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(new_password), int(user_id)))
+            connection.execute(
+                "DELETE FROM sessions WHERE user_id=? AND token_hash<>?",
+                (int(user_id), token_hash(current_session_token)),
+            )
+        return True
+
     def create_session(self, user_id: int, lifetime_seconds: int) -> tuple[str, str, int]:
         token = secrets.token_urlsafe(48)
         csrf_token = secrets.token_urlsafe(32)

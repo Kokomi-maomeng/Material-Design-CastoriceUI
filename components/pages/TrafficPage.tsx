@@ -21,7 +21,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, value: item.value / 1_000_000_000, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
   const accountTraffic = traffic.account.map((item) => ({ ...item, value: item.value / 1_000_000_000 }));
-  const total = protocolTraffic.reduce((sum, item) => sum + item.value, 0);
+  const total = traffic.totalBytes / 1_000_000_000;
   const accountMax = Math.max(1, ...accountTraffic.map((item) => item.value));
 
   return <div className="page-content page-enter">
@@ -29,7 +29,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
     <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="尚未配置流量采集。" descriptionEn="Traffic collection is not configured." onConfigure={onConfigure} />
     <section className="traffic-kpis">
       <Kpi label={t("近 24 小时用量", "Last 24 hours")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0) * 1_000_000_000)} icon="today" />
-      <Kpi label={t("核心累计统计", "Core cumulative total")} value={formatDecimalBytes(total * 1_000_000_000)} icon="calendar_month" />
+      <Kpi label={t("统一累计统计", "Unified cumulative total")} value={formatDecimalBytes(traffic.totalBytes)} icon="calendar_month" />
       <Kpi label={t("协议数据源", "Protocol sources")} value={t(`${protocolTraffic.length} 个`, `${protocolTraffic.length}`)} icon="speed" />
       <Kpi label={t("趋势采样", "Trend samples")} value={t(`${dailyTraffic.length} 个时间桶`, `${dailyTraffic.length} time buckets`)} icon="query_stats" />
     </section>

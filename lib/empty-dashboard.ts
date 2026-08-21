@@ -15,7 +15,7 @@ export const emptyDashboard: DashboardPayload = {
     downloadBps: 0, uploadBps: 0, interface: "--", kernel: "--", databaseBytes: 0, databaseWritable: false,
   },
   accounts: [], connections: [],
-  traffic: { ranges: emptyRanges, hourly: [], daily: [], protocol: [], account: [] },
+  traffic: { totalBytes: 0, ranges: emptyRanges, hourly: [], daily: [], protocol: [], account: [] },
   subscriptions: [], networkTargets: [], services: [], alerts: [], integrations: [],
   uiSettings: { showSetup: true, visiblePanels: [], panelTitle: "CastoriceUI", idleTimeoutMinutes: 15 },
 };

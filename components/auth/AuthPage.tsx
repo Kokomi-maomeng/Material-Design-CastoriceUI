@@ -4,6 +4,7 @@ import { initializeAdministrator, login } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
+import { MaterialSelect } from "../ui/MaterialSelect";
 
 export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void }) {
   const { preference, setPreference, t } = useI18n();
@@ -50,7 +51,7 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
         {error ? <div className="auth-error" role="alert"><Icon name="error" size={20} /><span>{error}</span></div> : null}
         <Button type="submit" icon={initialize ? "arrow_forward" : "login"} disabled={busy || (initialize && !bootstrap.bootstrapAvailable)}>{busy ? t("正在验证…", "Verifying…") : initialize ? t("创建并继续", "Create and continue") : t("登录", "Sign in")}</Button>
       </form>
-      <div className="auth-footer auth-footer--language"><label><span className="sr-only">{t("语言", "Language")}</span><select value={preference} onChange={(event) => setPreference(event.target.value as "system" | "zh" | "en")}><option value="system">{t("跟随系统", "System")}</option><option value="zh">中文</option><option value="en">English</option></select></label></div>
+      <div className="auth-footer auth-footer--language"><div className="auth-language-select"><span className="sr-only">{t("语言", "Language")}</span><MaterialSelect ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "System") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as "system" | "zh" | "en")} /></div></div>
     </section>
   </main>;
 }

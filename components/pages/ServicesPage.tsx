@@ -53,12 +53,6 @@ export function ServicesPage({
               ? t("部分组件需要关注", "Some components need attention")
               : t("系统运行正常", "System is healthy")}
           </strong>
-          <p>
-            {t(
-              `${services.length} 个受监控组件中，${running} 个正常运行，${unhealthy} 个需要关注。`,
-              `${running} of ${services.length} monitored components are running; ${unhealthy} need attention.`,
-            )}
-          </p>
         </div>
         <Chip staticChip tone={unhealthy ? "warning" : "success"}>
           {t("实时检查", "Live check")}

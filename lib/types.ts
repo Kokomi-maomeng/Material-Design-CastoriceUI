@@ -167,6 +167,7 @@ export interface DashboardPayload {
   accounts: Account[];
   connections: Connection[];
   traffic: {
+    totalBytes: number;
     ranges: Record<TrafficRange, TrafficPoint[]>;
     hourly: TrafficPoint[];
     daily: TrafficPoint[];

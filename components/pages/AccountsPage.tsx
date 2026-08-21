@@ -30,14 +30,14 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
         <div className="filter-chips" aria-label={t("账号状态筛选", "Account status filter")}><Chip selected={filter === "all"} onClick={() => setFilter("all")}>{t("全部", "All")} {accounts.length}</Chip><Chip selected={filter === "active"} onClick={() => setFilter("active")}>{t("有效", "Active")}</Chip><Chip selected={filter === "disabled"} onClick={() => setFilter("disabled")}>{t("已禁用", "Disabled")}</Chip></div>
       </div>
       <div className="responsive-table accounts-table"><table>
-        <thead><tr><th>{t("账号", "Account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("核心累计流量", "Core cumulative usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
+        <thead><tr><th>{t("账号", "Account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("统一累计流量", "Unified cumulative usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
         <tbody>{filtered.map((account) => {
           const usage = percent(account.usedBytes, account.quotaBytes);
           return <tr key={account.id}>
             <td data-label={t("账号", "Account")}><div className="account-cell"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><div><strong>{account.name}</strong><span>{account.email}</span></div></div></td>
             <td data-label={t("状态", "Status")}><StatusChip status={account.status} devices={account.onlineDevices} /></td>
             <td data-label={t("协议", "Protocols")}><div className="protocol-list">{account.protocols.map((protocol) => <Chip staticChip key={protocol}>{protocol}</Chip>)}</div></td>
-            <td data-label={t("核心累计流量", "Core cumulative usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span><small>{t(`/ 统一额度 ${formatDecimalBytes(account.quotaBytes)}`, `/ shared quota ${formatDecimalBytes(account.quotaBytes)}`)}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
+            <td data-label={t("统一累计流量", "Unified cumulative usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span><small>{t(`/ 统一额度 ${formatDecimalBytes(account.quotaBytes)}`, `/ shared quota ${formatDecimalBytes(account.quotaBytes)}`)}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
             <td data-label={t("到期时间", "Expires")}><span className={account.status === "expiring" ? "text-warning" : ""}>{formatDate(account.expiresAt)}</span></td>
           </tr>;
         })}</tbody>
