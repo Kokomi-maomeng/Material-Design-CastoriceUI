@@ -85,6 +85,8 @@ const TIMEZONE_NAMES = (() => {
   const supported = (Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
   return ["UTC", ...supported.filter((value) => value !== "UTC")];
 })();
+const RESET_HOURS = Array.from({ length: 24 }, (_, value) => String(value).padStart(2, "0"));
+const RESET_MINUTES = Array.from({ length: 60 }, (_, value) => String(value).padStart(2, "0"));
 const OverviewPage = lazy(() =>
   import("./pages/OverviewPage").then((module) => ({
     default: module.OverviewPage,
@@ -175,12 +177,12 @@ export function CastoriceApp() {
     readPreference("castorice-theme-color", THEME_COLORS, "violet"),
   );
   const [dashboard, setDashboard] = useState<DashboardPayload>(emptyDashboard);
-  const [backendOnline, setBackendOnline] = useState(false);
   const [draftLimit, setDraftLimit] = useState("1");
   const [draftQuotaAutoReset, setDraftQuotaAutoReset] = useState(false);
   const [draftQuotaUnit, setDraftQuotaUnit] = useState<"day" | "week" | "month" | "year">("month");
   const [draftQuotaCount, setDraftQuotaCount] = useState("1");
   const [draftQuotaAnchor, setDraftQuotaAnchor] = useState("2000-01-01");
+  const [draftQuotaTime, setDraftQuotaTime] = useState("00:00");
   const [draftQuotaTimezone, setDraftQuotaTimezone] = useState("UTC");
   const [quotaError, setQuotaError] = useState("");
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -290,14 +292,12 @@ export function CastoriceApp() {
       setDashboard({ ...payload, mode: "live" });
       setAlerts(payload.alerts);
       setConnections(payload.connections);
-      setBackendOnline(true);
       hasLiveData.current = true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         await signOut();
         return;
       }
-      setBackendOnline(false);
       if (hasLiveData.current)
         setDashboard((current) => ({ ...current, mode: "stale" }));
     } finally {
@@ -415,6 +415,11 @@ export function CastoriceApp() {
   );
   const configurePage = useCallback(
     (id: IntegrationId) => {
+      const currentValues = integrationFor(id)?.values ?? {};
+      setSetupDrafts((current) => ({
+        ...current,
+        [id]: { ...currentValues, ...(current[id] ?? {}) },
+      }));
       if (id === "network")
         setSetupDrafts((current) => ({
           ...current,
@@ -427,7 +432,7 @@ export function CastoriceApp() {
         }));
       setSelectedSetup(id);
     },
-    [dashboard.networkTargets],
+    [dashboard.networkTargets, integrationFor],
   );
   const openQuota = useCallback(() => {
     const quota = dashboard.overview.trafficQuota;
@@ -443,6 +448,7 @@ export function CastoriceApp() {
     setDraftQuotaUnit(quota?.periodUnit ?? "month");
     setDraftQuotaCount(String(quota?.periodCount ?? 1));
     setDraftQuotaAnchor(quota?.resetAnchor ?? new Date().toISOString().slice(0, 10));
+    setDraftQuotaTime(quota?.resetTime ?? "00:00");
     setDraftQuotaTimezone(quota?.timezone ?? "UTC");
     setQuotaError("");
     setQuotaOpen(true);
@@ -454,8 +460,8 @@ export function CastoriceApp() {
       setQuotaError(t("流量额度必须在 1 到 1,000,000 GB 之间", "Traffic quota must be between 1 and 1,000,000 GB"));
       return;
     }
-    if (!Number.isInteger(periodCount) || periodCount < 1 || periodCount > 365 || !/^\d{4}-\d{2}-\d{2}$/.test(draftQuotaAnchor)) {
-      setQuotaError(t("请检查重置周期数量和重置日期", "Check the reset interval and reset date"));
+    if (!Number.isInteger(periodCount) || periodCount < 1 || periodCount > 365 || !/^\d{4}-\d{2}-\d{2}$/.test(draftQuotaAnchor) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(draftQuotaTime)) {
+      setQuotaError(t("请检查重置周期数量、日期和时间", "Check the reset interval, date, and time"));
       return;
     }
     const bytes = Math.round(value * 1_000_000_000);
@@ -468,6 +474,7 @@ export function CastoriceApp() {
         periodUnit: draftQuotaUnit,
         periodCount,
         resetAnchor: draftQuotaAnchor,
+        resetTime: draftQuotaTime,
         timezone: draftQuotaTimezone,
       });
       setDashboard((current) => ({
@@ -490,29 +497,32 @@ export function CastoriceApp() {
     } finally {
       setQuotaSaving(false);
     }
-  }, [draftLimit, draftQuotaAnchor, draftQuotaAutoReset, draftQuotaCount, draftQuotaTimezone, draftQuotaUnit, loadDashboard, showToast, t]);
+  }, [draftLimit, draftQuotaAnchor, draftQuotaAutoReset, draftQuotaCount, draftQuotaTime, draftQuotaTimezone, draftQuotaUnit, loadDashboard, showToast, t]);
   const saveIntegration = useCallback(
     async (id: IntegrationId, values: Record<string, string>) => {
       try {
-        await configureIntegration(id, true, values);
-        await loadDashboard();
-        showToast(
-          t(
-            "配置已保存并完成后端验证",
-            "Configuration saved and verified by the backend",
-          ),
-        );
+        const saved = await configureIntegration(id, true, values);
+        const payload = await fetchDashboard();
+        setDashboard({ ...payload, mode: "live" });
+        setAlerts(payload.alerts);
+        setConnections(payload.connections);
+        hasLiveData.current = true;
+        const verified = payload.integrations.find((item) => item.id === id) ?? saved;
+        if (id === "subscriptions") {
+          setSetupDrafts((current) => ({ ...current, subscriptions: {} }));
+        }
+        showToast(verified.status === "ready"
+          ? t("配置已保存并通过实际运行验证", "Configuration saved and live-verified")
+          : t("配置已保存，但实际运行状态仍需检查", "Configuration saved, but the live status still needs attention"));
+        return verified;
       } catch (error) {
-        showToast(
-          t(
-            "验证失败，配置未保存。请检查回环地址、服务器 Secret 和日志。",
-            "Validation failed and nothing was saved. Check the loopback endpoint, server secret, and logs.",
-          ),
-        );
+        showToast(id === "subscriptions"
+          ? t("订阅实际访问验证失败，配置未保存", "Live subscription probe failed; configuration was not saved")
+          : t("后端实际验证失败，配置未保存", "Backend live validation failed; configuration was not saved"));
         throw error;
       }
     },
-    [loadDashboard, showToast, t],
+    [showToast, t],
   );
 
   if (bootError)
@@ -762,10 +772,10 @@ export function CastoriceApp() {
           <div aria-hidden="true" />
           <div className="top-actions">
             <div className="snapshot-time-wrap" ref={dateMenuRef}>
-              <button className={`snapshot-time ${backendOnline ? "" : "is-stale"}`} onClick={() => setDateOpen((open) => !open)} aria-expanded={dateOpen} aria-label={t("显示快照日期", "Show snapshot date")}>
-                <time dateTime={dashboard.generatedAt}>{dashboard.mode === "stale" ? t("停止更新", "Stale") : ""}{" "}{new Date(dashboard.generatedAt).toLocaleTimeString(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time>
+              <button className="snapshot-time" onClick={() => setDateOpen((open) => !open)} aria-expanded={dateOpen} aria-label={t("显示本地日期", "Show local date")}>
+                <time dateTime={new Date(now).toISOString()}>{new Date(now).toLocaleTimeString(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time>
               </button>
-              <div className={`snapshot-date floating-surface ${dateOpen ? "is-open" : ""}`} role="status" aria-hidden={!dateOpen}>{new Date(dashboard.generatedAt).toLocaleDateString("en-CA").replaceAll("-", "")}</div>
+              <div className={`snapshot-date floating-surface ${dateOpen ? "is-open" : ""}`} role="status" aria-hidden={!dateOpen}>{new Date(now).toLocaleDateString("en-CA").replaceAll("-", "")}</div>
             </div>
             <button
               className="notification-button"
@@ -958,8 +968,9 @@ export function CastoriceApp() {
           <label className="field"><span>{t("每隔", "Every")}</span><input type="number" min="1" max="365" step="1" inputMode="numeric" value={draftQuotaCount} onChange={(event) => setDraftQuotaCount(event.target.value)} /></label>
           <div className="field"><span>{t("计费单位", "Billing unit")}</span><MaterialSelect ariaLabel={t("计费单位", "Billing unit")} value={draftQuotaUnit} options={[{ value: "day", label: t("日", "day(s)") }, { value: "week", label: t("周", "week(s)") }, { value: "month", label: t("月", "month(s)") }, { value: "year", label: t("年", "year(s)") }]} onChange={(value) => setDraftQuotaUnit(value as typeof draftQuotaUnit)} /></div>
           <div className="field"><span>{t("重置基准日期", "Reset anchor date")}</span><MaterialDatePicker ariaLabel={t("重置基准日期", "Reset anchor date")} value={draftQuotaAnchor} onChange={setDraftQuotaAnchor} /></div>
+          <div className="field"><span>{t("重置时间", "Reset time")}</span><div className="quota-time-selects"><MaterialSelect ariaLabel={t("重置小时", "Reset hour")} value={draftQuotaTime.slice(0, 2)} options={RESET_HOURS.map((value) => ({ value, label: value }))} onChange={(value) => setDraftQuotaTime(`${value}:${draftQuotaTime.slice(3, 5)}`)} /><span>:</span><MaterialSelect ariaLabel={t("重置分钟", "Reset minute")} value={draftQuotaTime.slice(3, 5)} options={RESET_MINUTES.map((value) => ({ value, label: value }))} onChange={(value) => setDraftQuotaTime(`${draftQuotaTime.slice(0, 2)}:${value}`)} /></div></div>
           <div className="field"><span>{t("时区设定", "Timezone")}</span><MaterialSelect ariaLabel={t("时区设定", "Timezone")} value={draftQuotaTimezone} searchable options={TIMEZONE_NAMES.map((timezone) => ({ value: timezone, label: timezone, secondary: timezone === "UTC" ? t("协调世界时", "Coordinated Universal Time") : undefined }))} onChange={setDraftQuotaTimezone} /></div>
-          <p className="field-hint quota-schedule-summary">{t(`每 ${draftQuotaCount || "?"} ${draftQuotaUnit === "day" ? "日" : draftQuotaUnit === "week" ? "周" : draftQuotaUnit === "month" ? "月" : "年"}重置；基准日 ${draftQuotaAnchor || "—"}，时区 ${draftQuotaTimezone || "UTC"}`, `Reset every ${draftQuotaCount || "?"} ${draftQuotaUnit}(s), anchored on ${draftQuotaAnchor || "—"} in ${draftQuotaTimezone || "UTC"}`)}</p>
+          <p className="field-hint quota-schedule-summary">{t(`每 ${draftQuotaCount || "?"} ${draftQuotaUnit === "day" ? "日" : draftQuotaUnit === "week" ? "周" : draftQuotaUnit === "month" ? "月" : "年"}重置；基准 ${draftQuotaAnchor || "—"} ${draftQuotaTime}，时区 ${draftQuotaTimezone || "UTC"}`, `Reset every ${draftQuotaCount || "?"} ${draftQuotaUnit}(s), anchored on ${draftQuotaAnchor || "—"} ${draftQuotaTime} in ${draftQuotaTimezone || "UTC"}`)}</p>
         </div> : null}
         {quotaError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{quotaError}</span></div> : null}
       </Dialog>

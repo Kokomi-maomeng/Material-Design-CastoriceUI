@@ -75,7 +75,7 @@ export function fetchSubscriptionUrl(id: string) {
   return request<{ url: string }>(`/api/v2/subscriptions/${encodeURIComponent(id)}/url`);
 }
 
-export function updateTrafficLimit(settings: Pick<TrafficQuotaSettings, "bytes" | "autoReset" | "periodUnit" | "periodCount" | "resetAnchor" | "timezone">) {
+export function updateTrafficLimit(settings: Pick<TrafficQuotaSettings, "bytes" | "autoReset" | "periodUnit" | "periodCount" | "resetAnchor" | "resetTime" | "timezone">) {
   return request<{ ok: boolean; bytes: number }>("/api/v2/settings/traffic-limit", { method: "PUT", body: JSON.stringify(settings) }, true);
 }
 

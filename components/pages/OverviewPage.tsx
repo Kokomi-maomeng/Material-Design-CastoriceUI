@@ -62,10 +62,11 @@ export function OverviewPage({
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
   );
   const quota = metrics.trafficQuota;
+  const nextResetInBillingZone = quota?.nextReset ? new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { timeZone: quota.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(quota.nextReset)) : "";
   const quotaCycleText = quota?.autoReset && quota.nextReset
     ? t(
-        `每 ${quota.periodCount} ${quota.periodUnit === "day" ? "日" : quota.periodUnit === "week" ? "周" : quota.periodUnit === "month" ? "月" : "年"}重置 · 下次 ${new Date(quota.nextReset).toLocaleDateString("zh-CN")}`,
-        `Resets every ${quota.periodCount} ${quota.periodUnit}(s) · next ${new Date(quota.nextReset).toLocaleDateString("en")}`,
+        `每 ${quota.periodCount} ${quota.periodUnit === "day" ? "日" : quota.periodUnit === "week" ? "周" : quota.periodUnit === "month" ? "月" : "年"}重置 · 下次 ${nextResetInBillingZone}（${quota.timezone}）`,
+        `Resets every ${quota.periodCount} ${quota.periodUnit}(s) · next ${nextResetInBillingZone} (${quota.timezone})`,
       )
     : "";
   const reachableTargets = networkTargets.filter(

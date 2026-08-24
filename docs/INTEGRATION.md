@@ -1,4 +1,4 @@
-# CastoriceUI v3.2 backend integration guide
+# CastoriceUI v3.3 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -60,7 +60,7 @@ Display names are not assumed to equal protocol authentication identities. For m
 }
 ```
 
-Only explicit account names, IDs, or `trafficIdentities` mappings are associated. Unknown identities remain unattributed rather than assigned to the wrong account. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
+Only `trafficIdentities` mappings are associated; display names and IDs are never guessed to be protocol identities. When exactly one managed account explicitly owns every reported identity, its cumulative usage uses the durable interface ledger and is labelled accordingly. With multiple or incomplete owners, protocol counters remain separate and the ledger difference stays unattributed. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
 
 ## sing-box protocol adapters
 
@@ -93,10 +93,18 @@ The backend sampler runs independently of browser refreshes. It stores bounded a
 Host-interface traffic and protocol-account traffic are different sources:
 
 - Overview/Traffic time series: selected host interface counter deltas;
-- account usage/rankings: protocol cumulative totals after explicit identity mapping;
+- account usage/rankings: the durable ledger for one complete, explicit owner; otherwise mapped protocol counters plus an unattributed remainder;
 - account quota and Overview quota: one shared backend traffic-limit setting.
 
-Do not claim that protocol cumulative values are billing-cycle usage unless the upstream core resets on that exact cycle.
+Every account row exposes whether its number comes from the durable ledger, a protocol-core counter, or no mapping. Do not claim that a protocol cumulative value is billing-cycle usage unless the upstream core resets on that exact cycle.
+
+## Subscription validation
+
+The setup field accepts an actual HTTPS subscription URL for a one-time server-side probe. The candidate may contain a path or query token, but is never written to SQLite, returned in a response, or included in audit/error details; the UI clears it after validation. Complete subscription records remain in protected server configuration. On save, the backend probes both the candidate and enabled protected records. Cached runtime rechecks probe only protected records (or the protected legacy base URL when no record exists). Every request requires public DNS results, valid TLS, no redirects, and a non-empty response of at most 256 KiB. A failed configured probe produces an integration alert. An already configured deployment can leave the field blank to revalidate protected records.
+
+## Quota reset time and timezone
+
+Quota resets store `resetAnchor`, 24-hour `resetTime`, and an IANA `timezone` independently of the browser clock. Period boundaries are calculated in that billing timezone and returned as UTC timestamps. The top-bar clock always formats the browser's current time in the visiting client's timezone; changing the quota timezone does not change that clock.
 
 ## Connection aggregation and rates
 
@@ -115,7 +123,7 @@ Changing the list clears the probe cache so old values are not attributed to new
 - Hysteria2/sing-box URLs allow only `http` or `https` with `localhost` or loopback IP hosts.
 - Embedded credentials, query strings, fragments, remote/private hostnames, and metadata addresses are rejected before requests.
 - Strict authenticated probes use short timeouts and do not follow redirects.
-- Subscription base URLs and image API login backgrounds require HTTPS.
+- Subscription validation URLs and image API login backgrounds require HTTPS.
 - Image API backgrounds are fetched through a bounded same-origin proxy. Every hop must resolve only to public IP addresses; credentials and fragments are rejected, responses are limited to 5 MB, and image magic bytes are verified.
 - Server images must remain in the configured directory, be no larger than 5 MB, and have PNG/JPEG/WebP magic bytes.
 

@@ -32,7 +32,7 @@ test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "3\.2\.0"/);
+  assert.match(backendPackage, /__version__ = "3\.3\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -83,6 +83,8 @@ test("navigation badges are removed while notifications hide zero and cap at 99+
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
   const [page, collector, dashboard] = await Promise.all([read("components/pages/ConnectionsPage.tsx"), read("server/castoriceui/collectors.py"), read("server/castoriceui/dashboard.py")]);
   assert.match(page, /copyText\(item\.sourceIp\)/);
+  assert.match(page, /item\.sourceIp \? <button/);
+  assert.match(page, /Not provided by core/);
   assert.doesNotMatch(page, /同协议、账号和来源 IP 自动合并/);
   assert.doesNotMatch(page, /速率由相邻真实累计字节快照计算/);
   assert.match(collector, /if not protocol:\s+continue/);
@@ -170,7 +172,7 @@ test("subscription hints are removed and traffic quota remains one shared value"
   assert.doesNotMatch(subscriptions, /FeatureIntro|独立入口|快速导入/);
   assert.doesNotMatch(subscriptions, /tokenHint|updatedAt|lastFetchedAt|订阅安全提示|Subscription security/);
   assert.match(overview, /流量使用趋势/);
-  assert.match(accounts, /统一额度/);
+  assert.match(accounts, /统一累计账本/);
   assert.match(dashboard, /"quotaBytes": int\(self\.storage\.get_setting/);
   assert.match(app, /quota-input-stable/);
 });
@@ -297,7 +299,10 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.match(dashboard, /"ip": row\["source_ip"\]/);
   assert.match(connections, /<colgroup>/);
   assert.match(styles, /\.connections-table table \{ min-width: 1240px; table-layout: fixed; \}/);
-  assert.match(network, /preserveAspectRatio="xMidYMid meet"/);
+  assert.match(network, /preserveAspectRatio="xMinYMin meet"/);
+  assert.match(network, /ResizeObserver/);
+  assert.match(network, /viewWidth/);
+  assert.match(styles, /\.sparkline \{ width: 100%; min-width: 0; height: 220px; aspect-ratio: auto;/);
   assert.doesNotMatch(network, /preserveAspectRatio="none"/);
   assert.match(services, /t\("刷新", "Refresh"\)/);
   assert.doesNotMatch(services, /实时检查|Live check|重新检查|Check again/);
@@ -310,4 +315,30 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.match(dashboard, /network_ready = bool\(network and any/);
   assert.match(dashboard, /subscriptions_configured/);
   assert.match(i18n, /withoutTerminalPeriod/);
+});
+
+test("v3.3 validates subscriptions, account attribution, ranking, alerts, and reset time end to end", async () => {
+  const [wizard, definitions, traffic, accounts, connections, subscriptions, app, api, dashboard, collector, security] = await Promise.all([
+    read("components/setup/SetupWizard.tsx"), read("lib/integrations.ts"), read("components/pages/TrafficPage.tsx"),
+    read("components/pages/AccountsPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/SubscriptionsPage.tsx"),
+    read("components/CastoriceApp.tsx"), read("server/castoriceui/api.py"), read("server/castoriceui/dashboard.py"),
+    read("server/castoriceui/collectors.py"), read("server/castoriceui/security.py"),
+  ]);
+  assert.match(wizard, /配置已保存，但运行验证未通过/);
+  assert.match(wizard, /订阅发布器未通过服务器实际访问验证/);
+  assert.match(wizard, /订阅验证地址通过当前 HTTPS 管理会话提交/);
+  assert.match(definitions, /identityMappings/);
+  assert.match(security, /def probe_subscription_url/);
+  assert.match(dashboard, /probe_subscription_url/);
+  assert.match(dashboard, /integration-\{integration_id\}/);
+  assert.match(dashboard, /usageSource.*durableLedger/);
+  assert.match(traffic, /\.sort\(\(left, right\) => right\.value - left\.value/);
+  assert.doesNotMatch(traffic, /趋势采样|Trend samples|时间桶|time buckets/);
+  assert.match(accounts, /管理账号/);
+  assert.match(connections, /协议账号/);
+  assert.match(subscriptions, /关联管理账号/);
+  assert.match(app, /new Date\(now\)\.toLocaleTimeString/);
+  assert.match(app, /draftQuotaTime/);
+  assert.match(api, /resetTime/);
+  assert.match(collector, /reset_time/);
 });

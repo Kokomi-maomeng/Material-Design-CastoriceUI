@@ -41,6 +41,57 @@ def normalize_https_base_url(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
 
+def normalize_subscription_url(value: str) -> str:
+    """Validate a protected subscription URL without exposing or rewriting its token."""
+    candidate = value.strip()
+    if not candidate or len(candidate) > 2048:
+        raise ValueError("Subscription URL is empty or too long")
+    parsed = urlsplit(candidate)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("Subscription URL must use HTTPS without credentials or a fragment")
+    try:
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError
+    except ValueError as error:
+        raise ValueError("Subscription URL contains an invalid port") from error
+    return urlunsplit(("https", parsed.netloc, parsed.path or "/", parsed.query, ""))
+
+
+def probe_subscription_url(value: str, max_bytes: int = 256 * 1024) -> None:
+    """Perform a bounded, no-redirect, public-network HTTPS subscription probe."""
+    normalized = normalize_subscription_url(value)
+    parsed = urlsplit(normalized)
+    _require_public_host(str(parsed.hostname))
+    opener = urlrequest.build_opener(_NoRedirect)
+    request = urlrequest.Request(
+        normalized,
+        headers={
+            "Accept": "text/plain,application/octet-stream,application/yaml,application/json;q=0.8,*/*;q=0.5",
+            "User-Agent": "CastoriceUI/3.3 subscription-check",
+        },
+    )
+    try:
+        response = opener.open(request, timeout=8)
+    except urlerror.HTTPError as error:
+        raise ValueError(f"Subscription publisher returned HTTP {error.code}") from error
+    except (urlerror.URLError, TimeoutError, OSError) as error:
+        raise ValueError("Subscription publisher is unreachable") from error
+    with response:
+        declared = response.headers.get("Content-Length")
+        if declared:
+            try:
+                declared_length = int(declared)
+            except (TypeError, ValueError):
+                declared_length = 0
+            if declared_length > max_bytes:
+                raise ValueError("Subscription response exceeds 256 KiB")
+        body = response.read(max_bytes + 1)
+    if not body:
+        raise ValueError("Subscription publisher returned an empty response")
+    if len(body) > max_bytes:
+        raise ValueError("Subscription response exceeds 256 KiB")
+
+
 def validate_probe_target(value: str) -> tuple[str, int]:
     candidate = value.strip()
     if not candidate or len(candidate) > 253 or candidate.startswith("-"):

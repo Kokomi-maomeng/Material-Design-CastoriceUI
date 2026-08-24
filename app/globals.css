@@ -719,6 +719,15 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .auth-language-select { width: min(190px, 100%); }
 .connection-detail-grid.no-destination { grid-template-columns: 34px minmax(110px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr); }
 
+/* v3.3 truthful setup, quota time, and wide network-chart layout */
+.traffic-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sparkline { width: 100%; min-width: 0; height: 220px; aspect-ratio: auto; overflow-x: auto; scrollbar-width: thin; }
+.sparkline svg { display: block; width: 100%; min-width: 520px; height: 200px; overflow: visible; }
+.network-trend-chart { max-height: none; }
+.wizard-success.is-warning .material-symbols-rounded { color: var(--warning); }
+.quota-time-selects { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
+@media (max-width: 760px) { .traffic-kpis { grid-template-columns: 1fr 1fr; } }
+
 @media (max-width: 620px) {
   .quota-schedule-grid, .background-layout-controls { grid-template-columns: 1fr; }
   .quota-schedule-grid .field:nth-child(n+3) { grid-column: auto; }

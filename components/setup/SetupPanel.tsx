@@ -20,12 +20,13 @@ export function SetupPanel({
   const completed = integrationDefinitions.filter(
     (item) => statusMap.get(item.id)?.configured,
   );
+  const needsAttention = completed.filter((item) => statusMap.get(item.id)?.status !== "ready");
   const local = (value: { zh: string; en: string }) => withoutTerminalPeriod(value[language]);
   return (
     <Card variant="outlined" className="setup-panel">
       {completed.length ? (
         <div className="setup-completed setup-completed--first">
-          <h3>{t("已完成", "Completed")}</h3>
+          <h3>{t("已配置", "Configured")}</h3>
           {completed.map((item) => {
             const isReady = statusMap.get(item.id)?.status === "ready";
             return (
@@ -33,6 +34,7 @@ export function SetupPanel({
               <Icon name={isReady ? "check_circle" : "error"} filled className={isReady ? "setup-status-icon--ready" : "setup-status-icon--error"} />
               <span>
                 <strong>{local(item.name)}</strong>
+                <small>{t(statusMap.get(item.id)?.summaryZh || statusMap.get(item.id)?.summary || "", statusMap.get(item.id)?.summaryEn || statusMap.get(item.id)?.summary || "")}</small>
               </span>
               <Chip staticChip tone={isReady ? "success" : "warning"}>
                 {isReady ? t("正常", "Ready") : t("需检查", "Check")}
@@ -70,11 +72,9 @@ export function SetupPanel({
         <div className="setup-complete-message">
           <Icon name="task_alt" filled />
           <div>
-            <strong>
-              {t("数据接入已经就绪", "Data integrations are ready")}
-            </strong>
+            <strong>{needsAttention.length ? t(`${needsAttention.length} 项配置仍需检查`, `${needsAttention.length} configured integration(s) need attention`) : t("数据接入已经就绪", "Data integrations are ready")}</strong>
             <p>
-              {t(
+              {needsAttention.length ? t("打开带警告的配置项查看实际运行验证结果。", "Open the warned integrations to review their live validation results.") : t(
                 "仍可从下方查看配置目的和当前验证状态。",
                 "You can still review purpose and verification status below.",
               )}

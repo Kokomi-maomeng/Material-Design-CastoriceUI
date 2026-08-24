@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from calendar import monthrange
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -119,6 +119,15 @@ def traffic_quota_period(
         anchor = date.fromisoformat(str(quota.get("resetAnchor") or ""))
     except ValueError:
         anchor = date(2000, 1, max(1, min(int(legacy_day), 28)))
+    reset_time_text = str(quota.get("resetTime") or "00:00")
+    try:
+        reset_hour, reset_minute = (int(value) for value in reset_time_text.split(":"))
+        if not 0 <= reset_hour <= 23 or not 0 <= reset_minute <= 59:
+            raise ValueError
+    except (TypeError, ValueError):
+        reset_hour, reset_minute = 0, 0
+        reset_time_text = "00:00"
+    reset_time = datetime_time(reset_hour, reset_minute)
     auto_reset = bool(quota.get("autoReset", False))
 
     if not auto_reset:
@@ -134,6 +143,7 @@ def traffic_quota_period(
             "periodUnit": unit,
             "periodCount": count,
             "resetAnchor": anchor.isoformat(),
+            "resetTime": reset_time_text,
             "timezone": timezone_name,
         }
 
@@ -142,7 +152,7 @@ def traffic_quota_period(
         elapsed = (local_now.date() - anchor).days
         periods = elapsed // step_days
         start_date = anchor + timedelta(days=periods * step_days)
-        if start_date > local_now.date():
+        if datetime.combine(start_date, reset_time, zone) > local_now:
             start_date -= timedelta(days=step_days)
         next_date = start_date + timedelta(days=step_days)
     else:
@@ -150,17 +160,18 @@ def traffic_quota_period(
         elapsed_months = (local_now.year - anchor.year) * 12 + local_now.month - anchor.month
         periods = elapsed_months // step_months
         start_date = _month_at(anchor, periods * step_months)
-        if start_date > local_now.date():
+        if datetime.combine(start_date, reset_time, zone) > local_now:
             periods -= 1
             start_date = _month_at(anchor, periods * step_months)
         next_date = _month_at(anchor, (periods + 1) * step_months)
-    start = datetime.combine(start_date, datetime.min.time(), zone).astimezone(timezone.utc)
-    next_reset = datetime.combine(next_date, datetime.min.time(), zone).astimezone(timezone.utc)
+    start = datetime.combine(start_date, reset_time, zone).astimezone(timezone.utc)
+    next_reset = datetime.combine(next_date, reset_time, zone).astimezone(timezone.utc)
     return start, next_reset, {
         "autoReset": True,
         "periodUnit": unit,
         "periodCount": count,
         "resetAnchor": anchor.isoformat(),
+        "resetTime": reset_time_text,
         "timezone": timezone_name,
     }
 
@@ -425,17 +436,17 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
                 tag_protocols[str(tag).strip().casefold()] = label
     for index, stream in enumerate(hy2.get("streams", [])):
         started = stream.get("initial_at")
-        account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "协议核心未提供")
+        account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "")
         address_text = " ".join(str(stream.get(key, "")) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
         ip_match = re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?!\d)|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){2,}[0-9A-Fa-f:]+", address_text)
-        source_ip = ip_match.group(0) if ip_match else "协议核心未提供"
+        source_ip = ip_match.group(0) if ip_match else ""
         destination = str(stream.get("hooked_req_addr") or stream.get("req_addr") or "").strip() or None
         connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started, "destination": destination})
     for index, connection in enumerate(sb.get("connections", [])):
         metadata = connection.get("metadata", {})
-        source_ip = str(metadata.get("sourceIP") or "协议核心未提供")
+        source_ip = str(metadata.get("sourceIP") or "")
         ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
-        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "协议核心未提供")
+        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "")
         destination_host = str(metadata.get("host") or metadata.get("destinationIP") or "").strip()
         destination_port = metadata.get("destinationPort")
         destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None

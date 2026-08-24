@@ -9,10 +9,10 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
@@ -21,7 +21,7 @@ from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot, traffic_quota_period  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.api import ApiHandler, ApiServer, normalized_origin  # noqa: E402
-from castoriceui.security import fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, safe_background_image, validate_probe_target  # noqa: E402
+from castoriceui.security import fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, probe_subscription_url, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 
 
@@ -44,7 +44,7 @@ class BackendTests(unittest.TestCase):
             {"connections": [{"id": "c", "metadata": {"user": "bob"}}]},
         )
         self.assertEqual(payload[0]["account"], "alice")
-        self.assertEqual(payload[0]["sourceIp"], "协议核心未提供")
+        self.assertEqual(payload[0]["sourceIp"], "")
         self.assertIsNone(payload[0]["ipVersion"])
         self.assertIsNone(payload[0]["uploadBps"])
         self.assertIsNone(payload[0]["downloadBps"])
@@ -69,6 +69,16 @@ class BackendTests(unittest.TestCase):
             accounts = [{"id": "a", "name": "A", "trafficIdentities": {"hysteria2": ["u1"]}}, {"id": "b", "name": "B", "trafficIdentities": ["u2"]}]
             mapped = dashboard.account_metrics(accounts, {"traffic": {"u1": {"tx": 9, "rx": 1}, "u2": {"tx": 8, "rx": 2}}, "online": {"u1": 1, "u2": 3}}, 400)
             self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(10, 1), (10, 3)])
+
+    def test_single_explicit_owner_uses_the_unified_durable_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            dashboard = DashboardService(config, Storage(config.database_path))
+            accounts = [{"id": "primary", "name": "primary", "trafficIdentities": {"hysteria2": ["user"]}}]
+            mapped = dashboard.account_metrics(accounts, {"traffic": {"user": {"tx": 90, "rx": 10}}, "online": {"user": 3}}, 532)
+            self.assertEqual(mapped[0]["usedBytes"], 532)
+            self.assertEqual(mapped[0]["usageSource"], "durableLedger")
+            self.assertEqual(mapped[0]["onlineDevices"], 3)
 
     def test_protocol_breakdowns_reconcile_exactly_to_the_durable_ledger(self) -> None:
         allocated = DashboardService.reconcile_breakdown([
@@ -197,13 +207,37 @@ class BackendTests(unittest.TestCase):
             config.hysteria_api = {"url": "http://127.0.0.1:19090"}
             config.subscriptions = [{"id": "sub-1", "account": "alice", "url": "https://example.test/token"}]
             dashboard = DashboardService(config, Storage(config.database_path))
-            states = {item["id"]: item for item in dashboard.runtime_integrations({"available": False}, {"available": False}, [])}
+            states = {item["id"]: item for item in dashboard.runtime_integrations({"available": False}, {"available": False}, [], subscription_probe={"configured": True, "ready": False, "count": 1})}
             self.assertTrue(states["hysteria2"]["configured"])
             self.assertEqual(states["hysteria2"]["status"], "error")
             self.assertEqual(states["connections"]["status"], "error")
             self.assertEqual(states["subscriptions"]["status"], "error")
-            self.assertIn("not verified", states["subscriptions"]["summary"])
+            self.assertIn("did not pass", states["subscriptions"]["summary"])
             self.assertEqual(states["system"]["status"], "error")
+
+    def test_runtime_integration_values_reopen_with_effective_non_secret_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            config.node_name = "Tokyo edge"
+            config.hysteria_api = {"url": "http://127.0.0.1:19090", "secret": "protected"}
+            config.managed_accounts = [{"id": "primary", "name": "primary", "trafficIdentities": {"hysteria2": ["user"]}}]
+            dashboard = DashboardService(config, Storage(config.database_path))
+            states = {item["id"]: item for item in dashboard.runtime_integrations({"available": True, "traffic": {"user": {}}, "online": {"user": 1}}, {"available": False}, [])}
+            self.assertEqual(states["system"]["values"]["nodeName"], "Tokyo edge")
+            self.assertEqual(states["hysteria2"]["values"], {"endpoint": "http://127.0.0.1:19090", "identityMappings": "primary=user"})
+            self.assertNotIn("secret", states["hysteria2"]["values"])
+
+    def test_configured_subscription_can_be_revalidated_without_returning_its_address(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            config.subscription_base_url = "https://example.test/subscription"
+            config.subscriptions = [{"id": "sub-1", "account": "primary", "url": "https://example.test/protected"}]
+            dashboard = DashboardService(config, Storage(config.database_path))
+            with patch.object(dashboard, "subscription_probe", return_value={"configured": True, "ready": True, "count": 1}) as probe:
+                result = dashboard.configure_integration("subscriptions", {"values": {}})
+            self.assertTrue(result["configured"])
+            self.assertNotIn("values", result)
+            probe.assert_called_once_with("https://example.test/subscription", force=True)
 
     def test_config_merges_safe_integration_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -308,6 +342,20 @@ class BackendTests(unittest.TestCase):
             refreshed = dashboard.alerts(system, services, network)
             self.assertTrue(next(item for item in refreshed if item["id"] == "service-nginx")["acknowledged"])
 
+    def test_configured_integration_failure_creates_an_alert(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            dashboard = DashboardService(AppConfig(database_path=storage.path), storage)
+            alerts = dashboard.alerts(
+                {"trafficUsedBytes": 0, "trafficLimitBytes": 1000},
+                [],
+                [],
+                [{"id": "subscriptions", "configured": True, "status": "error", "summary": "probe failed", "summaryZh": "实际验证失败"}],
+            )
+            self.assertEqual(alerts[0]["id"], "integration-subscriptions")
+            self.assertEqual(alerts[0]["titleZh"], "订阅配置需要检查")
+            self.assertEqual(alerts[0]["sourceZh"], "数据接入验证")
+
     def test_quota_schedule_matches_day_week_month_year_and_disabled_modes(self) -> None:
         default_start, default_next, default_schedule = traffic_quota_period(
             datetime(2026, 8, 19, tzinfo=timezone.utc), {},
@@ -333,6 +381,14 @@ class BackendTests(unittest.TestCase):
         )
         self.assertEqual(yearly_start.date().isoformat(), "2025-02-28")
         self.assertEqual(yearly_next.date().isoformat(), "2026-02-28")
+        with patch("castoriceui.collectors.ZoneInfo", return_value=timezone(timedelta(hours=9))):
+            tokyo_start, tokyo_next, tokyo_schedule = traffic_quota_period(
+                datetime(2026, 8, 25, 0, 0, tzinfo=timezone.utc),
+                {"autoReset": True, "periodUnit": "day", "periodCount": 1, "resetAnchor": "2026-08-01", "resetTime": "03:00", "timezone": "Asia/Tokyo"},
+            )
+        self.assertEqual(tokyo_start.isoformat(), "2026-08-24T18:00:00+00:00")
+        self.assertEqual(tokyo_next.isoformat(), "2026-08-25T18:00:00+00:00")
+        self.assertEqual(tokyo_schedule["resetTime"], "03:00")
         fixed_start, fixed_next, normalized = traffic_quota_period(
             datetime(2026, 8, 19, tzinfo=timezone.utc),
             {"autoReset": False, "periodUnit": "day", "periodCount": 1, "resetAnchor": "2026-01-01", "fixedCycleStart": "2026-06-01T00:00:00Z", "timezone": "UTC"},
@@ -353,9 +409,28 @@ class BackendTests(unittest.TestCase):
             with patch("castoriceui.dashboard.http_json", return_value={}) as probe:
                 result = dashboard.configure_integration("hysteria2", {"enabled": True, "values": {"endpoint": "http://127.0.0.1:19090", "secret": "must-be-ignored"}})
             self.assertTrue(result["configured"])
-            probe.assert_called_once_with("http://127.0.0.1:19090/traffic", "unit-test-secret", strict=True)
+            self.assertEqual(probe.call_args_list, [
+                call("http://127.0.0.1:19090/traffic", "unit-test-secret", strict=True),
+                call("http://127.0.0.1:19090/online", "unit-test-secret", strict=True),
+                call("http://127.0.0.1:19090/dump/streams", "unit-test-secret", strict=True),
+            ])
             self.assertNotIn("secret", json.dumps(result))
             self.assertNotIn("secret", json.dumps(storage.get_setting("integration_overrides", {})))
+
+    def test_hysteria_setup_persists_explicit_identity_mapping_without_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            config.hysteria_api = {"secret": "unit-test-secret"}
+            config.managed_accounts = [{"id": "account-1", "name": "primary"}]
+            storage = Storage(config.database_path)
+            dashboard = DashboardService(config, storage)
+            responses = [{"user": {"tx": 1, "rx": 2}}, {"user": 1}, {"streams": []}]
+            with patch("castoriceui.dashboard.http_json", side_effect=responses):
+                dashboard.configure_integration("hysteria2", {"values": {"endpoint": "http://127.0.0.1:19090", "identityMappings": "primary=user"}})
+            self.assertEqual(config.managed_accounts[0]["trafficIdentities"], {"hysteria2": ["user"]})
+            saved = storage.get_setting("integration_overrides", {})["hysteria2"]
+            self.assertEqual(saved["values"]["identityMappings"], "primary=user")
+            self.assertNotIn("unit-test-secret", json.dumps(saved))
 
     def test_non_loopback_or_failed_probe_is_not_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -420,6 +495,36 @@ class BackendTests(unittest.TestCase):
             build_opener.return_value.open.side_effect = urllib.error.URLError("offline")
             with self.assertRaisesRegex(ValueError, "unreachable"):
                 fetch_https_image_api("https://images.example.test/random")
+
+    def test_subscription_probe_requires_a_nonempty_public_https_response(self) -> None:
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.headers.get.return_value = "4"
+        response.read.return_value = b"data"
+        with patch("castoriceui.security._require_public_host") as public_host, patch("castoriceui.security.urlrequest.build_opener") as build_opener:
+            build_opener.return_value.open.return_value = response
+            probe_subscription_url("https://subscriptions.example.test/path/token")
+            public_host.assert_called_once_with("subscriptions.example.test")
+            request = build_opener.return_value.open.call_args.args[0]
+            self.assertNotIn("path/token", repr(request.headers))
+            response.read.return_value = b""
+            with self.assertRaisesRegex(ValueError, "empty"):
+                probe_subscription_url("https://subscriptions.example.test/path/token")
+
+    def test_subscription_setup_probes_protected_url_without_persisting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig.load(self._config_file(directory, str(Path(directory) / "state.db")))
+            config.subscriptions = [{"id": "sub", "account": "primary", "url": "https://subscriptions.example.test/private-token", "enabled": True}]
+            storage = Storage(config.database_path)
+            dashboard = DashboardService(config, storage)
+            candidate = "https://subscriptions.example.test/subscription?token=one-time"
+            with patch("castoriceui.dashboard.probe_subscription_url") as probe:
+                result = dashboard.configure_integration("subscriptions", {"values": {"baseUrl": candidate}})
+            self.assertEqual(result["status"], "ready")
+            self.assertEqual([call.args[0] for call in probe.call_args_list], [candidate, "https://subscriptions.example.test/private-token"])
+            self.assertNotIn("private-token", json.dumps(storage.get_setting("integration_overrides", {})))
+            self.assertNotIn("one-time", json.dumps(storage.get_setting("integration_overrides", {})))
 
     def test_server_background_image_stays_in_allowed_directory_and_checks_magic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -518,9 +623,10 @@ class BackendTests(unittest.TestCase):
                 status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 10_000_000_000}, guard)
                 self.assertEqual(status, 200)
                 self.assertEqual(result["bytes"], 10_000_000_000)
-                status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 20_000_000_000, "autoReset": True, "periodUnit": "week", "periodCount": 2, "resetAnchor": "2026-08-17", "timezone": "UTC"}, guard)
+                status, result = call("/api/v2/settings/traffic-limit", "PUT", {"bytes": 20_000_000_000, "autoReset": True, "periodUnit": "week", "periodCount": 2, "resetAnchor": "2026-08-17", "resetTime": "03:30", "timezone": "UTC"}, guard)
                 self.assertEqual(status, 200)
                 self.assertEqual((result["periodUnit"], result["periodCount"], result["resetAnchor"]), ("week", 2, "2026-08-17"))
+                self.assertEqual(result["resetTime"], "03:30")
                 self.assertEqual(storage.get_setting("traffic_quota", {})["periodUnit"], "week")
                 status, settings = call("/api/v2/settings/ui", "PUT", {"panelTitle": "My VPS", "idleTimeoutMinutes": 10, "showSetup": False}, guard)
                 self.assertEqual(status, 200)

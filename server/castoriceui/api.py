@@ -288,6 +288,11 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if not 1 <= period_count <= 365:
                     raise ValueError("periodCount must be between 1 and 365")
                 reset_anchor = date.fromisoformat(str(payload.get("resetAnchor", previous.get("resetAnchor", f"2000-01-{self.app.config.traffic_billing_day:02d}"))))
+                reset_time = str(payload.get("resetTime", previous.get("resetTime", "00:00"))).strip()
+                try:
+                    datetime.strptime(reset_time, "%H:%M")
+                except ValueError as error:
+                    raise ValueError("resetTime must use 24-hour HH:MM") from error
                 timezone_name = str(payload.get("timezone", previous.get("timezone", self.app.config.traffic_billing_timezone))).strip() or "UTC"
                 try:
                     if timezone_name != "UTC":
@@ -308,6 +313,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "periodUnit": period_unit,
                     "periodCount": period_count,
                     "resetAnchor": reset_anchor.isoformat(),
+                    "resetTime": reset_time,
                     "timezone": timezone_name,
                 }
                 if fixed_cycle_start:

@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { SettingsSwitch } from "../components/CastoriceApp";
 import { AccountsPage } from "../components/pages/AccountsPage";
 import { ServicesPage } from "../components/pages/ServicesPage";
+import { TrafficPage } from "../components/pages/TrafficPage";
 import { FirstRunConfiguration } from "../components/setup/FirstRunConfiguration";
+import { SetupWizard } from "../components/setup/SetupWizard";
 import { MaterialDatePicker } from "../components/ui/MaterialDatePicker";
 import { I18nProvider, withoutTerminalPeriod } from "../lib/i18n";
 import { formatDecimalBytes } from "../lib/format";
@@ -44,7 +46,7 @@ const renderEnglish = (view: React.ReactNode) => {
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
-describe("v3.2 runtime behavior", () => {
+describe("v3.3 runtime behavior", () => {
   it("removes only terminal Chinese and English sentence periods", () => {
     expect(withoutTerminalPeriod("第一句。第二句。")).toBe("第一句。第二句");
     expect(withoutTerminalPeriod("First sentence. Second sentence.")).toBe("First sentence. Second sentence");
@@ -61,7 +63,7 @@ describe("v3.2 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v3.2")).toBeTruthy();
+    expect(screen.getByText("v3.3")).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -133,5 +135,26 @@ describe("v3.2 runtime behavior", () => {
     );
     expect(screen.getByText(/Sample write succeeded/)).toBeTruthy();
     expect(screen.getByText("1 of 1 data sources online")).toBeTruthy();
+  });
+
+  it("sorts unattributed traffic ahead of a zero-usage managed account", () => {
+    renderEnglish(<TrafficPage traffic={{
+      totalBytes: 532_000_000_000,
+      ranges: { "1h": [], "6h": [], "24h": [], "3day": [], "7day": [] },
+      hourly: [], daily: [], protocol: [],
+      account: [{ name: "primary", value: 0 }, { name: "Unattributed", nameZh: "未归属", nameEn: "Unattributed", value: 532_000_000_000 }],
+    }} integration={{ id: "traffic", enabled: true, configured: true, status: "ready", summary: "ready" }} onConfigure={vi.fn()} />);
+    expect(Array.from(document.querySelectorAll(".ranking-row strong"), (node) => node.textContent)).toEqual(["Unattributed", "primary"]);
+    expect(screen.getByText("2 attribution entries")).toBeTruthy();
+    expect(screen.queryByText("Trend samples")).toBeNull();
+  });
+
+  it("keeps the setup wizard on parameters when live validation fails", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("probe failed"));
+    renderEnglish(<SetupWizard selected="subscriptions" drafts={{ subscriptions: { baseUrl: "https://example.test/subscription" } }} onDraft={vi.fn()} onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save and validate" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("failed the server-side live probe"));
+    expect(screen.queryByText("Configuration saved and live-verified")).toBeNull();
   });
 });
