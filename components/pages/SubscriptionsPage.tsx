@@ -53,10 +53,10 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
             <div className="subscription-card__header">
               <div className="account-cell">
                 <span className="avatar">{subscription.account.slice(0, 1).toUpperCase()}</span>
-                <div><strong>{subscription.account}</strong></div>
+                <div><small>{t("关联管理账号", "Linked managed account")}</small><strong>{subscription.account}</strong></div>
               </div>
               <Chip staticChip tone={subscription.enabled ? "success" : "default"}>
-                {subscription.enabled ? t("可用", "Available") : t("停用", "Disabled")}
+                {subscription.enabled ? t("记录已启用", "Record enabled") : t("记录已停用", "Record disabled")}
               </Chip>
             </div>
             <div className="subscription-card__protocols">

@@ -29,6 +29,21 @@ DEFAULT_INTEGRATIONS = {
     "audit": {"enabled": True, "configured": True},
 }
 
+PUBLIC_INTEGRATION_VALUES = {
+    "system": {"nodeName"},
+    "hysteria2": {"endpoint", "identityMappings"},
+    "anytls": {"endpoint", "inboundTags"},
+    "vless": {"endpoint", "inboundTags", "securityProfile"},
+    "socks5": {"endpoint", "inboundTags"},
+    "shadowsocks": {"endpoint", "inboundTags"},
+    "vmess": {"endpoint", "inboundTags"},
+    "trojan": {"endpoint", "inboundTags"},
+    "tuic": {"endpoint", "inboundTags"},
+    "traffic": {"interface", "quotaGb", "billingDay", "billingTimezone", "initialUsedGb", "countMode"},
+    "network": {"targets"},
+    "alerts": {"trafficPercent", "latencyMs", "lossPercent"},
+}
+
 
 @dataclass(slots=True)
 class AppConfig:
@@ -160,6 +175,18 @@ class AppConfig:
                 unknown_nested = sorted(set(item) - schema)
                 if unknown_nested:
                     raise ValueError(f"{field_name}[{index}] contains unknown field(s): {', '.join(unknown_nested)}")
+        for index, account in enumerate(self.managed_accounts):
+            identities = account.get("trafficIdentities", {})
+            if identities in (None, []):
+                continue
+            if isinstance(identities, list):
+                identities = {"hysteria2": identities}
+                account["trafficIdentities"] = identities
+            if not isinstance(identities, dict) or set(identities) - {"hysteria2"}:
+                raise ValueError(f"managed_accounts[{index}].trafficIdentities must contain only hysteria2")
+            values = identities.get("hysteria2", [])
+            if not isinstance(values, list) or len(values) > 20 or any(not str(value).strip() or len(str(value)) > 160 for value in values):
+                raise ValueError(f"managed_accounts[{index}].trafficIdentities.hysteria2 is invalid")
         if not isinstance(self.external_background_hosts, list):
             raise ValueError("external_background_hosts must be a list")
         normalized_hosts: list[str] = []
@@ -171,8 +198,9 @@ class AppConfig:
         self.external_background_hosts = list(dict.fromkeys(normalized_hosts))
 
     def public_integrations(self) -> list[dict[str, Any]]:
-        return [
-            {
+        result: list[dict[str, Any]] = []
+        for key, value in self.integrations.items():
+            public = {
                 "id": key,
                 "enabled": bool(value.get("enabled")),
                 "configured": bool(value.get("configured")),
@@ -181,5 +209,12 @@ class AppConfig:
                 "summaryZh": value.get("summaryZh", ""),
                 "summaryEn": value.get("summaryEn", value.get("summary", "")),
             }
-            for key, value in self.integrations.items()
-        ]
+            stored_values = value.get("values", {})
+            if isinstance(stored_values, dict) and key in PUBLIC_INTEGRATION_VALUES:
+                public["values"] = {
+                    field: str(stored_values[field])
+                    for field in PUBLIC_INTEGRATION_VALUES[key]
+                    if field in stored_values
+                }
+            result.append(public)
+        return result

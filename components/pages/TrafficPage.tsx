@@ -17,10 +17,9 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
   const { t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
   const hourlyTraffic = (traffic.ranges?.["24h"] ?? traffic.hourly).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
-  const dailyTraffic = traffic.ranges?.["7day"] ?? traffic.daily;
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
-  const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, value: item.value / 1_000_000_000, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
-  const accountTraffic = traffic.account.map((item) => ({ ...item, value: item.value / 1_000_000_000 }));
+  const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, name: t(item.nameZh ?? item.name, item.nameEn ?? item.name), value: item.value / 1_000_000_000, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
+  const accountTraffic = traffic.account.map((item) => ({ ...item, name: t(item.nameZh ?? item.name, item.nameEn ?? item.name), value: item.value / 1_000_000_000 })).sort((left, right) => right.value - left.value || left.name.localeCompare(right.name));
   const total = traffic.totalBytes / 1_000_000_000;
   const accountMax = Math.max(1, ...accountTraffic.map((item) => item.value));
 
@@ -31,7 +30,6 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
       <Kpi label={t("近 24 小时用量", "Last 24 hours")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0) * 1_000_000_000)} icon="today" />
       <Kpi label={t("统一累计统计", "Unified cumulative total")} value={formatDecimalBytes(traffic.totalBytes)} icon="calendar_month" />
       <Kpi label={t("协议数据源", "Protocol sources")} value={t(`${protocolTraffic.length} 个`, `${protocolTraffic.length}`)} icon="speed" />
-      <Kpi label={t("趋势采样", "Trend samples")} value={t(`${dailyTraffic.length} 个时间桶`, `${dailyTraffic.length} time buckets`)} icon="query_stats" />
     </section>
     <section className="content-grid content-grid--traffic-main">
       <Card variant="outlined" className="traffic-trend-panel">
@@ -46,7 +44,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
     </section>
     <section className="content-grid content-grid--traffic-bottom">
       <Card variant="outlined">
-        <CardHeader title={t("账号用量排行", "Account usage ranking")} action={<Chip staticChip>{t(`${accountTraffic.length} 个账号`, `${accountTraffic.length} accounts`)}</Chip>} />
+        <CardHeader title={t("管理账号用量排行", "Managed-account usage ranking")} action={<Chip staticChip>{t(`${accountTraffic.length} 项归属`, accountTraffic.length === 1 ? "1 attribution entry" : `${accountTraffic.length} attribution entries`)}</Chip>} />
         <div className="ranking-list">{accountTraffic.map((item, index) => <div className="ranking-row" key={item.name}><span className="rank">{index + 1}</span><div><strong>{item.name}</strong><Progress value={(item.value / accountMax) * 100} /></div><b>{item.value.toFixed(1)} GB</b></div>)}</div>
       </Card>
     </section>

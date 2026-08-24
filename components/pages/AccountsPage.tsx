@@ -22,7 +22,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
   }), [accounts, filter, search]);
 
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("账号", "Accounts")} title={t("账号状态", "Account status")} />
+    <PageHeader eyebrow={t("管理账号", "Managed accounts")} title={t("账号状态", "Account status")} />
     <IntegrationGate status={integration} name="Hysteria2 账号统计" nameEn="Hysteria2 account statistics" description="连接 Traffic Stats API 并配置身份映射后显示账号用量。" descriptionEn="Connect the Traffic Stats API and configure identity mappings to show account usage." onConfigure={onConfigure} />
     <Card variant="outlined" className="table-panel">
       <div className="table-toolbar">
@@ -30,14 +30,14 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
         <div className="filter-chips" aria-label={t("账号状态筛选", "Account status filter")}><Chip selected={filter === "all"} onClick={() => setFilter("all")}>{t("全部", "All")} {accounts.length}</Chip><Chip selected={filter === "active"} onClick={() => setFilter("active")}>{t("有效", "Active")}</Chip><Chip selected={filter === "disabled"} onClick={() => setFilter("disabled")}>{t("已禁用", "Disabled")}</Chip></div>
       </div>
       <div className="responsive-table accounts-table"><table>
-        <thead><tr><th>{t("账号", "Account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("统一累计流量", "Unified cumulative usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
+        <thead><tr><th>{t("管理账号", "Managed account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("统一累计流量", "Unified cumulative usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
         <tbody>{filtered.map((account) => {
           const usage = percent(account.usedBytes, account.quotaBytes);
           return <tr key={account.id}>
-            <td data-label={t("账号", "Account")}><div className="account-cell"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><div><strong>{account.name}</strong><span>{account.email}</span></div></div></td>
+            <td data-label={t("管理账号", "Managed account")}><div className="account-cell"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><div><strong>{account.name}</strong><span>{account.email}</span></div></div></td>
             <td data-label={t("状态", "Status")}><StatusChip status={account.status} devices={account.onlineDevices} /></td>
             <td data-label={t("协议", "Protocols")}><div className="protocol-list">{account.protocols.map((protocol) => <Chip staticChip key={protocol}>{protocol}</Chip>)}</div></td>
-            <td data-label={t("统一累计流量", "Unified cumulative usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span><small>{t(`/ 统一额度 ${formatDecimalBytes(account.quotaBytes)}`, `/ shared quota ${formatDecimalBytes(account.quotaBytes)}`)}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
+            <td data-label={t("统一累计流量", "Unified cumulative usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span><small>{account.usageSource === "durableLedger" ? t(`统一累计账本 / 额度 ${formatDecimalBytes(account.quotaBytes)}`, `Unified durable ledger / quota ${formatDecimalBytes(account.quotaBytes)}`) : account.usageSource === "protocolCounter" ? t(`协议核心累计 / 额度 ${formatDecimalBytes(account.quotaBytes)}`, `Protocol-core cumulative / quota ${formatDecimalBytes(account.quotaBytes)}`) : t("尚未映射协议身份", "No protocol identity mapping")}</small></div><Progress value={usage} tone={usage > 85 ? "warning" : "primary"} /></div></td>
             <td data-label={t("到期时间", "Expires")}><span className={account.status === "expiring" ? "text-warning" : ""}>{formatDate(account.expiresAt)}</span></td>
           </tr>;
         })}</tbody>

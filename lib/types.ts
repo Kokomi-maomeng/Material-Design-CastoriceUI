@@ -20,6 +20,7 @@ export interface Account {
   status: AccountStatus;
   protocols: Protocol[];
   usedBytes: number;
+  usageSource: "durableLedger" | "protocolCounter" | "unmapped";
   quotaBytes: number;
   expiresAt: string;
   onlineDevices: number;
@@ -114,6 +115,7 @@ export interface IntegrationStatus {
   summary: string;
   summaryZh?: string;
   summaryEn?: string;
+  values?: Record<string, string>;
 }
 
 export interface OverviewMetrics {
@@ -149,6 +151,7 @@ export interface TrafficQuotaSettings {
   periodUnit: "day" | "week" | "month" | "year";
   periodCount: number;
   resetAnchor: string;
+  resetTime: string;
   timezone: string;
   cycleStart: string;
   nextReset: string | null;
@@ -156,6 +159,8 @@ export interface TrafficQuotaSettings {
 
 export interface TrafficBreakdown {
   name: string;
+  nameZh?: string;
+  nameEn?: string;
   value: number;
   color?: string;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, type PointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 import { updateNetworkTargets } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
@@ -97,18 +97,11 @@ export function NetworkPage({
       await onSaved();
       setEditorOpen(false);
       onToast(t("网络探测目标已保存", "Network probe targets saved"));
-    } catch (error) {
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String(error.message)
-          : "";
-      onToast(
-        message ||
-          t(
-            "目标保存失败，请检查名称和地址",
-            "Unable to save targets. Check names and addresses.",
-          ),
-      );
+    } catch {
+      onToast(t(
+        "目标保存失败，请检查名称、地址以及服务器可达性",
+        "Unable to save targets. Check names, addresses, and server reachability.",
+      ));
     } finally {
       setSaving(false);
     }
@@ -396,14 +389,30 @@ function Sparkline({
   label: string;
 }) {
   const [active, setActive] = useState<number | null>(null);
+  const [viewWidth, setViewWidth] = useState(520);
+  const svgRef = useRef<SVGSVGElement>(null);
   const gradientId = useId();
   const safeValues = values.filter(Number.isFinite);
-  const width = 320;
-  const height = 148;
-  const plot = { left: 16, right: 304, top: 16, bottom: 126 };
+  const height = 200;
+  const plot = { left: 50, right: viewWidth - 18, top: 16, bottom: 158 };
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const update = () => {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const next = Math.max(520, Math.min(1480, Math.round((rect.width / rect.height) * height)));
+      setViewWidth((current) => Math.abs(current - next) > 1 ? next : current);
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, [safeValues.length]);
   if (safeValues.length === 0)
     return (
-      <svg className="network-trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <svg ref={svgRef} className="network-trend-chart" viewBox={`0 0 ${viewWidth} ${height}`} preserveAspectRatio="xMinYMin meet" aria-hidden="true">
         <line
           x1={plot.left}
           y1={(plot.top + plot.bottom) / 2}
@@ -432,16 +441,18 @@ function Sparkline({
     const ratio = Math.max(0, Math.min(1, (cursor.x - plot.left) / (plot.right - plot.left)));
     setActive(Math.round(ratio * (safeValues.length - 1)));
   };
+  const selected = active === null ? null : safeValues[Math.min(active, safeValues.length - 1)];
+  const selectedPoint = active === null ? null : points[Math.min(active, points.length - 1)];
+  const tooltipX = selectedPoint ? Math.max(plot.left + 6, Math.min(viewWidth - 120, selectedPoint.x - 48)) : 0;
   return (
-    <>
-    <svg className="sparkline-chart network-trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" tabIndex={0} aria-label={label} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive(safeValues.length - 1)} onBlur={() => setActive(null)}>
+    <svg ref={svgRef} className="sparkline-chart network-trend-chart" viewBox={`0 0 ${viewWidth} ${height}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={label} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive(safeValues.length - 1)} onBlur={() => setActive(null)}>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={stroke} stopOpacity=".2" />
           <stop offset="100%" stopColor={stroke} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {[0, .5, 1].map((ratio) => <line key={ratio} className="chart-grid-line" x1={plot.left} x2={plot.right} y1={plot.top + (plot.bottom - plot.top) * ratio} y2={plot.top + (plot.bottom - plot.top) * ratio} />)}
+      {[0, .5, 1].map((ratio) => { const y = plot.top + (plot.bottom - plot.top) * ratio; const value = max - range * ratio; return <g key={ratio}><line className="chart-grid-line" x1={plot.left} x2={plot.right} y1={y} y2={y} /><text className="chart-axis-label" x={plot.left - 8} y={y + 4} textAnchor="end">{value.toFixed(0)} ms</text></g>; })}
       {points.length > 1 ? <path d={`${smoothPath(points)} L ${plot.right},${plot.bottom} L ${plot.left},${plot.bottom} Z`} fill={`url(#${gradientId})`} /> : null}
       <path
         d={smoothPath(points)}
@@ -457,9 +468,8 @@ function Sparkline({
           <circle className={`network-trend-point ${active === index ? "is-active" : ""}`} cx={point.x} cy={point.y} r={active === index ? "5" : "3.5"} fill={stroke} />
         </g>
       ))}
+      {selectedPoint && selected !== null ? <g className="chart-inspector" pointerEvents="none"><line x1={selectedPoint.x} x2={selectedPoint.x} y1={plot.top} y2={plot.bottom} /><rect x={tooltipX} y="24" width="108" height="42" rx="13" /><text x={tooltipX + 12} y="42" className="chart-tooltip-title">{`#${(active ?? 0) + 1}`}</text><text x={tooltipX + 12} y="58">{selected.toFixed(1)} ms</text></g> : null}
       <rect className="sparkline-hit-area" x={plot.left} y={plot.top} width={plot.right - plot.left} height={plot.bottom - plot.top} />
     </svg>
-    {active !== null ? <span className="sparkline-tooltip" style={{ left: `${((points[active].x - plot.left) / (plot.right - plot.left)) * 100}%` }}>{safeValues[Math.min(active, safeValues.length - 1)].toFixed(1)} ms</span> : null}
-    </>
   );
 }
