@@ -14,7 +14,11 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 
 Do not deploy the backend directly on a public address. The v3.3 login cookie is Secure by default and therefore requires HTTPS in production.
 
-## 2. Build and inspect / 构建与检查
+## 2. Choose an artifact and inspect it / 选择交付物并检查
+
+From a source checkout, install the locked dependencies and build `dist/`:
+
+从源码检出时，安装锁定依赖并构建 `dist/`：
 
 ```bash
 npm ci
@@ -22,7 +26,19 @@ npm run check
 npm run build
 ```
 
-Do not deploy when any check fails. Review the produced `dist/`, the staged backend, and the sensitive-content scan before copying files.
+The GitHub Release archive is a prebuilt deployment bundle. Download both assets, verify the checksum before extracting, then use its `frontend/` directory directly; it intentionally does not contain `package.json`, `package-lock.json`, or `dist/`, so do not run `npm ci` inside the extracted bundle.
+
+GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校验文件，解压前先验证校验值，然后直接使用其中的 `frontend/`；包内有意不包含 `package.json`、`package-lock.json` 或 `dist/`，因此不要在解压目录中执行 `npm ci`。
+
+```bash
+sha256sum -c SHA256SUMS.txt
+tar -xzf CastoriceUI-v3.3.0.tar.gz
+cd CastoriceUI-v3.3.0
+python3 -m compileall -q server
+python3 -m unittest discover -s server/tests -p 'test_*.py' -v
+```
+
+Do not deploy when any applicable check fails. Review the produced `dist/` or bundled `frontend/`, the staged backend, and the sensitive-content results before copying files.
 
 ## 3. Back up before install or upgrade / 先备份
 
@@ -111,8 +127,11 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 
 ```bash
 release=v3.3.0
+frontend_source=dist       # source checkout / 源码检出
+# frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
+test -f "$frontend_source/index.html"
 sudo install -d "/var/www/castorice-ui/releases/$release"
-sudo cp -a dist/. "/var/www/castorice-ui/releases/$release/"
+sudo cp -a "$frontend_source/." "/var/www/castorice-ui/releases/$release/"
 sudo ln -sfn "/var/www/castorice-ui/releases/$release" /var/www/castorice-ui/current.next
 sudo mv -Tf /var/www/castorice-ui/current.next /var/www/castorice-ui/current
 ```

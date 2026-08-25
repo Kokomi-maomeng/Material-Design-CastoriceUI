@@ -50,7 +50,7 @@ npm run check
 npm run dev
 ```
 
-单独启动前端时，如果后端不可用，页面会显示连接状态，不会生成演示流量。完整接口约定见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
+这些命令只启动前端开发服务器。后端不可用时，页面会明确显示连接失败，不会生成演示流量。仓库目前没有内置 Vite `/api/` 代理或关闭 Secure Cookie 的开发模式；如需调试登录、初始化和真实仪表盘交互，请按 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 将前后端放在同源 HTTPS 反向代理后。完整接口约定见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
 
 ## 生产部署
 
@@ -66,7 +66,7 @@ CastoriceUI is a Material Design 3 observability console for Linux VPS hosts. It
 
 The React frontend uses a lightweight Python/SQLite backend. Hysteria2 is integrated through its Traffic Stats API. sing-box connections are classified only through explicit inbound-tag mappings for AnyTLS, VLESS/XTLS/Reality, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC.
 
-For local development, run `npm ci`, `npm run check`, and `npm run dev`. For production, follow [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) and keep every backend or protocol-management endpoint on loopback behind same-origin Nginx and TLS.
+For frontend-only local development, run `npm ci`, `npm run check`, and `npm run dev`. The repository does not currently provide a Vite `/api/` proxy or an insecure-cookie backend mode; authenticated full-stack testing therefore requires the same-origin HTTPS layout described in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Keep every backend or protocol-management endpoint on loopback behind Nginx and TLS.
 
 ## License
 
