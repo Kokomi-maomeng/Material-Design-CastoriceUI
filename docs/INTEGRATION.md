@@ -1,4 +1,4 @@
-# CastoriceUI v3.3 backend integration guide
+# CastoriceUI v3.4 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -96,11 +96,11 @@ Host-interface traffic and protocol-account traffic are different sources:
 - account usage/rankings: the durable ledger for one complete, explicit owner; otherwise mapped protocol counters plus an unattributed remainder;
 - account quota and Overview quota: one shared backend traffic-limit setting.
 
-Every account row exposes whether its number comes from the durable ledger, a protocol-core counter, or no mapping. Do not claim that a protocol cumulative value is billing-cycle usage unless the upstream core resets on that exact cycle.
+Every account row exposes whether its number comes from the durable ledger, a protocol-core counter, or no mapping. Protocol and multi-account core counters are preserved exactly: CastoriceUI never scales them to fit the interface ledger. When the durable ledger is larger, only the positive difference is added as `Unattributed`; when core lifetime counters are larger than the current billing cycle, the protocol/account total remains larger and is labelled as a separate source. `protocolTotalBytes` and `accountTotalBytes` expose those displayed sums separately from the durable `totalBytes`. Do not claim that a protocol cumulative value is billing-cycle usage unless the upstream core resets on that exact cycle.
 
 ## Subscription validation
 
-The setup field accepts an actual HTTPS subscription URL for a one-time server-side probe. The candidate may contain a path or query token, but is never written to SQLite, returned in a response, or included in audit/error details; the UI clears it after validation. Complete subscription records remain in protected server configuration. On save, the backend probes both the candidate and enabled protected records. Cached runtime rechecks probe only protected records (or the protected legacy base URL when no record exists). Every request requires public DNS results, valid TLS, no redirects, and a non-empty response of at most 256 KiB. A failed configured probe produces an integration alert. An already configured deployment can leave the field blank to revalidate protected records.
+The setup field accepts an actual HTTPS subscription URL for a one-time server-side probe. The candidate may contain a path or query token, but is never written to SQLite, returned in a response, or included in audit/error details; the UI clears it after validation. Complete subscription records remain in protected server configuration. On save, the backend probes both the candidate and enabled protected records. Cached runtime rechecks probe only protected records (or the protected legacy base URL when no record exists). Every request requires public DNS results, pins the validated address for the TCP connection while retaining the original TLS SNI/Host, accepts valid TLS only, follows no redirects, and limits the non-empty response to 256 KiB. A failed configured probe produces an integration alert. An already configured deployment can leave the field blank to revalidate protected records.
 
 ## Quota reset time and timezone
 

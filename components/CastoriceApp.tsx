@@ -300,6 +300,8 @@ export function CastoriceApp() {
       }
       if (hasLiveData.current)
         setDashboard((current) => ({ ...current, mode: "stale" }));
+      else
+        setDashboard((current) => ({ ...current, mode: "error" }));
     } finally {
       dashboardLoading.current = false;
     }
@@ -561,6 +563,15 @@ export function CastoriceApp() {
       />
     );
   if (dashboard.mode === "loading") return <PageLoading />;
+  if (dashboard.mode === "error")
+    return (
+      <main className="boot-state">
+        <Icon name="monitor_heart" size={40} />
+        <h1>{t("仪表盘数据暂时不可用", "Dashboard data is temporarily unavailable")}</h1>
+        <p>{t("后端已连接，但实时采集失败。请检查网卡配置和后端日志后重试；页面不会显示伪造的零值。", "The backend is reachable, but live collection failed. Check the interface configuration and backend log, then retry; the page will not display fabricated zero values.")}</p>
+        <Button icon="refresh" onClick={() => void loadDashboard()}>{t("重试", "Retry")}</Button>
+      </main>
+    );
   if (!session.setupComplete)
     return (
       <>

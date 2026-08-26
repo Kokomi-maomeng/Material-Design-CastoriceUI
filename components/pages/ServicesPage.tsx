@@ -25,7 +25,7 @@ export function ServicesPage({
   ).length;
   const unhealthy = services.length - running;
   const allHealthy = services.length > 0 && unhealthy === 0;
-  const adapterServices = services.filter((item) => item.id === "hysteria2" || item.id === "anytls");
+  const adapterServices = services.filter((item) => item.id === "hysteria2" || item.id === "singbox");
   const runningAdapters = adapterServices.filter((item) => item.status === "running").length;
   return (
     <div className="page-content page-enter">
@@ -153,17 +153,19 @@ export function ServicesPage({
               <span>
                 <b>{t("协议适配器", "Protocol adapters")}</b>
                 <small>
-                  {t(
-                    `${runningAdapters} / ${adapterServices.length} 个数据源在线`,
-                    `${runningAdapters} of ${adapterServices.length} data sources online`,
-                  )}
+                  {adapterServices.length
+                    ? t(
+                      `${runningAdapters} / ${adapterServices.length} 个数据源在线`,
+                      `${runningAdapters} of ${adapterServices.length} data sources online`,
+                    )
+                    : t("未配置可选协议适配器", "No optional protocol adapters configured")}
                 </small>
               </span>
               <Progress
                 value={
                   adapterServices.length ? (runningAdapters / adapterServices.length) * 100 : 0
                 }
-                tone={!adapterServices.length || runningAdapters < adapterServices.length ? "warning" : "success"}
+                tone={!adapterServices.length ? "primary" : runningAdapters < adapterServices.length ? "warning" : "success"}
               />
             </div>
           </div>

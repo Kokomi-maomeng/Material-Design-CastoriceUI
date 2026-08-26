@@ -1,4 +1,4 @@
-# CastoriceUI v3.3 deployment / 部署手册
+# CastoriceUI v3.4 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -12,7 +12,7 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 - Node.js 20.19+ on the build machine
 - Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
 
-Do not deploy the backend directly on a public address. The v3.3 login cookie is Secure by default and therefore requires HTTPS in production.
+Do not deploy the backend directly on a public address. The v3.4 login cookie is Secure by default and therefore requires HTTPS in production.
 
 ## 2. Choose an artifact and inspect it / 选择交付物并检查
 
@@ -32,8 +32,8 @@ GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校�
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-tar -xzf CastoriceUI-v3.3.0.tar.gz
-cd CastoriceUI-v3.3.0
+tar -xzf CastoriceUI-v3.4.0.tar.gz
+cd CastoriceUI-v3.4.0
 python3 -m compileall -q server
 python3 -m unittest discover -s server/tests -p 'test_*.py' -v
 ```
@@ -71,7 +71,7 @@ First installation only:
 sudo install -m 0640 -o root -g castoriceui server/config.example.json /etc/castoriceui/config.json
 ```
 
-On upgrades, merge new keys manually into the existing protected config. Never overwrite it with `config.example.json`. Set the real interface name, quota, certificate path, subscription provider, account mappings, and loopback API Secrets only on the server.
+On upgrades, merge new keys manually into the existing protected config. Never overwrite it with `config.example.json`. An empty `interface` selects a real readable default-route interface automatically. An explicit unavailable interface falls back to the detected interface while producing a visible configuration warning; set the intended interface when stable accounting must remain tied to a specific device. Set quota, certificate path, subscription provider, account mappings, and loopback API Secrets only on the server.
 
 ## 5. Protocol statistics / 协议统计
 
@@ -111,7 +111,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `3.3.0`.
+Expected version: `3.4.0`.
 
 For a new database, generate the first-admin token once:
 
@@ -126,7 +126,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v3.3.0
+release=v3.4.0
 frontend_source=dist       # source checkout / 源码检出
 # frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
 test -f "$frontend_source/index.html"
@@ -147,7 +147,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Do **not** enable `auth_basic`. v3.3 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out.
+Do **not** enable `auth_basic`. v3.4 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out. Keep the complete security-header set inside every location that declares its own `add_header`; Nginx does not inherit parent `add_header` directives into such a location.
 
 Recommended validation before using a browser:
 
@@ -203,7 +203,7 @@ If this VPS also carries the operator's active proxy traffic, do not reboot the 
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `3.3.0`
+- loopback and HTTPS health report `3.4.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate

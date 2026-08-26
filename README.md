@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-3.3.0-6750A4)
+![Version](https://img.shields.io/badge/version-3.4.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -50,7 +50,7 @@ npm run check
 npm run dev
 ```
 
-这些命令只启动前端开发服务器。后端不可用时，页面会明确显示连接失败，不会生成演示流量。仓库目前没有内置 Vite `/api/` 代理或关闭 Secure Cookie 的开发模式；如需调试登录、初始化和真实仪表盘交互，请按 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 将前后端放在同源 HTTPS 反向代理后。完整接口约定见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
+`npm run dev` 会在 `https://127.0.0.1:5173` 启动仅监听回环地址的开发服务器，使用本地生成的开发证书，并把 `/api/` 代理到 `http://127.0.0.1:18080`。首次访问需在浏览器确认本地证书。后端必须另行运行在 Linux/WSL，或通过 SSH 端口转发到本机回环端口；代理目标只能通过 `CASTORICEUI_DEV_API_TARGET` 设置为 HTTP 回环 URL。Secure Cookie 不会被关闭。后端不可用或采集失败时，页面会显示明确错误且不生成演示流量。完整接口约定见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
 
 ## 生产部署
 
@@ -58,7 +58,7 @@ npm run dev
 
 部署与升级步骤见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。升级前应备份受保护配置、完整的 `state.db*`、当前前后端目录、systemd 单元和 Nginx 站点，并保留可验证的回滚版本。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v3.3.0.md`](docs/RELEASE_NOTES_v3.3.0.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v3.4.0.md`](docs/RELEASE_NOTES_v3.4.0.md)。
 
 ## English
 
@@ -66,7 +66,7 @@ CastoriceUI is a Material Design 3 observability console for Linux VPS hosts. It
 
 The React frontend uses a lightweight Python/SQLite backend. Hysteria2 is integrated through its Traffic Stats API. sing-box connections are classified only through explicit inbound-tag mappings for AnyTLS, VLESS/XTLS/Reality, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC.
 
-For frontend-only local development, run `npm ci`, `npm run check`, and `npm run dev`. The repository does not currently provide a Vite `/api/` proxy or an insecure-cookie backend mode; authenticated full-stack testing therefore requires the same-origin HTTPS layout described in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Keep every backend or protocol-management endpoint on loopback behind Nginx and TLS.
+For local development, run `npm ci`, `npm run check`, and `npm run dev`. Vite listens only on `https://127.0.0.1:5173`, creates a local development certificate, and proxies `/api/` to `http://127.0.0.1:18080`. Run the backend separately on Linux/WSL or expose a remote loopback backend through an SSH local port forward. `CASTORICEUI_DEV_API_TARGET` accepts HTTP loopback URLs only, and Secure cookies remain enabled. Keep every production backend or protocol-management endpoint on loopback behind Nginx and valid TLS.
 
 ## License
 

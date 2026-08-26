@@ -63,7 +63,7 @@ describe("v3.3 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v3.3")).toBeTruthy();
+    expect(screen.getByText("v3.4")).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -140,6 +140,8 @@ describe("v3.3 runtime behavior", () => {
   it("sorts unattributed traffic ahead of a zero-usage managed account", () => {
     renderEnglish(<TrafficPage traffic={{
       totalBytes: 532_000_000_000,
+      protocolTotalBytes: 0,
+      accountTotalBytes: 532_000_000_000,
       ranges: { "1h": [], "6h": [], "24h": [], "3day": [], "7day": [] },
       hourly: [], daily: [], protocol: [],
       account: [{ name: "primary", value: 0 }, { name: "Unattributed", nameZh: "未归属", nameEn: "Unattributed", value: 532_000_000_000 }],

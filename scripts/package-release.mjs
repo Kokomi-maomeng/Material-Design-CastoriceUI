@@ -39,7 +39,10 @@ await Promise.all([
   copy("docs/DEPLOYMENT.md", "docs/DEPLOYMENT.md"),
   copy("docs/INTEGRATION.md", "docs/INTEGRATION.md"),
   cp(releaseNotes, path.join(stageDirectory, "docs", `RELEASE_NOTES_v${version}.md`)),
+  copy("docs/images/dashboard-mobile.png", "docs/images/dashboard-mobile.png"),
+  copy("public/og.png", "public/og.png"),
   copy("README.md", "README.md"),
+  copy("CONTRIBUTING.md", "CONTRIBUTING.md"),
   copy("SECURITY.md", "SECURITY.md"),
   copy("LICENSE", "LICENSE"),
 ]);

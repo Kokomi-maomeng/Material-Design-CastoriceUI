@@ -8,7 +8,7 @@
   "session_lifetime_seconds": 43200,
   "audit_retention_days": 180,
   "node_name": "My VPS node",
-  "interface": "eth0",
+  "interface": "",
   "traffic_limit_bytes": 1000000000000,
   "traffic_billing_day": 1,
   "traffic_billing_timezone": "UTC",

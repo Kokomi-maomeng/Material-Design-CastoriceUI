@@ -20,7 +20,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, name: t(item.nameZh ?? item.name, item.nameEn ?? item.name), value: item.value / 1_000_000_000, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
   const accountTraffic = traffic.account.map((item) => ({ ...item, name: t(item.nameZh ?? item.name, item.nameEn ?? item.name), value: item.value / 1_000_000_000 })).sort((left, right) => right.value - left.value || left.name.localeCompare(right.name));
-  const total = traffic.totalBytes / 1_000_000_000;
+  const protocolTotal = traffic.protocolTotalBytes / 1_000_000_000;
   const accountMax = Math.max(1, ...accountTraffic.map((item) => item.value));
 
   return <div className="page-content page-enter">
@@ -39,7 +39,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
       </Card>
       <Card variant="filled" className="protocol-panel">
         <CardHeader title={t("协议分布", "Protocol distribution")} />
-        <DonutChart data={protocolTraffic} centerLabel={t("总流量", "Total")} centerValue={`${total.toFixed(0)} GB`} />
+        <DonutChart data={protocolTraffic} centerLabel={t("分布合计", "Distribution total")} centerValue={`${protocolTotal.toFixed(0)} GB`} />
       </Card>
     </section>
     <section className="content-grid content-grid--traffic-bottom">

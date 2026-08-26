@@ -18,17 +18,17 @@ SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
 
 from castoriceui.config import AppConfig  # noqa: E402
-from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, http_json, hysteria_snapshot, semantic_version, singbox_snapshot, traffic_quota_period  # noqa: E402
+from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, detect_interface, http_json, hysteria_snapshot, semantic_version, service_snapshots, singbox_snapshot, traffic_quota_period  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.api import ApiHandler, ApiServer, normalized_origin  # noqa: E402
-from castoriceui.security import fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, probe_subscription_url, safe_background_image, validate_probe_target  # noqa: E402
+from castoriceui.security import _public_https_get, fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, probe_subscription_url, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 
 
 class BackendTests(unittest.TestCase):
     def test_service_versions_ignore_terminal_control_sequences(self) -> None:
         self.assertEqual(semantic_version("\x1b[2JHysteria2 v2.11.0\x1b[0m", "hysteria2"), "2.11.0")
-        self.assertEqual(semantic_version("sing-box version 1.13.15", "anytls"), "1.13.15")
+        self.assertEqual(semantic_version("sing-box version 1.13.15", "singbox"), "1.13.15")
         self.assertEqual(semantic_version("nginx version: nginx/1.26.3", "nginx"), "1.26.3")
 
     def test_automatic_update_status_comes_from_systemd(self) -> None:
@@ -80,14 +80,44 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(mapped[0]["usageSource"], "durableLedger")
             self.assertEqual(mapped[0]["onlineDevices"], 3)
 
-    def test_protocol_breakdowns_reconcile_exactly_to_the_durable_ledger(self) -> None:
+    def test_protocol_breakdowns_preserve_observed_counters_and_only_add_a_remainder(self) -> None:
         allocated = DashboardService.reconcile_breakdown([
             {"name": "Hysteria2", "value": 200},
             {"name": "AnyTLS", "value": 100},
         ], 400, "Unattributed")
         self.assertEqual(sum(item["value"] for item in allocated), 400)
-        self.assertEqual([item["value"] for item in allocated], [266, 134])
+        self.assertEqual([item["value"] for item in allocated], [200, 100, 100])
+        observed = DashboardService.reconcile_breakdown([
+            {"name": "Hysteria2", "value": 200},
+            {"name": "AnyTLS", "value": 100},
+        ], 100, "Unattributed")
+        self.assertEqual([item["value"] for item in observed], [200, 100])
         self.assertEqual(DashboardService.reconcile_breakdown([], 400, "Unattributed"), [{"name": "Unattributed", "value": 400}])
+
+    def test_invalid_configured_interface_falls_back_to_a_real_detected_interface(self) -> None:
+        with patch("castoriceui.collectors.interface_has_counters", side_effect=lambda name: name == "ens3"), patch("castoriceui.collectors.run", return_value="default via 192.0.2.1 dev ens3"):
+            self.assertEqual(detect_interface("eth0"), "ens3")
+            self.assertEqual(detect_interface("ens3"), "ens3")
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"), interface="eth0")
+            dashboard = DashboardService(config, Storage(config.database_path))
+            with patch("castoriceui.collectors.detect_interface", return_value="ens3"):
+                dashboard._apply_integration_values("traffic", {"interface": ""})
+            self.assertEqual(config.interface, "")
+            self.assertEqual(dashboard.system_collector.interface, "ens3")
+
+    def test_optional_proxy_services_are_hidden_and_singbox_is_not_labelled_anytls(self) -> None:
+        system = {"cpuCores": 2, "load": [0.1], "kernel": "6.12", "uptimeSeconds": 60}
+        with patch("castoriceui.collectors.service_state", return_value=("active", 60)), patch("castoriceui.collectors.run", return_value="nginx version: nginx/1.26.3"), patch("castoriceui.collectors.certificate_info", return_value={"status": "warning", "detail": "not configured", "days": 0}):
+            services = service_snapshots(AppConfig(), system, {"available": False}, {"available": False})
+        self.assertEqual([item["id"] for item in services[:1]], ["nginx"])
+
+        config = AppConfig(hysteria_api={"url": "http://127.0.0.1:19090"}, singbox_api={"url": "http://127.0.0.1:19091"}, protocol_adapters={"vless": {"inboundTags": ["vless-in"]}})
+        with patch("castoriceui.collectors.service_state", return_value=("inactive", 0)), patch("castoriceui.collectors.run", return_value="sing-box version 1.13.15"), patch("castoriceui.collectors.certificate_info", return_value={"status": "warning", "detail": "not configured", "days": 0}):
+            services = service_snapshots(config, system, {"available": True}, {"available": True})
+        proxy_services = {item["id"]: item for item in services if item["id"] in {"hysteria2", "singbox"}}
+        self.assertEqual(proxy_services["singbox"]["name"], "sing-box")
+        self.assertEqual(proxy_services["singbox"]["status"], "warning")
 
     def test_connections_group_by_source_and_calculate_rates_from_consecutive_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -491,26 +521,33 @@ class BackendTests(unittest.TestCase):
             normalize_https_image_url("https://user:secret@images.example.test/panel.webp")
         with self.assertRaisesRegex(ValueError, "public IP"):
             fetch_https_image_api("https://127.0.0.1/private.png")
-        with patch("castoriceui.security._require_public_host"), patch("castoriceui.security.urlrequest.build_opener") as build_opener:
-            build_opener.return_value.open.side_effect = urllib.error.URLError("offline")
+        with patch("castoriceui.security._public_https_get", side_effect=OSError("offline")):
             with self.assertRaisesRegex(ValueError, "unreachable"):
                 fetch_https_image_api("https://images.example.test/random")
 
     def test_subscription_probe_requires_a_nonempty_public_https_response(self) -> None:
-        response = MagicMock()
-        response.__enter__.return_value = response
-        response.__exit__.return_value = False
-        response.headers.get.return_value = "4"
-        response.read.return_value = b"data"
-        with patch("castoriceui.security._require_public_host") as public_host, patch("castoriceui.security.urlrequest.build_opener") as build_opener:
-            build_opener.return_value.open.return_value = response
+        headers = MagicMock()
+        headers.get.return_value = "4"
+        with patch("castoriceui.security._public_https_get", return_value=(200, headers, b"data")) as fetch:
             probe_subscription_url("https://subscriptions.example.test/path/token")
-            public_host.assert_called_once_with("subscriptions.example.test")
-            request = build_opener.return_value.open.call_args.args[0]
-            self.assertNotIn("path/token", repr(request.headers))
-            response.read.return_value = b""
+            self.assertNotIn("path/token", repr(fetch.call_args.args[1]))
+            fetch.return_value = (200, headers, b"")
             with self.assertRaisesRegex(ValueError, "empty"):
                 probe_subscription_url("https://subscriptions.example.test/path/token")
+
+    def test_public_https_fetch_pins_the_validated_address(self) -> None:
+        response = MagicMock()
+        response.status = 200
+        response.headers = MagicMock()
+        response.read.return_value = b"ok"
+        connection = MagicMock()
+        connection.getresponse.return_value = response
+        resolved = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        with patch("castoriceui.security.socket.getaddrinfo", return_value=resolved) as resolver, patch("castoriceui.security._PinnedHTTPSConnection", return_value=connection) as pinned:
+            status, _, body = _public_https_get("https://example.com/resource", {"Accept": "text/plain"}, 16)
+        self.assertEqual((status, body), (200, b"ok"))
+        resolver.assert_called_once()
+        pinned.assert_called_once_with("example.com", 443, "93.184.216.34", 8)
 
     def test_subscription_setup_probes_protected_url_without_persisting_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -613,6 +650,11 @@ class BackendTests(unittest.TestCase):
                 csrf = str(session["csrfToken"])
                 status, _ = call("/api/v2/dashboard")
                 self.assertEqual(status, 200)
+                dashboard.snapshot.side_effect = RuntimeError("collector failed")
+                status, result = call("/api/v2/dashboard")
+                self.assertEqual(status, 503)
+                self.assertEqual(result["error"], "dashboard_unavailable")
+                dashboard.snapshot.side_effect = None
                 status, audits = call("/api/v2/audits?page=1&pageSize=30")
                 self.assertEqual(status, 200)
                 self.assertEqual(audits["total"], 0)
@@ -741,6 +783,9 @@ class BackendTests(unittest.TestCase):
                 {"database_path": str(root / "b.db"), "secure_cookies": False},
                 {"database_path": str(root / "c.db"), "unexpected_secret": "value"},
                 {"database_path": str(root / "d.db"), "hysteria_api": {"url": "http://169.254.169.254/latest"}},
+                {"database_path": str(root / "e.db"), "protocol_adapters": {"vless": {"inboundTags": "vless-in"}}},
+                {"database_path": str(root / "f.db"), "protocol_adapters": {"vless": {"inboundTags": ["same"]}, "trojan": {"inboundTags": ["SAME"]}}},
+                {"database_path": str(root / "g.db"), "protocol_adapters": {"vless": {"inboundTags": [], "securityProfile": "made-up"}}},
             ]
             for index, payload in enumerate(cases):
                 path = root / f"unsafe-{index}.json"

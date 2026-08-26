@@ -86,11 +86,11 @@ class DashboardService:
                 adapter["securityProfile"] = values.get("securityProfile", "standard")
             self.config.protocol_adapters[integration_id] = adapter
         elif integration_id == "traffic":
-            interface = values.get("interface", "").strip()
-            if interface:
-                interface = validate_interface_name(interface)
-                self.config.interface = interface
-                self.system_collector.interface = interface
+            if "interface" in values:
+                interface = values["interface"].strip()
+                if interface:
+                    interface = validate_interface_name(interface)
+                self.system_collector.configure_interface(interface)
             quota = values.get("quotaGb", "").strip()
             if quota:
                 quota_bytes = round(float(quota) * 1_000_000_000)
@@ -457,21 +457,15 @@ class DashboardService:
 
     @staticmethod
     def reconcile_breakdown(items: list[dict[str, Any]], total_bytes: int, fallback_name: str) -> list[dict[str, Any]]:
-        """Scale volatile core counters to the durable interface ledger without changing their proportions."""
+        """Preserve observed counters and expose only a real positive ledger remainder."""
         total_bytes = max(0, int(total_bytes))
         cleaned = [{**item, "value": max(0, int(item.get("value", 0)))} for item in items]
         raw_total = sum(item["value"] for item in cleaned)
-        if total_bytes == 0:
-            return [{**item, "value": 0} for item in cleaned]
         if raw_total == 0:
-            return [{"name": fallback_name, "value": total_bytes}]
-        allocated: list[dict[str, Any]] = []
-        running = 0
-        for index, item in enumerate(cleaned):
-            value = total_bytes - running if index == len(cleaned) - 1 else (item["value"] * total_bytes) // raw_total
-            allocated.append({**item, "value": value})
-            running += value
-        return allocated
+            return [{"name": fallback_name, "value": total_bytes}] if total_bytes else []
+        if total_bytes > raw_total:
+            cleaned.append({"name": fallback_name, "value": total_bytes - raw_total})
+        return cleaned
 
     def account_metrics(self, accounts: list[dict[str, Any]], hy2: dict[str, Any], _total_bytes: int) -> list[dict[str, Any]]:
         traffic = hy2.get("traffic", {}) if isinstance(hy2.get("traffic"), dict) else {}
@@ -688,7 +682,17 @@ class DashboardService:
         system_ready = bool(system and system.get("kernel") and system.get("memoryTotalBytes"))
         storage_ready = bool(system_ready and system and system.get("databaseWritable"))
         update("system", ready=system_ready, summary="Host metrics are available" if system_ready else "Host metrics are unavailable", summary_zh="主机指标可用" if system_ready else "主机指标当前不可用")
-        update("traffic", ready=storage_ready, summary="Traffic sampling and storage are writable" if storage_ready else "Traffic sampling storage is unavailable or read-only", summary_zh="流量采样与存储可写" if storage_ready else "流量采样存储不可用或只读")
+        interface_fallback = bool(system and system.get("interfaceFallback"))
+        traffic_ready = bool(storage_ready and not interface_fallback)
+        if interface_fallback:
+            sampled = str(system.get("interface", "unknown"))
+            configured = str(system.get("configuredInterface", "unknown"))
+            traffic_summary = f"Configured interface {configured} is unavailable; collecting real counters from detected interface {sampled}"
+            traffic_summary_zh = f"配置网卡 {configured} 不可用；当前正从实际检测到的网卡 {sampled} 采集真实计数器"
+        else:
+            traffic_summary = "Traffic sampling and storage are writable" if storage_ready else "Traffic sampling storage is unavailable or read-only"
+            traffic_summary_zh = "流量采样与存储可写" if storage_ready else "流量采样存储不可用或只读"
+        update("traffic", ready=traffic_ready, summary=traffic_summary, summary_zh=traffic_summary_zh)
         subscription_state = subscription_probe or self.subscription_probe(self.config.subscription_base_url)
         subscription_count = int(subscription_state.get("count", 0))
         subscriptions_configured = bool(subscription_state.get("configured"))
@@ -756,9 +760,7 @@ class DashboardService:
                 item.update({"nameZh": "未归属", "nameEn": "Unattributed"})
         account_breakdown = [{"name": item.get("name", "account"), "value": item.get("usedBytes", 0)} for item in accounts]
         attributed_accounts = sum(int(item["value"]) for item in account_breakdown)
-        if attributed_accounts > authoritative_total:
-            account_breakdown = self.reconcile_breakdown(account_breakdown, authoritative_total, "Unattributed")
-        elif authoritative_total > attributed_accounts:
+        if authoritative_total > attributed_accounts:
             account_breakdown.append({"name": "Unattributed", "nameZh": "未归属", "nameEn": "Unattributed", "value": authoritative_total - attributed_accounts})
         saved_ui_settings = self.storage.get_setting("ui_settings", {})
         if not isinstance(saved_ui_settings, dict):
@@ -771,7 +773,14 @@ class DashboardService:
             "overview": system,
             "accounts": accounts,
             "connections": connections,
-            "traffic": {**traffic, "totalBytes": authoritative_total, "protocol": protocol, "account": account_breakdown},
+            "traffic": {
+                **traffic,
+                "totalBytes": authoritative_total,
+                "protocolTotalBytes": sum(int(item["value"]) for item in protocol),
+                "accountTotalBytes": sum(int(item["value"]) for item in account_breakdown),
+                "protocol": protocol,
+                "account": account_breakdown,
+            },
             "subscriptions": self.public_subscriptions(),
             "networkTargets": network,
             "services": services,

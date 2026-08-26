@@ -58,19 +58,25 @@ def semantic_version(value: str, service_id: str) -> str:
     cleaned = clean_command_output(value)
     patterns = {
         "hysteria2": r"(?i)(?:hysteria\s*)?v?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)",
-        "anytls": r"(?i)(?:sing-box\s+version\s+)?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)",
+        "singbox": r"(?i)(?:sing-box\s+version\s+)?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)",
         "nginx": r"(?i)nginx(?:\s+version)?:\s*nginx/(\d+\.\d+(?:\.\d+)?)",
     }
     match = re.search(patterns[service_id], cleaned)
     return match.group(1) if match else "unknown"
 
 
+def interface_has_counters(name: str) -> bool:
+    root = Path("/sys/class/net") / name / "statistics"
+    return (root / "rx_bytes").is_file() and (root / "tx_bytes").is_file()
+
+
 def detect_interface(configured: str) -> str:
-    if configured:
+    configured = configured.strip()
+    if configured and interface_has_counters(configured):
         return configured
     output = run(["ip", "-o", "route", "show", "default"])
     match = re.search(r"\bdev\s+(\S+)", output)
-    if match:
+    if match and interface_has_counters(match.group(1)):
         return match.group(1)
     network_root = Path("/sys/class/net")
     try:
@@ -189,6 +195,11 @@ class SystemCollector:
         except OSError:
             self.boot_id = "unknown"
 
+    def configure_interface(self, configured: str) -> None:
+        self.config.interface = configured
+        self.interface = detect_interface(configured)
+        self.previous_net = None
+
     @staticmethod
     def _cpu_times() -> tuple[int, int]:
         fields = [int(value) for value in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
@@ -216,6 +227,10 @@ class SystemCollector:
         return total, used, round(100 * used / total, 1)
 
     def network(self) -> tuple[int, int, float, float]:
+        detected = detect_interface(self.config.interface)
+        if detected != self.interface:
+            self.interface = detected
+            self.previous_net = None
         if not self.interface:
             raise RuntimeError("No usable network interface is configured or detected")
         root = Path("/sys/class/net") / self.interface / "statistics"
@@ -279,6 +294,8 @@ class SystemCollector:
             "downloadBps": download,
             "uploadBps": upload,
             "interface": self.interface,
+            "configuredInterface": self.config.interface,
+            "interfaceFallback": bool(self.config.interface and self.config.interface != self.interface),
             "kernel": platform.release(),
             "databaseBytes": self.storage.database_size(),
             "databaseWritable": self.storage.is_writable(),
@@ -389,13 +406,15 @@ def automatic_update_info() -> dict[str, str]:
 
 
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
-    definitions = [
-        ("hysteria2", "Hysteria2", "hysteria-server", "bolt", ["/usr/local/bin/hysteria", "version"]),
-        ("anytls", "AnyTLS", "sing-box", "encrypted", ["/usr/bin/sing-box", "version"]),
-        ("nginx", "Nginx", "nginx", "language", ["nginx", "-v"]),
-    ]
+    definitions = []
+    if str(config.hysteria_api.get("url", "")).strip():
+        definitions.append(("hysteria2", "Hysteria2", "hysteria-server", "bolt", ["/usr/local/bin/hysteria", "version"], hy2))
+    singbox_configured = bool(str(config.singbox_api.get("url", "")).strip() and any(adapter.get("inboundTags") for adapter in config.protocol_adapters.values()))
+    if singbox_configured:
+        definitions.append(("singbox", "sing-box", "sing-box", "encrypted", ["/usr/bin/sing-box", "version"], sb))
+    definitions.append(("nginx", "Nginx", "nginx", "language", ["nginx", "-v"], None))
     services: list[dict[str, Any]] = []
-    def inspect(definition: tuple[str, str, str, str, list[str]]) -> tuple[tuple[str, str, str, str, list[str]], str, int, str]:
+    def inspect(definition: tuple[str, str, str, str, list[str], dict[str, Any] | None]) -> tuple[tuple[str, str, str, str, list[str], dict[str, Any] | None], str, int, str]:
         active, uptime = service_state(definition[2])
         version = semantic_version(run(definition[4], timeout=2), definition[0])
         return definition, active, uptime, version
@@ -403,9 +422,10 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="service") as pool:
         inspected = list(pool.map(inspect, definitions))
     for definition, active, uptime, version in inspected:
-        service_id, name, _unit, icon, _command = definition
-        adapter = hy2 if service_id == "hysteria2" else sb if service_id == "anytls" else None
-        if active != "active":
+        service_id, name, _unit, icon, _command, adapter = definition
+        if active != "active" and adapter and adapter.get("available"):
+            status, detail, detail_zh = "warning", "statistics adapter responds · expected systemd unit is inactive or non-standard", "统计适配器响应正常 · 预期 systemd 单元未运行或使用了非标准名称"
+        elif active != "active":
             status, detail, detail_zh = "stopped", "systemd reports the service is not active", "systemd 报告服务未运行"
         elif adapter is None:
             status, detail, detail_zh = "running", "systemd reports active", "systemd 报告服务正在运行"

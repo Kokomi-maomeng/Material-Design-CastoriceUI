@@ -31,7 +31,7 @@ export function OverviewPage({
   onRefresh,
   onViewServices,
 }: {
-  mode: "loading" | "live" | "stale";
+  mode: "loading" | "live" | "stale" | "error";
   metrics: OverviewMetrics;
   connections: Connection[];
   services: ServiceStatus[];

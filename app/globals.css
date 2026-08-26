@@ -719,7 +719,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .auth-language-select { width: min(190px, 100%); }
 .connection-detail-grid.no-destination { grid-template-columns: 34px minmax(110px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr); }
 
-/* v3.3 truthful setup, quota time, and wide network-chart layout */
+/* Truthful setup, quota time, and wide network-chart layout. */
 .traffic-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .sparkline { width: 100%; min-width: 0; height: 220px; aspect-ratio: auto; overflow-x: auto; scrollbar-width: thin; }
 .sparkline svg { display: block; width: 100%; min-width: 520px; height: 200px; overflow: visible; }

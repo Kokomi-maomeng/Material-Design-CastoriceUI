@@ -238,7 +238,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         if session is None:
             return
         if path in {"/api/v1/dashboard", "/api/v2/dashboard"}:
-            self.send_json(HTTPStatus.OK, self.app.dashboard.snapshot())
+            try:
+                self.send_json(HTTPStatus.OK, self.app.dashboard.snapshot())
+            except Exception as error:
+                print(f"Dashboard snapshot failed: {type(error).__name__}")
+                self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "dashboard_unavailable"})
         elif path == "/api/v2/audits":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)

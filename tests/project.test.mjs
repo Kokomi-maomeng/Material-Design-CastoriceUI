@@ -32,7 +32,7 @@ test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "3\.3\.0"/);
+  assert.match(backendPackage, /__version__ = "3\.4\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -341,4 +341,37 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
   assert.match(app, /draftQuotaTime/);
   assert.match(api, /resetTime/);
   assert.match(collector, /reset_time/);
+});
+
+test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and maintenance automation", async () => {
+  const [configExample, config, collector, dashboard, api, types, traffic, services, security, vite, nginx, packager, dependabot, codeql] = await Promise.all([
+    read("server/config.example.json"), read("server/castoriceui/config.py"), read("server/castoriceui/collectors.py"),
+    read("server/castoriceui/dashboard.py"), read("server/castoriceui/api.py"), read("lib/types.ts"),
+    read("components/pages/TrafficPage.tsx"), read("components/pages/ServicesPage.tsx"), read("server/castoriceui/security.py"),
+    read("vite.config.ts"), read("deploy/nginx.conf.example"), read("scripts/package-release.mjs"),
+    read(".github/dependabot.yml"), read(".github/workflows/codeql.yml"),
+  ]);
+  assert.equal(JSON.parse(configExample).interface, "");
+  assert.match(config, /inboundTags must contain at most 20/);
+  assert.match(config, /assigned to both/);
+  assert.match(collector, /interfaceFallback/);
+  assert.match(collector, /\("singbox", "sing-box"/);
+  assert.doesNotMatch(dashboard, /item\["value"\] \* total_bytes/);
+  assert.match(dashboard, /protocolTotalBytes/);
+  assert.match(api, /HTTPStatus\.SERVICE_UNAVAILABLE/);
+  assert.match(types, /"error"/);
+  assert.match(traffic, /Distribution total/);
+  assert.match(services, /item\.id === "singbox"/);
+  assert.match(security, /class _PinnedHTTPSConnection/);
+  assert.match(security, /server_hostname=self\.host/);
+  assert.doesNotMatch(security, /CastoriceUI\/2\.6/);
+  assert.match(vite, /basicSsl\(\)/);
+  assert.match(vite, /CASTORICEUI_DEV_API_TARGET/);
+  const spaLocation = nginx.match(/location \/ \{([^]*?)\n {4}\}/)?.[1] ?? "";
+  for (const header of ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]) assert.match(spaLocation, new RegExp(header));
+  for (const asset of ["public/og.png", "docs/images/dashboard-mobile.png", "CONTRIBUTING.md"]) assert.match(packager, new RegExp(asset.replaceAll("/", "\\/")));
+  assert.match(dependabot, /github\/codeql-action\/\*/);
+  const codeqlPins = [...codeql.matchAll(/github\/codeql-action\/(?:init|analyze)@([0-9a-f]{40})/g)].map((match) => match[1]);
+  assert.equal(codeqlPins.length, 2);
+  assert.equal(new Set(codeqlPins).size, 1);
 });

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import re
 import socket
+import ssl
 from pathlib import Path
-from urllib import error as urlerror
-from urllib import request as urlrequest
 from urllib.parse import urlsplit, urlunsplit
+
+from . import __version__
 
 
 _HOST_LABEL = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$")
@@ -60,32 +62,27 @@ def normalize_subscription_url(value: str) -> str:
 def probe_subscription_url(value: str, max_bytes: int = 256 * 1024) -> None:
     """Perform a bounded, no-redirect, public-network HTTPS subscription probe."""
     normalized = normalize_subscription_url(value)
-    parsed = urlsplit(normalized)
-    _require_public_host(str(parsed.hostname))
-    opener = urlrequest.build_opener(_NoRedirect)
-    request = urlrequest.Request(
-        normalized,
-        headers={
-            "Accept": "text/plain,application/octet-stream,application/yaml,application/json;q=0.8,*/*;q=0.5",
-            "User-Agent": "CastoriceUI/3.3 subscription-check",
-        },
-    )
     try:
-        response = opener.open(request, timeout=8)
-    except urlerror.HTTPError as error:
-        raise ValueError(f"Subscription publisher returned HTTP {error.code}") from error
-    except (urlerror.URLError, TimeoutError, OSError) as error:
+        status, headers, body = _public_https_get(
+            normalized,
+            {
+                "Accept": "text/plain,application/octet-stream,application/yaml,application/json;q=0.8,*/*;q=0.5",
+                "User-Agent": f"CastoriceUI/{__version__} subscription-check",
+            },
+            max_bytes,
+        )
+    except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
         raise ValueError("Subscription publisher is unreachable") from error
-    with response:
-        declared = response.headers.get("Content-Length")
-        if declared:
-            try:
-                declared_length = int(declared)
-            except (TypeError, ValueError):
-                declared_length = 0
-            if declared_length > max_bytes:
-                raise ValueError("Subscription response exceeds 256 KiB")
-        body = response.read(max_bytes + 1)
+    if not 200 <= status < 300:
+        raise ValueError(f"Subscription publisher returned HTTP {status}")
+    declared = headers.get("Content-Length")
+    if declared:
+        try:
+            declared_length = int(declared)
+        except (TypeError, ValueError):
+            declared_length = 0
+        if declared_length > max_bytes:
+            raise ValueError("Subscription response exceeds 256 KiB")
     if not body:
         raise ValueError("Subscription publisher returned an empty response")
     if len(body) > max_bytes:
@@ -130,21 +127,60 @@ def normalize_https_image_url(value: str, allowed_hosts: list[str] | None = None
     return urlunsplit(("https", parsed.netloc, parsed.path or "/", parsed.query, ""))
 
 
-def _require_public_host(host: str) -> None:
+def _require_public_host(host: str, port: int = 443) -> list[str]:
     try:
         addresses = [ipaddress.ip_address(host)]
     except ValueError:
         try:
-            addresses = list({ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)})
+            addresses = list(dict.fromkeys(ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)))
         except (OSError, ValueError) as error:
             raise ValueError("Background image host cannot be resolved") from error
     if not addresses or any(not address.is_global for address in addresses):
         raise ValueError("Background image host must resolve only to public IP addresses")
+    return [str(address) for address in addresses]
 
 
-class _NoRedirect(urlrequest.HTTPRedirectHandler):
-    def redirect_request(self, req: object, fp: object, code: int, msg: str, headers: object, newurl: str) -> None:
-        return None
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Use one pre-validated address while retaining Host and TLS SNI."""
+
+    def __init__(self, host: str, port: int, address: str, timeout: float) -> None:
+        super().__init__(host, port=port, timeout=timeout, context=ssl.create_default_context())
+        self._pinned_address = address
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection(
+            (self._pinned_address, self.port),
+            self.timeout,
+            self.source_address,
+        )
+        try:
+            self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+        except Exception:
+            raw_socket.close()
+            raise
+
+
+def _public_https_get(value: str, headers: dict[str, str], max_bytes: int, timeout: float = 8) -> tuple[int, http.client.HTTPMessage, bytes]:
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("Public fetch URL must use HTTPS")
+    port = parsed.port or 443
+    addresses = _require_public_host(str(parsed.hostname), port)
+    target = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+    last_error: Exception | None = None
+    for address in addresses:
+        connection = _PinnedHTTPSConnection(str(parsed.hostname), port, address, timeout)
+        try:
+            connection.request("GET", target, headers=headers)
+            response = connection.getresponse()
+            return response.status, response.headers, response.read(max_bytes + 1)
+        except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
+            last_error = error
+        finally:
+            connection.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError("No validated public address is available")
 
 
 def _image_mime(body: bytes) -> str:
@@ -160,34 +196,32 @@ def _image_mime(body: bytes) -> str:
 def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, max_bytes: int = 5 * 1024 * 1024) -> tuple[bytes, str, str]:
     """Fetch a bounded public image response, redirect, or small JSON object containing an image URL."""
     current = normalize_https_image_url(value, allowed_hosts)
-    opener = urlrequest.build_opener(_NoRedirect)
     for _ in range(5):
-        parsed = urlsplit(current)
-        _require_public_host(str(parsed.hostname))
-        request = urlrequest.Request(current, headers={"Accept": "image/avif,image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": "CastoriceUI/2.6"})
         try:
-            response = opener.open(request, timeout=8)
-        except urlerror.HTTPError as error:
-            if error.code in {301, 302, 303, 307, 308} and error.headers.get("Location"):
-                from urllib.parse import urljoin
-                current = normalize_https_image_url(urljoin(current, error.headers["Location"]), allowed_hosts)
-                continue
-            raise ValueError(f"Background API returned HTTP {error.code}") from error
-        except (urlerror.URLError, TimeoutError, OSError) as error:
+            status, headers, body = _public_https_get(
+                current,
+                {"Accept": "image/avif,image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": f"CastoriceUI/{__version__}"},
+                max_bytes,
+            )
+        except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
             raise ValueError("Background image API is unreachable") from error
-        with response:
-            length = response.headers.get("Content-Length")
-            if length:
-                try:
-                    declared_length = int(length)
-                except (TypeError, ValueError):
-                    declared_length = 0
-                if declared_length > max_bytes:
-                    raise ValueError("Background image exceeds 5 MB")
-            body = response.read(max_bytes + 1)
-            if not body or len(body) > max_bytes:
-                raise ValueError("Background image is empty or exceeds 5 MB")
-            content_type = response.headers.get_content_type().lower()
+        if status in {301, 302, 303, 307, 308} and headers.get("Location"):
+            from urllib.parse import urljoin
+            current = normalize_https_image_url(urljoin(current, headers["Location"]), allowed_hosts)
+            continue
+        if not 200 <= status < 300:
+            raise ValueError(f"Background API returned HTTP {status}")
+        length = headers.get("Content-Length")
+        if length:
+            try:
+                declared_length = int(length)
+            except (TypeError, ValueError):
+                declared_length = 0
+            if declared_length > max_bytes:
+                raise ValueError("Background image exceeds 5 MB")
+        if not body or len(body) > max_bytes:
+            raise ValueError("Background image is empty or exceeds 5 MB")
+        content_type = headers.get_content_type().lower()
         if content_type == "application/json":
             if len(body) > 64 * 1024:
                 raise ValueError("Background API JSON response exceeds 64 KiB")

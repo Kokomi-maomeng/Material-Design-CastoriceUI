@@ -10,6 +10,8 @@ Thank you for helping improve CastoriceUI.
 4. Run `npm run check` before opening a pull request.
 5. Include screenshots for meaningful visual changes and test desktop and mobile widths.
 
+`npm run dev` serves HTTPS on `127.0.0.1` with a generated development certificate and proxies `/api/` to the loopback backend on port `18080`. Run the backend separately on Linux/WSL, or use an SSH local port forward. `CASTORICEUI_DEV_API_TARGET` may override the target only with an HTTP loopback URL; do not disable Secure cookies for development.
+
 ## Quality expectations
 
 - Keep pages focused and reusable components small.

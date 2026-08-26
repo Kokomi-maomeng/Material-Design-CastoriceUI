@@ -10,7 +10,7 @@ Do not open a public issue for a suspected vulnerability. Use GitHub's private s
 
 ## Supported production boundary
 
-CastoriceUI v3.3 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
+CastoriceUI v3.4 includes a browser application, application authentication, and a Python/SQLite backend. The supported boundary is:
 
 1. Nginx terminates valid TLS and serves both the frontend and same-origin `/api/`.
 2. `castoriceui-backend` listens only on `127.0.0.1` or `::1`.
@@ -18,7 +18,7 @@ CastoriceUI v3.3 includes a browser application, application authentication, and
 4. The browser authenticates through the CastoriceUI login page; Nginx `auth_basic` is not used.
 5. Protected config is `0640 root:castoriceui`; SQLite, bootstrap token, and login image state are restricted to the service identity.
 
-The backend is not designed for direct public exposure. v3.3 supports authenticated password changes but does not implement MFA, out-of-band password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
+The backend is not designed for direct public exposure. v3.4 supports authenticated password changes but does not implement MFA, out-of-band password reset, fine-grained roles, or multi-node federation. Deployments requiring those controls should place an audited identity-aware access layer in front of the application without bypassing CastoriceUI's session/CSRF checks.
 
 ## Authentication and sessions
 
@@ -45,7 +45,7 @@ Authenticated administrators see real configured account names, account email fi
 
 - Protocol endpoints are restricted to loopback and strict no-redirect authenticated requests.
 - Network probe targets undergo separate hostname/IP validation and are passed as subprocess arguments without a shell.
-- HTTPS login-background URLs are allowed only for hosts in `external_background_hosts` and are fetched directly by the browser, never by the backend. The default allowlist is empty.
+- HTTPS login-background URLs are fetched by the backend and served same-origin. When `external_background_hosts` is non-empty, every initial and redirected host must remain allowlisted. DNS answers must all be globally routable, and each request connects to the already validated address while preserving the original TLS SNI and Host value, closing DNS-rebinding time-of-check/time-of-use gaps. The default allowlist is empty, which permits any public HTTPS host but still rejects private, loopback, link-local, reserved, or mixed DNS answers.
 - Server login images must stay within the configured directory, pass size/extension/magic validation, and cannot use nested traversal paths.
 - The panel does not expose arbitrary shell execution. Protocol account writes, credential rotation, and service control require a separately designed and audited adapter.
 

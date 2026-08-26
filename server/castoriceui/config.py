@@ -161,6 +161,31 @@ class AppConfig:
         for adapter_id, adapter in self.protocol_adapters.items():
             if not isinstance(adapter, dict) or set(adapter) - {"inboundTags", "securityProfile"}:
                 raise ValueError(f"protocol_adapters.{adapter_id} contains an unknown field")
+            tags = adapter.get("inboundTags", [])
+            if (
+                not isinstance(tags, list)
+                or len(tags) > 20
+                or any(not isinstance(tag, str) or not tag.strip() or len(tag.strip()) > 80 for tag in tags)
+            ):
+                raise ValueError(f"protocol_adapters.{adapter_id}.inboundTags must contain at most 20 non-empty strings of at most 80 characters")
+            normalized_tags = [tag.strip() for tag in tags]
+            if len({tag.casefold() for tag in normalized_tags}) != len(normalized_tags):
+                raise ValueError(f"protocol_adapters.{adapter_id}.inboundTags contains duplicate tags")
+            adapter["inboundTags"] = normalized_tags
+            if adapter_id == "vless":
+                profile = adapter.get("securityProfile", "standard")
+                if profile not in {"standard", "xtls-vision", "reality", "xtls-vision-reality"}:
+                    raise ValueError("protocol_adapters.vless.securityProfile is invalid")
+                adapter["securityProfile"] = profile
+            elif "securityProfile" in adapter:
+                raise ValueError(f"protocol_adapters.{adapter_id}.securityProfile is not supported")
+        owners: dict[str, str] = {}
+        for adapter_id, adapter in self.protocol_adapters.items():
+            for tag in adapter["inboundTags"]:
+                key = tag.casefold()
+                if key in owners:
+                    raise ValueError(f"Inbound tag {tag!r} is assigned to both {owners[key]} and {adapter_id}")
+                owners[key] = adapter_id
         for field_name in ("network_targets", "managed_accounts", "subscriptions"):
             value = getattr(self, field_name)
             if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):

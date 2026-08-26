@@ -140,6 +140,8 @@ export interface OverviewMetrics {
   downloadBps: number;
   uploadBps: number;
   interface: string;
+  configuredInterface?: string;
+  interfaceFallback?: boolean;
   kernel: string;
   databaseBytes: number;
   databaseWritable: boolean;
@@ -166,13 +168,15 @@ export interface TrafficBreakdown {
 }
 
 export interface DashboardPayload {
-  mode: "loading" | "live" | "stale";
+  mode: "loading" | "live" | "stale" | "error";
   generatedAt: string;
   overview: OverviewMetrics;
   accounts: Account[];
   connections: Connection[];
   traffic: {
     totalBytes: number;
+    protocolTotalBytes: number;
+    accountTotalBytes: number;
     ranges: Record<TrafficRange, TrafficPoint[]>;
     hourly: TrafficPoint[];
     daily: TrafficPoint[];
