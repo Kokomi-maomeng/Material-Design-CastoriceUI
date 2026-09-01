@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { formatDecimalBytes } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import type { DashboardPayload, IntegrationStatus, TrafficRange } from "../../lib/types";
@@ -14,7 +14,7 @@ import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
 
 export function TrafficPage({ traffic, integration, onConfigure }: { traffic: DashboardPayload["traffic"]; integration?: IntegrationStatus; onConfigure: () => void }) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
   const hourlyTraffic = (traffic.ranges?.["24h"] ?? traffic.hourly).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
@@ -22,6 +22,15 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
   const accountTraffic = traffic.account.map((item) => ({ ...item, name: t(item.nameZh ?? item.name, item.nameEn ?? item.name), value: item.value / 1_000_000_000 })).sort((left, right) => right.value - left.value || left.name.localeCompare(right.name));
   const protocolTotal = traffic.protocolTotalBytes / 1_000_000_000;
   const accountMax = Math.max(1, ...accountTraffic.map((item) => item.value));
+  const monthlyMax = Math.max(0, ...traffic.monthly.map((item) => item.bytes));
+  const formatPeriod = (start: string, end: string) => language === "zh"
+    ? `${start.split("-").map(Number).join(".")} - ${end.split("-").map(Number).join(".")}`
+    : `${start} – ${end}`;
+  const formatMonthlyUsage = (bytes: number) => {
+    const value = bytes / 1_000_000_000;
+    const digits = value >= 100 || value === 0 ? 0 : value >= 10 ? 1 : 2;
+    return `${new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en", { maximumFractionDigits: digits }).format(value)} GB`;
+  };
 
   return <div className="page-content page-enter">
     <PageHeader eyebrow={t("用量", "Usage")} title={t("流量分析", "Traffic analytics")} />
@@ -42,13 +51,44 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
         <DonutChart data={protocolTraffic} centerLabel={t("分布合计", "Distribution total")} centerValue={`${protocolTotal.toFixed(0)} GB`} />
       </Card>
     </section>
+    <CollapsibleTrafficCard
+      className="monthly-traffic-panel"
+      title={t("近六个自然月流量", "Six calendar months")}
+      description={t("严格按每月 1 日至月末统计；当前月包含截至现在的已采集用量", "Each period runs from the first through the final calendar day; the current month includes collected usage to date")}
+      status={t("6 个自然月", "6 calendar months")}
+    >
+      <div className="monthly-traffic-list">
+        {traffic.monthly.map((item) => {
+          const width = monthlyMax > 0 ? (item.bytes / monthlyMax) * 100 : 0;
+          return <div className="monthly-traffic-row" key={item.startDate}>
+            <time dateTime={item.startDate}>{formatPeriod(item.startDate, item.endDate)}</time>
+            <div className="monthly-traffic-track" role="meter" aria-label={t(`${formatPeriod(item.startDate, item.endDate)} 流量`, `${formatPeriod(item.startDate, item.endDate)} traffic`)} aria-valuemin={0} aria-valuemax={monthlyMax} aria-valuenow={item.bytes}>
+              <span style={{ width: `${width}%`, minWidth: item.bytes > 0 ? 3 : 0 }} />
+            </div>
+            <strong>{formatMonthlyUsage(item.bytes)}</strong>
+          </div>;
+        })}
+      </div>
+    </CollapsibleTrafficCard>
     <section className="content-grid content-grid--traffic-bottom">
-      <Card variant="outlined">
-        <CardHeader title={t("管理账号用量排行", "Managed-account usage ranking")} action={<Chip staticChip>{t(`${accountTraffic.length} 项归属`, accountTraffic.length === 1 ? "1 attribution entry" : `${accountTraffic.length} attribution entries`)}</Chip>} />
+      <CollapsibleTrafficCard title={t("管理账号用量排行", "Managed-account usage ranking")} status={t(`${accountTraffic.length} 项归属`, accountTraffic.length === 1 ? "1 attribution entry" : `${accountTraffic.length} attribution entries`)}>
         <div className="ranking-list">{accountTraffic.map((item, index) => <div className="ranking-row" key={item.name}><span className="rank">{index + 1}</span><div><strong>{item.name}</strong><Progress value={(item.value / accountMax) * 100} /></div><b>{item.value.toFixed(1)} GB</b></div>)}</div>
-      </Card>
+      </CollapsibleTrafficCard>
     </section>
   </div>;
+}
+
+function CollapsibleTrafficCard({ title, description, status, className = "", children }: { title: string; description?: string; status: string; className?: string; children: ReactNode }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(true);
+  return <details className={`md-card md-card--outlined traffic-disclosure ${className}`} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+    <summary>
+      <div><h2>{title}</h2>{description ? <p>{description}</p> : null}</div>
+      <span className="traffic-disclosure__action"><Chip staticChip>{status}</Chip><Icon name="expand_more" /></span>
+      <span className="sr-only">{t("展开或折叠卡片", "Expand or collapse card")}</span>
+    </summary>
+    <div className="traffic-disclosure__content">{children}</div>
+  </details>;
 }
 
 function Kpi({ label, value, icon }: { label: string; value: string; icon: string }) {

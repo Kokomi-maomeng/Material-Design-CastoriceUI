@@ -1,4 +1,4 @@
-# CastoriceUI v3.4 backend integration guide
+# CastoriceUI v3.5 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -89,6 +89,8 @@ For VLESS, `securityProfile` accepts `standard`, `xtls-vision`, `reality`, or `x
 ## Traffic samples and account totals
 
 The backend sampler runs independently of browser refreshes. It stores bounded adjacent interface-counter snapshots, derives non-negative deltas, and treats counter decreases as resets. The `1h`, `6h`, `24h`, `3 day`, and `7 day` views use real retained buckets with denser points than v1.5.
+
+`traffic.monthly` contains exactly six entries in chronological order: the current calendar month and the preceding five months. Each entry exposes `startDate`, `endDate`, and measured `bytes`. Boundaries use the configured traffic timezone and always run from day 1 through that calendar month's final day. Deltas are calculated only between samples inside the same month and the same interface/boot source, so a month never borrows a counter interval from its neighbor.
 
 Host-interface traffic and protocol-account traffic are different sources:
 

@@ -63,7 +63,7 @@ describe("v3.3 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v3.4")).toBeTruthy();
+    expect(screen.getByText("v3.5")).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -137,17 +137,33 @@ describe("v3.3 runtime behavior", () => {
     expect(screen.getByText("1 of 1 data sources online")).toBeTruthy();
   });
 
-  it("sorts unattributed traffic ahead of a zero-usage managed account", () => {
+  it("renders exact calendar-month bars and collapsible traffic cards", () => {
     renderEnglish(<TrafficPage traffic={{
       totalBytes: 532_000_000_000,
       protocolTotalBytes: 0,
       accountTotalBytes: 532_000_000_000,
       ranges: { "1h": [], "6h": [], "24h": [], "3day": [], "7day": [] },
       hourly: [], daily: [], protocol: [],
+      monthly: [
+        { startDate: "2026-04-01", endDate: "2026-04-30", bytes: 0 },
+        { startDate: "2026-05-01", endDate: "2026-05-31", bytes: 200_000_000_000 },
+        { startDate: "2026-06-01", endDate: "2026-06-30", bytes: 800_000_000_000 },
+        { startDate: "2026-07-01", endDate: "2026-07-31", bytes: 400_000_000_000 },
+        { startDate: "2026-08-01", endDate: "2026-08-31", bytes: 100_000_000_000 },
+        { startDate: "2026-09-01", endDate: "2026-09-30", bytes: 50_000_000_000 },
+      ],
       account: [{ name: "primary", value: 0 }, { name: "Unattributed", nameZh: "未归属", nameEn: "Unattributed", value: 532_000_000_000 }],
     }} integration={{ id: "traffic", enabled: true, configured: true, status: "ready", summary: "ready" }} onConfigure={vi.fn()} />);
     expect(Array.from(document.querySelectorAll(".ranking-row strong"), (node) => node.textContent)).toEqual(["Unattributed", "primary"]);
     expect(screen.getByText("2 attribution entries")).toBeTruthy();
+    expect(screen.getByText("2026-04-01 – 2026-04-30")).toBeTruthy();
+    expect(screen.getByText("800 GB")).toBeTruthy();
+    const meters = Array.from(document.querySelectorAll<HTMLElement>(".monthly-traffic-track"));
+    expect(meters).toHaveLength(6);
+    expect(meters[2].firstElementChild?.getAttribute("style")).toContain("width: 100%");
+    expect(document.querySelectorAll("details.traffic-disclosure[open]")).toHaveLength(2);
+    fireEvent.click(screen.getByText("Managed-account usage ranking"));
+    expect(document.querySelectorAll("details.traffic-disclosure[open]")).toHaveLength(1);
     expect(screen.queryByText("Trend samples")).toBeNull();
   });
 
