@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-3.4.0-6750A4)
+![Version](https://img.shields.io/badge/version-3.5.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -10,15 +10,6 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 项目由 React 前端和轻量 Python/SQLite 后端组成。后端仅需接入本机数据源，浏览器不会直接访问协议管理接口，也不会用模拟数据替代不可用的生产数据。
 
 ![CastoriceUI promotional overview](public/og.png)
-
-<details>
-<summary>移动端导航（390 × 844）</summary>
-
-![CastoriceUI mobile navigation](docs/images/dashboard-mobile.png)
-
-</details>
-
-> 截图来自真实运行页面并启用脱敏，不包含密码、Token、完整订阅地址或未处理的生产身份信息。
 
 ## 功能范围
 
@@ -35,8 +26,6 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 | --- | --- |
 | Hysteria2 | Traffic Stats API 的累计流量、在线计数与活动流 |
 | sing-box | AnyTLS、VLESS、XTLS Vision、Reality、SOCKS5、Shadowsocks、VMess、Trojan、TUIC |
-
-sing-box 连接仅按服务器配置中的 inbound tag 明确映射。未匹配的连接不会被猜测为某个协议；Reality 作为 VLESS 的 TLS 安全配置展示，而不是独立协议。
 
 ## 本地开发
 
@@ -58,7 +47,7 @@ npm run dev
 
 部署与升级步骤见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。升级前应备份受保护配置、完整的 `state.db*`、当前前后端目录、systemd 单元和 Nginx 站点，并保留可验证的回滚版本。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v3.4.0.md`](docs/RELEASE_NOTES_v3.4.0.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v3.5.0.md`](docs/RELEASE_NOTES_v3.5.0.md)。
 
 ## English
 

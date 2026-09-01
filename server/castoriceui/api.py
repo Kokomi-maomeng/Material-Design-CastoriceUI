@@ -17,13 +17,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from . import __version__
 from .config import AppConfig
 from .collectors import traffic_quota_period
-from .dashboard import DashboardService
+from .dashboard import DashboardService, VISIBLE_PANEL_ORDER, ordered_visible_panels
 from .security import fetch_https_image_api, list_background_images, normalize_https_image_url, safe_background_image
 from .storage import Storage
 
 
 SESSION_COOKIE = "castorice_session"
-VISIBLE_PANELS = {"accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"}
+VISIBLE_PANELS = set(VISIBLE_PANEL_ORDER)
 
 
 def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple[str, str, int] | None:
@@ -340,7 +340,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 saved = self.app.storage.get_setting("ui_settings", {})
                 if not isinstance(saved, dict):
                     saved = {}
-                current = {"showSetup": True, "visiblePanels": sorted(VISIBLE_PANELS), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 15, **saved}
+                current = {"showSetup": True, "visiblePanels": list(VISIBLE_PANEL_ORDER), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 15, **saved}
+                current["visiblePanels"] = ordered_visible_panels(current.get("visiblePanels"))
                 if current.get("idleTimeoutMinutes") not in {2, 5, 10, 15, 20, 30}:
                     current["idleTimeoutMinutes"] = 15
                 if "showSetup" in payload:
@@ -349,7 +350,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     panels = payload["visiblePanels"]
                     if not isinstance(panels, list) or any(str(item) not in VISIBLE_PANELS for item in panels):
                         raise ValueError("visiblePanels contains an unknown panel")
-                    current["visiblePanels"] = list(dict.fromkeys(str(item) for item in panels))
+                    current["visiblePanels"] = ordered_visible_panels(list(dict.fromkeys(str(item) for item in panels)))
                 if "panelTitle" in payload:
                     panel_title = str(payload["panelTitle"]).strip()
                     if not panel_title or len(panel_title) > 40 or any(ord(character) < 32 for character in panel_title):

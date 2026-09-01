@@ -1,6 +1,6 @@
 {
   "name": "material-design-castorice-ui",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "private": false,
   "engines": {
     "node": ">=20.19.0"

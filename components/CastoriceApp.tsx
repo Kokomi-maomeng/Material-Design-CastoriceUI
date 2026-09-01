@@ -71,15 +71,19 @@ const THEME_COLORS: ThemeColor[] = [
   "slate",
 ];
 const PANEL_IDS: PageId[] = [
+  "alerts",
   "accounts",
+  "subscriptions",
+  "services",
+  "network",
   "connections",
   "traffic",
-  "subscriptions",
-  "network",
-  "services",
-  "alerts",
   "audit",
 ];
+const PROJECT_VERSION = "3.5.0";
+const PROJECT_NAME = "Material-Design-CastoriceUI";
+const PROJECT_AUTHOR = "Kokomi-maomeng";
+const PROJECT_URL = `https://github.com/${PROJECT_AUTHOR}/${PROJECT_NAME}`;
 const PAGE_IDS = new Set<PageId>(navigation.map((item) => item.id));
 const TIMEZONE_NAMES = (() => {
   const supported = (Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
@@ -153,6 +157,14 @@ function writePreference(key: string, value: string) {
     /* Applies for this tab. */
   }
 }
+function readBooleanPreference(key: string, fallback: boolean) {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === null ? fallback : value === "true";
+  } catch {
+    return fallback;
+  }
+}
 function pageFromHash(): PageId {
   const candidate = window.location.hash.replace(/^#\/?/, "") as PageId;
   return PAGE_IDS.has(candidate) ? candidate : "overview";
@@ -165,6 +177,7 @@ export function CastoriceApp() {
   const [bootError, setBootError] = useState(false);
   const [page, setPage] = useState<PageId>("overview");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [desktopNavigationHidden, setDesktopNavigationHidden] = useState(() => readBooleanPreference("castorice-desktop-navigation-hidden", false));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
@@ -241,6 +254,9 @@ export function CastoriceApp() {
     writePreference("castorice-theme-color", themeColor);
     return () => media.removeEventListener?.("change", apply);
   }, [themeColor, themeMode]);
+  useEffect(() => {
+    writePreference("castorice-desktop-navigation-hidden", String(desktopNavigationHidden));
+  }, [desktopNavigationHidden]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -719,7 +735,7 @@ export function CastoriceApp() {
   })();
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""}`}>
       <aside className={`navigation-rail ${drawerOpen ? "is-open" : ""}`}>
         <div className="brand">
           <span className="brand-mark">
@@ -766,6 +782,14 @@ export function CastoriceApp() {
       <div className="app-main">
         <header className="top-app-bar">
           <div className="top-app-bar__start">
+            <Button
+              variant="text"
+              icon={desktopNavigationHidden ? "left_panel_open" : "left_panel_close"}
+              className="desktop-navigation-toggle"
+              aria-label={desktopNavigationHidden ? t("显示侧边栏", "Show sidebar") : t("隐藏侧边栏", "Hide sidebar")}
+              title={desktopNavigationHidden ? t("显示侧边栏", "Show sidebar") : t("隐藏侧边栏", "Hide sidebar")}
+              onClick={() => setDesktopNavigationHidden((hidden) => !hidden)}
+            />
             <Button
               variant="text"
               icon="menu"
@@ -854,42 +878,6 @@ export function CastoriceApp() {
           <Suspense fallback={<PageLoading />}>{content}</Suspense>
         </main>
       </div>
-      <nav
-        className="bottom-navigation"
-        aria-label={t("手机导航", "Mobile navigation")}
-      >
-        {visibleNavigation
-          .filter((item) => item.id !== "setup")
-          .slice(0, 4)
-          .map((item) => (
-            <button
-              key={item.id}
-              className={page === item.id ? "is-active" : ""}
-              onClick={() => navigate(item.id)}
-            >
-              <span>
-                <Icon name={item.icon} filled={page === item.id} />
-              </span>
-              <small>{t(item.labelZh, item.labelEn)}</small>
-            </button>
-          ))}
-        <button
-          className={
-            !visibleNavigation
-              .filter((item) => item.id !== "setup")
-              .slice(0, 4)
-              .some((item) => item.id === page)
-              ? "is-active"
-              : ""
-          }
-          onClick={() => setDrawerOpen(true)}
-        >
-          <span>
-            <Icon name="apps" />
-          </span>
-          <small>{t("更多", "More")}</small>
-        </button>
-      </nav>
       {settingsOpen ? (
         <SettingsDialog
           open
@@ -1332,6 +1320,22 @@ function SettingsDialog({
                 </div>
               );
             })}
+          </div>
+        </details>
+      </section>
+      <section className="theme-section settings-about-section">
+        <details className="settings-disclosure settings-about">
+          <summary>
+            <span><Icon name="info" /><span><strong>{t("关于详情", "About")}</strong><small>CastoriceUI v{PROJECT_VERSION}</small></span></span>
+            <Icon name="expand_more" />
+          </summary>
+          <div className="settings-about__content disclosure-content">
+            <a href={PROJECT_URL} target="_blank" rel="noreferrer noopener"><Icon name="code" /><span>{t("项目 GitHub 主页", "Project GitHub homepage")}</span><Icon name="open_in_new" size={18} /></a>
+            <dl>
+              <div><dt>{t("GitHub 作者", "GitHub author")}</dt><dd>{PROJECT_AUTHOR}</dd></div>
+              <div><dt>{t("项目名称", "Project name")}</dt><dd>{PROJECT_NAME}</dd></div>
+              <div><dt>{t("当前版本", "Current version")}</dt><dd>v{PROJECT_VERSION}</dd></div>
+            </dl>
           </div>
         </details>
       </section>

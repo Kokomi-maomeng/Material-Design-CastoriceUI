@@ -5,7 +5,7 @@ import time
 import copy
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -25,6 +25,16 @@ from .security import normalize_loopback_endpoint, normalize_subscription_url, p
 from .storage import Storage
 
 
+VISIBLE_PANEL_ORDER = ("alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit")
+
+
+def ordered_visible_panels(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return list(VISIBLE_PANEL_ORDER)
+    visible = {str(item) for item in value}
+    return [panel for panel in VISIBLE_PANEL_ORDER if panel in visible]
+
+
 class DashboardService:
     def __init__(self, config: AppConfig, storage: Storage) -> None:
         self.config = config
@@ -35,6 +45,7 @@ class DashboardService:
         self.cached_network: list[dict[str, Any]] = []
         self.network_at = 0.0
         self.subscription_probe_cache: tuple[str, float, dict[str, Any]] | None = None
+        self.monthly_traffic_cache: tuple[int, str, str, list[dict[str, Any]]] | None = None
         self.connection_baseline: dict[str, tuple[float, int, int]] = {}
         saved_targets = storage.get_setting("network_targets", None)
         if isinstance(saved_targets, list):
@@ -456,6 +467,40 @@ class DashboardService:
         return {"ranges": ranges, "hourly": ranges["24h"], "daily": ranges["7day"]}
 
     @staticmethod
+    def _month_start(moment: datetime, offset: int) -> datetime:
+        month_index = moment.year * 12 + moment.month - 1 + offset
+        year, zero_based_month = divmod(month_index, 12)
+        return datetime(year, zero_based_month + 1, 1, tzinfo=moment.tzinfo)
+
+    def monthly_traffic_usage(self) -> list[dict[str, Any]]:
+        try:
+            zone = ZoneInfo(self.config.traffic_billing_timezone)
+        except ZoneInfoNotFoundError:
+            zone = timezone.utc
+        now = datetime.fromtimestamp(time.time(), timezone.utc).astimezone(zone)
+        cache_minute = int(now.timestamp()) // 60
+        cache_key = (cache_minute, str(zone), self.config.traffic_count_mode)
+        if self.monthly_traffic_cache and self.monthly_traffic_cache[:3] == cache_key:
+            return copy.deepcopy(self.monthly_traffic_cache[3])
+
+        result: list[dict[str, Any]] = []
+        for offset in range(-5, 1):
+            start = self._month_start(now, offset)
+            end = self._month_start(now, offset + 1)
+            usage = self.storage.traffic_usage_between(
+                int(start.astimezone(timezone.utc).timestamp()),
+                int(end.astimezone(timezone.utc).timestamp()),
+                self.config.traffic_count_mode,
+            )
+            result.append({
+                "startDate": start.date().isoformat(),
+                "endDate": (end.date() - timedelta(days=1)).isoformat(),
+                "bytes": int(usage["usedBytes"]),
+            })
+        self.monthly_traffic_cache = (*cache_key, copy.deepcopy(result))
+        return result
+
+    @staticmethod
     def reconcile_breakdown(items: list[dict[str, Any]], total_bytes: int, fallback_name: str) -> list[dict[str, Any]]:
         """Preserve observed counters and expose only a real positive ledger remainder."""
         total_bytes = max(0, int(total_bytes))
@@ -765,6 +810,9 @@ class DashboardService:
         saved_ui_settings = self.storage.get_setting("ui_settings", {})
         if not isinstance(saved_ui_settings, dict):
             saved_ui_settings = {}
+        else:
+            saved_ui_settings = dict(saved_ui_settings)
+        saved_ui_settings["visiblePanels"] = ordered_visible_panels(saved_ui_settings.get("visiblePanels"))
         if saved_ui_settings.get("idleTimeoutMinutes", 15) not in {2, 5, 10, 15, 20, 30}:
             saved_ui_settings["idleTimeoutMinutes"] = 15
         return {
@@ -775,6 +823,7 @@ class DashboardService:
             "connections": connections,
             "traffic": {
                 **traffic,
+                "monthly": self.monthly_traffic_usage(),
                 "totalBytes": authoritative_total,
                 "protocolTotalBytes": sum(int(item["value"]) for item in protocol),
                 "accountTotalBytes": sum(int(item["value"]) for item in account_breakdown),
@@ -788,7 +837,7 @@ class DashboardService:
             "integrations": integrations,
             "uiSettings": {
                 "showSetup": True,
-                "visiblePanels": ["accounts", "connections", "traffic", "subscriptions", "network", "services", "alerts", "audit"],
+                "visiblePanels": list(VISIBLE_PANEL_ORDER),
                 "panelTitle": "CastoriceUI",
                 "idleTimeoutMinutes": 15,
                 **saved_ui_settings,

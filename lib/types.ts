@@ -59,6 +59,12 @@ export interface TrafficPoint {
   download: number;
 }
 
+export interface MonthlyTrafficUsage {
+  startDate: string;
+  endDate: string;
+  bytes: number;
+}
+
 export type TrafficRange = "1h" | "6h" | "24h" | "3day" | "7day";
 
 export interface NetworkTarget {
@@ -180,6 +186,7 @@ export interface DashboardPayload {
     ranges: Record<TrafficRange, TrafficPoint[]>;
     hourly: TrafficPoint[];
     daily: TrafficPoint[];
+    monthly: MonthlyTrafficUsage[];
     protocol: TrafficBreakdown[];
     account: TrafficBreakdown[];
   };

@@ -19,13 +19,23 @@ sys.path.insert(0, str(SERVER_ROOT))
 
 from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, detect_interface, http_json, hysteria_snapshot, semantic_version, service_snapshots, singbox_snapshot, traffic_quota_period  # noqa: E402
-from castoriceui.dashboard import DashboardService  # noqa: E402
+from castoriceui.dashboard import DashboardService, ordered_visible_panels  # noqa: E402
 from castoriceui.api import ApiHandler, ApiServer, normalized_origin  # noqa: E402
 from castoriceui.security import _public_https_get, fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, probe_subscription_url, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 
 
 class BackendTests(unittest.TestCase):
+    def test_visible_panels_use_canonical_order_for_saved_preferences(self) -> None:
+        self.assertEqual(
+            ordered_visible_panels(["traffic", "alerts", "audit", "accounts", "traffic", "services"]),
+            ["alerts", "accounts", "services", "traffic", "audit"],
+        )
+        self.assertEqual(
+            ordered_visible_panels(None),
+            ["alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"],
+        )
+
     def test_service_versions_ignore_terminal_control_sequences(self) -> None:
         self.assertEqual(semantic_version("\x1b[2JHysteria2 v2.11.0\x1b[0m", "hysteria2"), "2.11.0")
         self.assertEqual(semantic_version("sing-box version 1.13.15", "singbox"), "1.13.15")
@@ -172,6 +182,44 @@ class BackendTests(unittest.TestCase):
                 traffic = dashboard.traffic_series()["ranges"]["1h"]
             self.assertEqual(sum(item["download"] for item in traffic), 120)
             self.assertEqual(sum(item["upload"] for item in traffic), 110)
+
+    def test_monthly_traffic_uses_six_exact_calendar_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            config.traffic_billing_timezone = "UTC"
+            storage = Storage(config.database_path)
+            timestamps = {
+                "jan_start": int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()),
+                "jan_end": int(datetime(2024, 1, 31, 23, 59, tzinfo=timezone.utc).timestamp()),
+                "feb_start": int(datetime(2024, 2, 1, tzinfo=timezone.utc).timestamp()),
+                "feb_end": int(datetime(2024, 2, 29, 23, 59, tzinfo=timezone.utc).timestamp()),
+                "now": int(datetime(2024, 3, 15, 12, tzinfo=timezone.utc).timestamp()),
+            }
+            storage.record_sample(timestamps["jan_start"], 100, 200, 0, 0, "eth0", "boot-a")
+            storage.record_sample(timestamps["jan_end"], 180, 250, 0, 0, "eth0", "boot-a")
+            storage.record_sample(timestamps["feb_start"], 210, 300, 0, 0, "eth0", "boot-a")
+            storage.record_sample(timestamps["feb_end"], 310, 450, 0, 0, "eth0", "boot-a")
+            dashboard = DashboardService(config, storage)
+            with patch("castoriceui.dashboard.time.time", return_value=timestamps["now"]):
+                monthly = dashboard.monthly_traffic_usage()
+            self.assertEqual([item["startDate"] for item in monthly], ["2023-10-01", "2023-11-01", "2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01"])
+            self.assertEqual(monthly[3], {"startDate": "2024-01-01", "endDate": "2024-01-31", "bytes": 130})
+            self.assertEqual(monthly[4], {"startDate": "2024-02-01", "endDate": "2024-02-29", "bytes": 250})
+            self.assertEqual(monthly[5]["bytes"], 0)
+
+    def test_traffic_usage_between_does_not_cross_calendar_or_source_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            storage.record_sample(99, 10, 20, 0, 0, "eth0", "boot-a")
+            storage.record_sample(100, 30, 50, 0, 0, "eth0", "boot-a")
+            storage.record_sample(110, 80, 90, 0, 0, "eth0", "boot-a")
+            storage.record_sample(120, 5, 8, 0, 0, "eth0", "boot-b")
+            storage.record_sample(130, 25, 38, 0, 0, "eth0", "boot-b")
+            usage = storage.traffic_usage_between(100, 140, "sum")
+            self.assertEqual(usage["receivedBytes"], 70)
+            self.assertEqual(usage["transmittedBytes"], 70)
+            self.assertEqual(usage["usedBytes"], 140)
+            self.assertEqual(storage.traffic_usage_between(100, 140, "max")["usedBytes"], 70)
 
     def test_named_network_targets_and_node_name_are_validated_and_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

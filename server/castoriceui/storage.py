@@ -153,6 +153,49 @@ class Storage:
             "countMode": count_mode,
         }
 
+    def traffic_usage_between(self, start_timestamp: int, end_timestamp: int, count_mode: str = "sum") -> dict[str, int | str]:
+        """Return deltas whose two samples both fall inside one exact time range."""
+        if end_timestamp <= start_timestamp:
+            raise ValueError("Traffic range end must be after its start")
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                WITH ordered AS (
+                    SELECT
+                        rx_bytes,
+                        tx_bytes,
+                        LAG(rx_bytes) OVER (
+                            PARTITION BY interface, boot_id ORDER BY captured_at
+                        ) AS previous_rx,
+                        LAG(tx_bytes) OVER (
+                            PARTITION BY interface, boot_id ORDER BY captured_at
+                        ) AS previous_tx
+                    FROM samples
+                    WHERE captured_at >= ? AND captured_at < ?
+                )
+                SELECT
+                    COALESCE(SUM(
+                        CASE WHEN previous_rx IS NOT NULL AND rx_bytes >= previous_rx
+                            THEN rx_bytes - previous_rx ELSE 0 END
+                    ), 0) AS received,
+                    COALESCE(SUM(
+                        CASE WHEN previous_tx IS NOT NULL AND tx_bytes >= previous_tx
+                            THEN tx_bytes - previous_tx ELSE 0 END
+                    ), 0) AS transmitted
+                FROM ordered
+                """,
+                (int(start_timestamp), int(end_timestamp)),
+            ).fetchone()
+        received = int(row["received"])
+        transmitted = int(row["transmitted"])
+        used = max(received, transmitted) if count_mode == "max" else received + transmitted
+        return {
+            "usedBytes": used,
+            "receivedBytes": received,
+            "transmittedBytes": transmitted,
+            "countMode": count_mode,
+        }
+
     def get_setting(self, key: str, default: Any) -> Any:
         with self.connect() as connection:
             row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()

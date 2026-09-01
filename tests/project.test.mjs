@@ -32,7 +32,7 @@ test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "3\.4\.0"/);
+  assert.match(backendPackage, /__version__ = "3\.5\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -78,6 +78,26 @@ test("navigation badges are removed while notifications hide zero and cap at 99+
   assert.match(app, /unacknowledgedAlerts > 99 \? "99\+"/);
   assert.match(app, /snapshot-time/);
   assert.doesNotMatch(app, /后端快照 ·/);
+});
+
+test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadata stay linked", async () => {
+  const [navigation, app, styles] = await Promise.all([read("lib/navigation.ts"), read("components/CastoriceApp.tsx"), read("app/globals.css")]);
+  const order = ["overview", "setup", "alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"];
+  let previous = -1;
+  for (const id of order) {
+    const position = navigation.indexOf(`id: "${id}"`);
+    assert.ok(position > previous, `${id} must follow the requested navigation order`);
+    previous = position;
+  }
+  assert.match(app, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"subscriptions"[^]*"services"[^]*"network"[^]*"connections"[^]*"traffic"[^]*"audit"/);
+  assert.match(app, /desktopNavigationHidden/);
+  assert.match(styles, /app-shell--navigation-hidden/);
+  assert.doesNotMatch(app, /className="bottom-navigation"/);
+  assert.doesNotMatch(styles, /bottom-navigation/);
+  assert.match(app, /关于详情/);
+  assert.match(app, /Kokomi-maomeng/);
+  assert.match(app, /Material-Design-CastoriceUI/);
+  assert.match(app, /PROJECT_VERSION = "3\.5\.0"/);
 });
 
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
@@ -369,7 +389,8 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(vite, /CASTORICEUI_DEV_API_TARGET/);
   const spaLocation = nginx.match(/location \/ \{([^]*?)\n {4}\}/)?.[1] ?? "";
   for (const header of ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]) assert.match(spaLocation, new RegExp(header));
-  for (const asset of ["public/og.png", "docs/images/dashboard-mobile.png", "CONTRIBUTING.md"]) assert.match(packager, new RegExp(asset.replaceAll("/", "\\/")));
+  for (const asset of ["public/og.png", "CONTRIBUTING.md"]) assert.match(packager, new RegExp(asset.replaceAll("/", "\\/")));
+  assert.doesNotMatch(packager, /docs\/images\/dashboard-mobile\.png/);
   assert.match(dependabot, /github\/codeql-action\/\*/);
   const codeqlPins = [...codeql.matchAll(/github\/codeql-action\/(?:init|analyze)@([0-9a-f]{40})/g)].map((match) => match[1]);
   assert.equal(codeqlPins.length, 2);
