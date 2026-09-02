@@ -15,6 +15,7 @@ import { Progress } from "../ui/Progress";
 export function TrafficPage({ traffic, integration, onConfigure }: { traffic: DashboardPayload["traffic"]; integration?: IntegrationStatus; onConfigure: () => void }) {
   const { language, t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
+  const [activeProtocol, setActiveProtocol] = useState<number | null>(null);
   const hourlyTraffic = (traffic.ranges?.["24h"] ?? traffic.hourly).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const protocolTraffic = traffic.protocol.map((item, index) => ({ ...item, name: t(item.nameZh ?? item.name, item.nameEn ?? item.name), value: item.value / 1_000_000_000, color: ["var(--chart-primary)", "var(--chart-secondary)", "var(--chart-tertiary)"][index % 3] }));
@@ -45,9 +46,9 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
         <div className="legend-inline legend-inline--chart"><span className="dot dot--primary" />{t("下载", "Download")}<span className="dot dot--secondary" />{t("上传", "Upload")}</div>
         <TrafficChart data={selectedTraffic} />
       </Card>
-      <Card variant="filled" className="protocol-panel">
+      <Card variant="filled" className="protocol-panel" onPointerLeave={() => setActiveProtocol(null)} onPointerCancel={() => setActiveProtocol(null)}>
         <CardHeader title={t("协议分布", "Protocol distribution")} />
-        <DonutChart data={protocolTraffic} centerLabel={t("分布合计", "Distribution total")} centerValue={`${protocolTotal.toFixed(0)} GB`} />
+        <DonutChart data={protocolTraffic} centerLabel={t("分布合计", "Distribution total")} centerValue={`${protocolTotal.toFixed(0)} GB`} active={activeProtocol} onActiveChange={setActiveProtocol} />
       </Card>
     </section>
     <CollapsibleTrafficCard

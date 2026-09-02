@@ -1,0 +1,22 @@
+[Unit]
+Description=CastoriceUI read-only protocol inventory
+After=sing-box.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/castoriceui/backend/castoriceui/protocol_probe.py
+RuntimeDirectory=castoriceui
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/run/castoriceui
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+TimeoutStartSec=15s
+

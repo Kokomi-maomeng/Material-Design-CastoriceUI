@@ -9,6 +9,7 @@ import type {
   DashboardPayload,
   NetworkTarget,
   OverviewMetrics,
+  PageId,
   ServiceStatus,
   TrafficRange,
 } from "../../lib/types";
@@ -20,6 +21,7 @@ import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
+import { useNavigationSurface } from "../ui/NavigationSurface";
 
 export function OverviewPage({
   mode,
@@ -30,7 +32,7 @@ export function OverviewPage({
   traffic,
   onEditQuota,
   onRefresh,
-  onViewServices,
+  onNavigate,
 }: {
   mode: "loading" | "live" | "stale" | "error";
   metrics: OverviewMetrics;
@@ -40,9 +42,15 @@ export function OverviewPage({
   traffic: DashboardPayload["traffic"];
   onEditQuota: () => void;
   onRefresh: () => void;
-  onViewServices: () => void;
+  onNavigate: (page: PageId) => void;
 }) {
   const { language, t } = useI18n();
+  const trafficLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量分析", "View traffic analytics"));
+  const trendLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量趋势分析", "View traffic trend analytics"));
+  const connectionsLink = useNavigationSurface(() => onNavigate("connections"), t("查看在线连接", "View connections"));
+  const accountsLink = useNavigationSurface(() => onNavigate("accounts"), t("查看账号状态", "View account status"));
+  const networkLink = useNavigationSurface(() => onNavigate("network"), t("查看网络质量", "View network quality"));
+  const servicesLink = useNavigationSurface(() => onNavigate("services"), t("查看服务状态", "View services"));
   const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const stale = mode === "stale";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
@@ -109,7 +117,7 @@ export function OverviewPage({
         className="overview-hero-grid"
         aria-label={t("关键运行指标", "Key runtime metrics")}
       >
-        <Card className="traffic-hero" variant="elevated">
+        <Card className="traffic-hero navigation-surface" variant="elevated" {...trafficLink}>
           <div className="traffic-hero__top">
             <div>
               <span className="metric-label">{t("流量用量", "Traffic usage")}</span>
@@ -146,6 +154,7 @@ export function OverviewPage({
         </Card>
 
         <MetricCard
+          onNavigate={() => onNavigate("services")}
           icon="memory"
           label="CPU"
           value={`${metrics.cpuPercent.toFixed(0)}%`}
@@ -156,6 +165,7 @@ export function OverviewPage({
           trend={metrics.cpuPercent >= 80 ? t("繁忙", "Busy") : undefined}
         />
         <MetricCard
+          onNavigate={() => onNavigate("services")}
           icon="memory_alt"
           label={t("内存", "Memory")}
           value={`${metrics.memoryPercent.toFixed(0)}%`}
@@ -163,6 +173,7 @@ export function OverviewPage({
           trend={metrics.memoryPercent >= 85 ? t("偏高", "High") : undefined}
         />
         <MetricCard
+          onNavigate={() => onNavigate("services")}
           icon="hard_drive"
           label={t("存储", "Storage")}
           value={`${metrics.diskPercent.toFixed(0)}%`}
@@ -172,7 +183,7 @@ export function OverviewPage({
       </section>
 
       <section className="content-grid content-grid--dashboard">
-        <Card className="resource-panel" variant="outlined">
+        <Card className="resource-panel navigation-surface" variant="outlined" {...trendLink}>
           <CardHeader
             title={t("流量使用趋势", "Traffic usage trend")}
             action={
@@ -185,6 +196,7 @@ export function OverviewPage({
             <span className="dot dot--secondary" />
             {t("上传", "Upload")}
           </div>
+          <div data-no-navigate>
           <TrafficChart
             data={(traffic.ranges?.[trafficRange] ?? []).map((item) => ({
               ...item,
@@ -192,9 +204,10 @@ export function OverviewPage({
               download: item.download / 1_000_000_000,
             }))}
           />
+          </div>
         </Card>
 
-        <Card className="live-summary" variant="filled">
+        <Card className="live-summary navigation-surface" variant="filled" {...connectionsLink}>
           <CardHeader
             title={t("协议连接快照", "Protocol connection snapshot")}
             description={stale ? t(
@@ -249,7 +262,7 @@ export function OverviewPage({
             <span>
               <b>{connections.length}</b> {t("活动连接组", "active groups")}
             </span>
-            <span>
+            <span className="navigation-surface" {...accountsLink}>
               <b>{onlineAccounts}</b> {t("活跃账号", "active accounts")}
             </span>
             <span>
@@ -260,7 +273,7 @@ export function OverviewPage({
             </span>
           </div>
         </Card>
-        <Card variant="filled" className="quality-card">
+        <Card variant="filled" className="quality-card navigation-surface" {...networkLink}>
           <CardHeader
             title={t("网络质量", "Network quality")}
           />
@@ -323,13 +336,12 @@ export function OverviewPage({
         </Card>
       </section>
 
-      <section className="overview-service-health" aria-label={t("服务健康度", "Service health")}>
+      <div className="overview-service-health navigation-surface" {...servicesLink}>
         <div className="service-health-heading">
           <h2>{t("服务健康度", "Service health")}</h2>
-          <Button variant="text" compact trailingIcon="arrow_forward" onClick={onViewServices}>{t("查看全部", "View all")}</Button>
         </div>
         <ServiceCards services={services} metrics={metrics} compact />
-      </section>
+      </div>
     </div>
   );
 }
@@ -362,20 +374,24 @@ function RangeControl({
 }
 
 function MetricCard({
+  onNavigate,
   icon,
   label,
   value,
   detail,
   trend,
 }: {
+  onNavigate: () => void;
   icon: string;
   label: string;
   value: string;
   detail: string;
   trend?: string;
 }) {
+  const { t } = useI18n();
+  const link = useNavigationSurface(onNavigate, t(`${label} · 查看服务状态`, `${label} · View services`));
   return (
-    <Card className="metric-card" variant="filled">
+    <Card className="metric-card navigation-surface" variant="filled" {...link}>
       <div className="metric-card__icon">
         <Icon name={icon} size={24} />
       </div>

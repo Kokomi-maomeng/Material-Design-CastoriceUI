@@ -1,4 +1,4 @@
-# CastoriceUI v4.0 deployment / 部署手册
+# CastoriceUI v4.1 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -32,8 +32,8 @@ GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校�
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-tar -xzf CastoriceUI-v4.0.0.tar.gz
-cd CastoriceUI-v4.0.0
+tar -xzf CastoriceUI-v4.1.0.tar.gz
+cd CastoriceUI-v4.1.0
 python3 -m compileall -q server
 python3 -m unittest discover -s server/tests -p 'test_*.py' -v
 ```
@@ -100,6 +100,24 @@ sing-box example:
 
 Validate each core with its own binary, restart one service at a time, then test its authenticated loopback endpoint. AnyTLS, VLESS, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC classification additionally requires explicit inbound tags in `protocol_adapters`; see [`INTEGRATION.md`](INTEGRATION.md).
 
+### Read-only protocol health probe (v4.1+)
+
+Install the probe on both new installations and upgrades, after the backend release path is in place:
+
+```bash
+sudo install -m 0644 deploy/castoriceui-protocol-probe.service deploy/castoriceui-protocol-probe.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now castoriceui-protocol-probe.timer
+sudo systemctl start castoriceui-protocol-probe.service
+sudo systemctl status castoriceui-protocol-probe.timer --no-pager
+```
+
+This does not restart Hysteria2 or sing-box. A separate root oneshot reads the current `sing-box` process's command line, loaded JSON files, and owned listening sockets every 30 seconds. It atomically publishes only non-secret inbound metadata to `/run/castoriceui/protocol-status.json`; the unprivileged backend rejects samples older than 90 seconds or belonging to a previous process. Do not grant the web backend read access to core credential files.
+
+Standard `-c`/`--config`, `-C`/`--config-directory`, and `-D`/`--directory` layouts are supported. Core configuration files modified after process startup cannot prove what is loaded, so the card remains abnormal until an independently scheduled core reload/restart establishes a matching baseline. Missing probe access or nonstandard launchers also show abnormal status. A panel-only upgrade never performs that core restart automatically.
+
+On rollback to pre-v4.1 backend code, stop and disable `castoriceui-protocol-probe.timer` before switching the old backend symlink, as the old release does not contain the probe module. Keep the normal backend and frontend rollback procedure below.
+
 ## 6. systemd and Bootstrap Token
 
 ```bash
@@ -111,7 +129,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `4.0.0`.
+Expected version: `4.1.0`.
 
 For a new database, generate the first-admin token once:
 
@@ -126,7 +144,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v4.0.0
+release=v4.1.0
 frontend_source=dist       # source checkout / 源码检出
 # frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
 test -f "$frontend_source/index.html"
@@ -203,7 +221,7 @@ If this VPS also carries the operator's active proxy traffic, do not reboot the 
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `4.0.0`
+- loopback and HTTPS health report `4.1.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate

@@ -32,7 +32,7 @@ test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "4\.0\.0"/);
+  assert.match(backendPackage, /__version__ = "4\.1\.0"/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -97,7 +97,7 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
   assert.match(app, /关于详情/);
   assert.match(app, /Kokomi-maomeng/);
   assert.match(app, /Material-Design-CastoriceUI/);
-  assert.match(app, /PROJECT_VERSION = "4\.0\.0"/);
+  assert.match(app, /PROJECT_VERSION = "4\.1\.0"/);
 });
 
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
@@ -382,7 +382,7 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(types, /"error"/);
   assert.match(traffic, /Distribution total/);
   assert.match(services, /ServiceCards services=\{services\} metrics=\{metrics\}/);
-  assert.match(await read("components/ServiceCards.tsx"), /item\.id === "singbox"/);
+  assert.match(await read("components/ServiceCards.tsx"), /services\.filter\(isProtocolService\)/);
   assert.match(security, /class _PinnedHTTPSConnection/);
   assert.match(security, /server_hostname=self\.host/);
   assert.doesNotMatch(security, /CastoriceUI\/2\.6/);

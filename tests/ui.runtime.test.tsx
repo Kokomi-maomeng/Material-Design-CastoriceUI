@@ -8,6 +8,8 @@ import { Dialog } from "../components/ui/Dialog";
 import { AccountsPage } from "../components/pages/AccountsPage";
 import { ServicesPage } from "../components/pages/ServicesPage";
 import { TrafficPage } from "../components/pages/TrafficPage";
+import { OverviewPage } from "../components/pages/OverviewPage";
+import { emptyDashboard } from "../lib/empty-dashboard";
 import { FirstRunConfiguration } from "../components/setup/FirstRunConfiguration";
 import { SetupWizard } from "../components/setup/SetupWizard";
 import { MaterialDatePicker } from "../components/ui/MaterialDatePicker";
@@ -48,6 +50,73 @@ const renderEnglish = (view: React.ReactNode) => {
 
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
+
+describe("v4.1 navigation and protocol inspection", () => {
+  const overview = (onNavigate = vi.fn(), onEditQuota = vi.fn()) => <OverviewPage mode="live" metrics={metrics} connections={[]} services={[]} networkTargets={[]} traffic={emptyDashboard.traffic} onEditQuota={onEditQuota} onRefresh={vi.fn()} onNavigate={onNavigate} />;
+  it("routes every overview shortcut and isolates the account destination", () => {
+    const navigate = vi.fn();
+    renderEnglish(overview(navigate));
+    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "connections"], ["View account status", "accounts"], ["View network quality", "network"], ["View services", "services"]]) {
+      navigate.mockClear();
+      fireEvent.click(screen.getByRole("link", { name: label }));
+      expect(navigate.mock.calls).toEqual([[page]]);
+    }
+    expect(screen.queryByText("View all")).toBeNull();
+  });
+  it("preserves quota editing, range controls, chart interaction and text selection", () => {
+    const navigate = vi.fn(), edit = vi.fn();
+    const { container } = renderEnglish(overview(navigate, edit));
+    fireEvent.click(screen.getByRole("button", { name: "Edit traffic quota" }));
+    expect(edit).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "6h" }));
+    expect(screen.getByRole("button", { name: "6h" }).className).toContain("is-selected");
+    fireEvent.click(container.querySelector('[data-no-navigate]')!);
+    expect(navigate).not.toHaveBeenCalled();
+    const label = screen.getByText("Traffic usage");
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges(); selection.addRange(range);
+    fireEvent.click(label);
+    expect(navigate).not.toHaveBeenCalled();
+    // A click clearing an earlier selection must also be ignored.
+    fireEvent.pointerDown(label, { clientX: 0, clientY: 0 });
+    selection.removeAllRanges();
+    fireEvent.click(label, { detail: 1 });
+    expect(navigate).not.toHaveBeenCalled();
+    const link = screen.getByRole("link", { name: "View traffic analytics" });
+    fireEvent.keyDown(link, { key: "Enter" });
+    expect(navigate).toHaveBeenCalledWith("traffic");
+  });
+  it("clears protocol hover when leaving the whole card, including after focus and click", () => {
+    const traffic = { ...emptyDashboard.traffic, protocolTotalBytes: 3e9, protocol: [{ name: "AnyTLS", value: 1e9 }, { name: "Hysteria2", value: 2e9 }] };
+    const { container } = renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);
+    const circle = container.querySelector('.donut-segment')!;
+    fireEvent.pointerEnter(circle); fireEvent.focus(circle); fireEvent.pointerDown(circle);
+    expect(container.querySelector('.donut-center')?.textContent).toContain("1.00 GBAnyTLS");
+    fireEvent.pointerLeave(container.querySelector('.protocol-panel')!);
+    expect(container.querySelector('.donut-center')?.textContent).toContain("3 GBDistribution total");
+    expect(container.querySelector('.donut-segment.is-active')).toBeNull();
+    fireEvent.focus(screen.getByRole("button", { name: /Hysteria2/ }));
+    expect(container.querySelector('.donut-center')?.textContent).toContain("Hysteria2");
+    fireEvent.blur(screen.getByRole("button", { name: /Hysteria2/ }));
+    expect(container.querySelector('.donut-center')?.textContent).toContain("Distribution total");
+  });
+  it("shows host memory and counts every protocol without counting the core twice", () => {
+    const services: ServiceStatus[] = [
+      { id: "singbox", kind: "core", name: "sing-box", status: "running", detail: "active", version: "1.13.19", icon: "dns" },
+      { id: "anytls", kind: "protocol", name: "AnyTLS", status: "running", detail: "verified", version: "sing-box 1.13.19", icon: "encrypted" },
+      { id: "socks5", kind: "protocol", name: "SOCKS5", status: "stopped", detail: "Configuration incomplete", version: "unknown", icon: "lan" },
+    ];
+    const { container } = renderEnglish(<ServicesPage services={services} metrics={metrics} onRefresh={vi.fn()} />);
+    expect(screen.getByText("Memory usage").nextElementSibling?.textContent).toContain("20.0%");
+    expect(screen.getByText("1 of 2 data sources online")).toBeTruthy();
+    const socks = screen.getByText("SOCKS5").closest('.service-card')!;
+    expect(socks.querySelector('.is-error')?.textContent).toBe("Abnormal");
+    expect(socks.textContent).toContain("Unavailable");
+    expect(container.querySelector('.service-health-card.is-warning')).toBeTruthy();
+  });
+});
 
 describe("v4.0 service health and dialog layers", () => {
   const service = { id: "hysteria2", name: "Hysteria2", status: "running", detail: "systemd active", version: "1.0.0", icon: "bolt" } as const;

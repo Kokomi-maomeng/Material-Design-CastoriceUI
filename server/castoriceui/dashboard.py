@@ -17,6 +17,11 @@ from .collectors import (
     http_json,
     hysteria_snapshot,
     network_snapshots,
+    PROTOCOLS,
+    protocol_requested,
+    protocol_readiness,
+    read_protocol_inventory,
+    valid_singbox_payload,
     service_snapshots,
     singbox_snapshot,
 )
@@ -62,7 +67,7 @@ class DashboardService:
                         value = {**value, "values": values}
                         overrides[integration_id] = value
                         sanitized_legacy_secrets = True
-                    if integration_id in {"hysteria2", "anytls"} and isinstance(values, dict) and values.get("endpoint"):
+                    if integration_id in {"hysteria2", *PROTOCOLS} and isinstance(values, dict) and values.get("endpoint"):
                         try:
                             values["endpoint"] = normalize_loopback_endpoint(str(values["endpoint"]))
                         except ValueError:
@@ -86,16 +91,19 @@ class DashboardService:
                     raise ValueError("Node name must be at most 80 characters")
                 self.config.node_name = node_name
         elif integration_id == "hysteria2":
-            self.config.hysteria_api.update({"url": values.get("endpoint", "")})
+            if values.get("endpoint", "").strip():
+                self.config.hysteria_api.update({"url": values["endpoint"]})
             if "identityMappings" in values:
                 self._apply_hysteria_identity_mappings(values.get("identityMappings", ""))
         elif integration_id in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic"}:
-            self.config.singbox_api.update({"url": values.get("endpoint", "")})
-            tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
-            adapter = {"inboundTags": tags}
-            if integration_id == "vless":
-                adapter["securityProfile"] = values.get("securityProfile", "standard")
-            self.config.protocol_adapters[integration_id] = adapter
+            if values.get("endpoint", "").strip():
+                self.config.singbox_api.update({"url": values["endpoint"]})
+            if "inboundTags" in values:
+                tags = [tag.strip() for tag in values["inboundTags"].split(",") if tag.strip()]
+                adapter = {"inboundTags": tags}
+                if integration_id == "vless":
+                    adapter["securityProfile"] = values.get("securityProfile", "standard")
+                self.config.protocol_adapters[integration_id] = adapter
         elif integration_id == "traffic":
             if "interface" in values:
                 interface = values["interface"].strip()
@@ -188,9 +196,20 @@ class DashboardService:
             configured = bool(clean_values.get("baseUrl", "").strip() or self.config.subscription_base_url or self.config.subscriptions)
         if integration_id not in required:
             configured = True
-        if not configured:
-            raise ValueError("Complete the required fields")
-        self._validate_integration(integration_id, clean_values)
+        try:
+            if not configured:
+                raise ValueError("Complete the required fields")
+            self._validate_integration(integration_id, clean_values)
+        except ValueError:
+            # Keep a failed first setup visible without applying unverified
+            # values or changing the shared core endpoint for other protocols.
+            if integration_id in {"hysteria2", *PROTOCOLS} and not self.config.integrations.get(integration_id, {}).get("configured"):
+                state = {"enabled": enabled, "configured": False, "attempted": True, "status": "error", "values": {}}
+                overrides = self.storage.get_setting("integration_overrides", {})
+                overrides[integration_id] = state
+                self.storage.set_setting("integration_overrides", overrides)
+                self.config.integrations.setdefault(integration_id, {}).update(state)
+            raise
         summaries = {
             "hysteria2": "Endpoint, authentication, and account identity mappings validated",
             "anytls": "Endpoint saved; connectivity and authentication validated",
@@ -241,7 +260,9 @@ class DashboardService:
             secret = str(self.config.singbox_api.get("secret", "")).strip()
             if not secret or secret == "replace-on-server":
                 raise ValueError("Configure the sing-box Secret in the protected server config first")
-            http_json(endpoint + "/connections", secret, bearer=True, strict=True)
+            response = http_json(endpoint + "/connections", secret, bearer=True, strict=True)
+            if not valid_singbox_payload(response):
+                raise ValueError("sing-box connections endpoint returned an invalid response")
             values["endpoint"] = endpoint
             tags = [tag.strip() for tag in values.get("inboundTags", "").split(",") if tag.strip()]
             if not tags or len(tags) > 20 or any(len(tag) > 80 for tag in tags):
@@ -251,6 +272,15 @@ class DashboardService:
             values["inboundTags"] = ",".join(tags)
             if integration_id == "vless" and values.get("securityProfile") not in {"standard", "xtls-vision", "reality", "xtls-vision-reality"}:
                 raise ValueError("Invalid VLESS security profile")
+            other_protocols = any(key != integration_id and adapter.get("inboundTags") for key, adapter in self.config.protocol_adapters.items())
+            if other_protocols and self.config.singbox_api.get("url") != endpoint:
+                raise ValueError("Protocols sharing sing-box must use the same API endpoint")
+            candidate = copy.deepcopy(self.config)
+            candidate.singbox_api["url"] = endpoint
+            candidate.protocol_adapters[integration_id] = {"inboundTags": tags, "securityProfile": values.get("securityProfile", "standard")}
+            ready, reason, _reason_zh = protocol_readiness(candidate, integration_id, {"available": True, "inventory": read_protocol_inventory()})
+            if not ready:
+                raise ValueError(reason)
         elif integration_id == "subscriptions":
             candidate = values.get("baseUrl", "").strip()
             if candidate:
@@ -715,12 +745,15 @@ class DashboardService:
             hy2_summary = "Traffic Stats API is not configured or not responding"
             hy2_summary_zh = "Traffic Stats API 未配置或当前无响应"
         update("hysteria2", configured=hy2_configured, ready=hy2_ready, summary=hy2_summary, summary_zh=hy2_summary_zh)
-        anytls_configured = bool(sb_configured and self.config.protocol_adapters.get("anytls", {}).get("inboundTags"))
-        update("anytls", configured=anytls_configured, ready=bool(anytls_configured and singbox.get("available")), summary="sing-box connections API is responding for AnyTLS" if anytls_configured and singbox.get("available") else "AnyTLS is not configured or the sing-box API is unavailable", summary_zh="AnyTLS 的 sing-box 连接 API 响应正常" if anytls_configured and singbox.get("available") else "AnyTLS 未配置或 sing-box API 当前不可用")
-        for integration_id, label in (("vless", "VLESS"), ("socks5", "SOCKS5"), ("shadowsocks", "Shadowsocks"), ("vmess", "VMess"), ("trojan", "Trojan"), ("tuic", "TUIC")):
+        if protocol_requested(self.config, "hysteria2") and not hy2_ready:
+            states["hysteria2"]["status"] = "error"
+        for integration_id in PROTOCOLS:
             adapter = self.config.protocol_adapters.get(integration_id, {})
             configured = bool(sb_configured and adapter.get("inboundTags"))
-            update(integration_id, configured=configured, ready=bool(configured and singbox.get("available")), summary=f"{label} inbound tags are mapped to the sing-box connection API" if configured and singbox.get("available") else f"{label} is not configured or the sing-box API is unavailable", summary_zh=f"{label} 入站标签已映射到 sing-box 连接 API" if configured and singbox.get("available") else f"{label} 未配置或 sing-box API 当前不可用")
+            ready, summary, summary_zh = protocol_readiness(self.config, integration_id, singbox)
+            update(integration_id, configured=configured, ready=ready, summary=summary, summary_zh=summary_zh)
+            if protocol_requested(self.config, integration_id) and not ready:
+                states[integration_id]["status"] = "error"
         hy2_streams_ready = bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available")))
         adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
         update("connections", ready=adapters_ready, summary="" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")

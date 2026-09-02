@@ -840,3 +840,9 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 @media (prefers-reduced-motion: reduce) {
   .page-enter > * { animation: none; }
 }
+
+.navigation-surface { cursor: pointer; user-select: text; }
+.navigation-surface:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+.navigation-surface [data-no-navigate] { cursor: default; }
+
+.service-card--abnormal .service-card__body, .service-card--abnormal .service-card__body p, .service-card--abnormal dt, .service-card--abnormal dd { color: var(--error); }

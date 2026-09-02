@@ -1,7 +1,7 @@
 "use client";
 
 import type { OverviewMetrics, ServiceStatus } from "../../lib/types";
-import { formatDuration } from "../../lib/format";
+import { formatBytes, formatDuration } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import { storageIsHealthy } from "../../lib/service-health";
 import { ServiceCards } from "../ServiceCards";
@@ -41,6 +41,10 @@ export function ServicesPage({ services, metrics, onRefresh }: {
             description={metrics.nodeName}
           />
           <div className="host-info">
+            <div>
+              <span>{t("内存用量", "Memory usage")}</span>
+              <b>{formatBytes(metrics.memoryUsedBytes)} / {formatBytes(metrics.memoryTotalBytes)} · {metrics.memoryPercent.toFixed(1)}%</b>
+            </div>
             <div>
               <span>{t("系统运行时间", "System uptime")}</span>
               <b>{formatDuration(metrics.uptimeSeconds)}</b>

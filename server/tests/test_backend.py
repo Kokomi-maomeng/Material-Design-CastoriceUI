@@ -518,14 +518,16 @@ class BackendTests(unittest.TestCase):
             dashboard = DashboardService(config, storage)
             with self.assertRaisesRegex(ValueError, "loopback"):
                 dashboard.configure_integration("hysteria2", {"values": {"endpoint": "http://169.254.169.254/latest/meta-data"}})
-            self.assertEqual(storage.get_setting("integration_overrides", {}), {})
+            self.assertEqual(storage.get_setting("integration_overrides", {})["hysteria2"]["values"], {})
+            self.assertFalse(config.hysteria_api.get("url"))
 
             with self.assertRaisesRegex(ValueError, "interface"):
                 dashboard.configure_integration("traffic", {"values": {"interface": "../../etc", "quotaGb": "10"}})
             with patch("castoriceui.dashboard.http_json", side_effect=ValueError("failed")):
                 with self.assertRaisesRegex(ValueError, "failed"):
                     dashboard.configure_integration("hysteria2", {"values": {"endpoint": "http://127.0.0.1:19090"}})
-            self.assertEqual(storage.get_setting("integration_overrides", {}), {})
+            self.assertEqual(storage.get_setting("integration_overrides", {})["hysteria2"]["values"], {})
+            self.assertFalse(config.hysteria_api.get("url"))
 
     def test_legacy_sqlite_secret_is_removed_without_overwriting_server_secret(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
