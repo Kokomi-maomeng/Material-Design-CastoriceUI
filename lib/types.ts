@@ -82,6 +82,7 @@ export interface NetworkTarget {
 }
 
 export interface ServiceStatus {
+  kind?: "protocol" | "core";
   id: string;
   name: string;
   nameZh?: string;

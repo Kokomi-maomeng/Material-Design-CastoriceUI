@@ -80,7 +80,7 @@ const PANEL_IDS: PageId[] = [
   "traffic",
   "audit",
 ];
-const PROJECT_VERSION = "4.0.0";
+const PROJECT_VERSION = "4.1.0";
 const PROJECT_NAME = "Material-Design-CastoriceUI";
 const PROJECT_AUTHOR = "Kokomi-maomeng";
 const PROJECT_URL = `https://github.com/${PROJECT_AUTHOR}/${PROJECT_NAME}`;
@@ -415,10 +415,12 @@ export function CastoriceApp() {
     });
   }, []);
   useEffect(() => {
-    if (visibleNavigation.some((item) => item.id === page)) return;
+    // Sidebar visibility is a presentation preference; overview shortcuts and
+    // browser history must still be able to open a hidden destination.
+    if (page !== "setup" || uiSettings.showSetup) return;
     const timer = window.setTimeout(() => navigate("overview"), 0);
     return () => window.clearTimeout(timer);
-  }, [navigate, page, visibleNavigation]);
+  }, [navigate, page, uiSettings.showSetup]);
   const showToast = useCallback((message: string) => {
     toastSequence.current += 1;
     setToast({ id: toastSequence.current, message });
@@ -534,13 +536,14 @@ export function CastoriceApp() {
           : t("配置已保存，但实际运行状态仍需检查", "Configuration saved, but the live status still needs attention"));
         return verified;
       } catch (error) {
+        await loadDashboard();
         showToast(id === "subscriptions"
           ? t("订阅实际访问验证失败，配置未保存", "Live subscription probe failed; configuration was not saved")
           : t("后端实际验证失败，配置未保存", "Backend live validation failed; configuration was not saved"));
         throw error;
       }
     },
-    [showToast, t],
+    [loadDashboard, showToast, t],
   );
 
   if (bootError)
@@ -728,7 +731,7 @@ export function CastoriceApp() {
               void loadDashboard();
               showToast(t("正在刷新实时数据", "Refreshing live data"));
             }}
-            onViewServices={() => navigate("services")}
+            onNavigate={navigate}
           />
         );
     }

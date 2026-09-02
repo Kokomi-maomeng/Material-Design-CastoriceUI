@@ -12,6 +12,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from calendar import monthrange
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
@@ -351,13 +352,81 @@ def singbox_snapshot(config: AppConfig) -> dict[str, Any]:
     api = config.singbox_api
     base = str(api.get("url", "")).rstrip("/")
     if not base:
-        return {"available": False, "traffic": {}, "connections": []}
+        return {"available": False, "traffic": {}, "connections": [], "inventory": read_protocol_inventory()}
     secret = str(api.get("secret", ""))
     payload_raw = http_json(base + "/connections", secret, bearer=True)
     payload = payload_raw if isinstance(payload_raw, dict) else {}
-    traffic = {"up": int(payload.get("uploadTotal", 0)), "down": int(payload.get("downloadTotal", 0))}
+    valid = valid_singbox_payload(payload_raw)
+    traffic = {"up": int(payload.get("uploadTotal", 0)), "down": int(payload.get("downloadTotal", 0))} if valid else {}
     connections = payload.get("connections", [])
-    return {"available": isinstance(payload_raw, dict), "traffic": traffic, "connections": connections if isinstance(connections, list) else []}
+    return {"available": valid, "traffic": traffic, "connections": connections if valid else [], "inventory": read_protocol_inventory()}
+
+
+PROTOCOLS = {
+    "anytls": ("AnyTLS", "encrypted", {"anytls"}),
+    "vless": ("VLESS", "route", {"vless"}),
+    "socks5": ("SOCKS5", "lan", {"socks", "mixed"}),
+    "shadowsocks": ("Shadowsocks", "shield", {"shadowsocks"}),
+    "vmess": ("VMess", "vpn_key", {"vmess"}),
+    "trojan": ("Trojan", "security", {"trojan"}),
+    "tuic": ("TUIC", "speed", {"tuic"}),
+}
+
+
+def valid_singbox_payload(payload: Any) -> bool:
+    return (isinstance(payload, dict) and isinstance(payload.get("connections"), list)
+            and all(isinstance(item, dict) and isinstance(item.get("metadata", {}), dict) for item in payload["connections"])
+            and all(type(payload.get(key)) in {int, float} and 0 <= payload[key] < 1e30 for key in ("uploadTotal", "downloadTotal")))
+
+
+def read_protocol_inventory() -> dict[str, Any]:
+    try:
+        path = Path("/run/castoriceui/protocol-status.json")
+        if path.stat().st_size > 1_000_000:
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pid = run(["systemctl", "show", "sing-box", "-p", "MainPID", "--value"])
+        if (data.get("schema") != 1 or not 0 <= time.time() - float(data["sampledAt"]) <= 90
+                or not pid.isdigit() or int(pid) <= 0 or data.get("pid") != int(pid)
+                or not isinstance(data.get("inbounds"), list)):
+            return {}
+        return data
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return {}
+
+
+def protocol_requested(config: AppConfig, protocol: str) -> bool:
+    state = config.integrations.get(protocol, {})
+    return bool(state.get("enabled") or state.get("configured") or state.get("attempted")
+                or (str(config.hysteria_api.get("url", "")).strip() if protocol == "hysteria2" else protocol in config.protocol_adapters))
+
+
+def protocol_readiness(config: AppConfig, protocol: str, sb: dict[str, Any]) -> tuple[bool, str, str]:
+    tags = config.protocol_adapters.get(protocol, {}).get("inboundTags", [])
+    if not str(config.singbox_api.get("url", "")).strip() or not tags:
+        return False, "Configuration incomplete: API endpoint or inbound tags missing", "配置未完成：缺少 API 地址或入站标签"
+    if not sb.get("available"):
+        return False, "Statistics API unavailable or invalid", "统计 API 不可用或响应无效"
+    inventory = sb.get("inventory", {})
+    if not inventory.get("available"):
+        if inventory.get("reason") == "config_not_loaded":
+            return False, "Core configuration changed since startup; loaded inbounds cannot be verified", "核心配置在启动后发生变更，无法确认已加载的入站"
+        return False, "Live inbound inventory unavailable; check the protocol probe", "无法读取实时入站信息，请检查协议状态采集服务"
+    if urlsplit(str(config.singbox_api.get("url", ""))).port != inventory.get("apiPort"):
+        return False, "Statistics API endpoint does not match the running core", "统计 API 地址与当前运行核心不一致"
+    inbounds = inventory.get("inbounds", [])
+    profile = config.protocol_adapters.get(protocol, {}).get("securityProfile", "standard")
+    for tag in tags:
+        matches = [item for item in inbounds if item.get("tag") == tag]
+        if len(matches) != 1 or matches[0].get("type") not in PROTOCOLS[protocol][2]:
+            return False, "Inbound tag missing, ambiguous, or mapped to a different protocol", "入站标签不存在、重复或对应其他协议"
+        if any(tag.casefold() in {other.casefold() for other in adapter.get("inboundTags", [])} for key, adapter in config.protocol_adapters.items() if key != protocol):
+            return False, "Inbound tag is assigned to multiple protocols", "入站标签被重复分配给多个协议"
+        if protocol == "vless" and matches[0].get("securityProfile") != profile:
+            return False, "VLESS security profile does not match the loaded inbound", "VLESS 安全组合与已加载入站不一致"
+        if not matches[0].get("listening"):
+            return False, "Protocol listener is unavailable", "协议监听不可用"
+    return True, "Core active · inbound and statistics API verified", "核心正常 · 入站监听及统计 API 验证通过"
 
 
 def service_state(unit: str) -> tuple[str, int]:
@@ -407,9 +476,9 @@ def automatic_update_info() -> dict[str, str]:
 
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
     definitions = []
-    if str(config.hysteria_api.get("url", "")).strip():
+    if protocol_requested(config, "hysteria2"):
         definitions.append(("hysteria2", "Hysteria2", "hysteria-server", "bolt", ["/usr/local/bin/hysteria", "version"], hy2))
-    singbox_configured = bool(str(config.singbox_api.get("url", "")).strip() and any(adapter.get("inboundTags") for adapter in config.protocol_adapters.values()))
+    singbox_configured = bool(str(config.singbox_api.get("url", "")).strip() or any(protocol_requested(config, key) for key in PROTOCOLS))
     if singbox_configured:
         definitions.append(("singbox", "sing-box", "sing-box", "encrypted", ["/usr/bin/sing-box", "version"], sb))
     definitions.append(("nginx", "Nginx", "nginx", "language", ["nginx", "-v"], None))
@@ -433,7 +502,23 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
             status, detail, detail_zh = "running", "systemd active", "systemd 正常"
         else:
             status, detail, detail_zh = "warning", "systemd active · statistics adapter unavailable", "systemd 正常 · 统计适配器当前不可用"
-        services.append({"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version, "uptimeSeconds": uptime, "icon": icon})
+        if service_id == "hysteria2" and not str(config.hysteria_api.get("url", "")).strip():
+            status, detail, detail_zh = "stopped", "Configuration incomplete: statistics API endpoint missing", "配置未完成：缺少统计 API 地址"
+        record = {"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version if status == "running" else "unknown", "icon": icon, "kind": "protocol" if service_id == "hysteria2" else "core"}
+        if status == "running":
+            record["uptimeSeconds"] = uptime
+        services.append(record)
+        if service_id == "singbox":
+            for protocol, (label, protocol_icon, _types) in PROTOCOLS.items():
+                if not protocol_requested(config, protocol):
+                    continue
+                ready, protocol_detail, protocol_zh = protocol_readiness(config, protocol, sb)
+                if active != "active":
+                    ready, protocol_detail, protocol_zh = False, "sing-box core is not active", "sing-box 核心未运行"
+                protocol_record = {"id": protocol, "name": label, "nameZh": label, "nameEn": label, "kind": "protocol", "detail": protocol_detail, "detailEn": protocol_detail, "detailZh": protocol_zh, "status": "running" if ready else "stopped", "version": f"sing-box {version}" if ready and version != "unknown" else "unknown", "icon": protocol_icon}
+                if ready:
+                    protocol_record["uptimeSeconds"] = uptime
+                services.append(protocol_record)
     cert = certificate_info(config.certificate_path)
     certificate_zh = "未配置证书路径" if not config.certificate_path else f"证书剩余 {cert['days']} 天" if cert.get("days") else "无法读取证书"
     services.extend([

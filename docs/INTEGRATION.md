@@ -1,4 +1,4 @@
-# CastoriceUI v4.0 backend integration guide
+# CastoriceUI v4.1 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -144,3 +144,11 @@ Protocol adapters are optional and remain visibly unconfigured when skipped. The
 ## Legacy compatibility
 
 v1 endpoint aliases remain for dashboard, traffic-limit, integration, subscription URL, alert acknowledgement, and health requests during a staged frontend/backend switch. New authentication, first-run, UI settings, structured network targets, and background functions are v2-only. v2 startup still removes legacy v1.2 Secrets from SQLite overrides and disables invalid non-loopback legacy endpoints.
+
+## Protocol service health (v4.1)
+
+`services` includes a `kind` field (`protocol` or `core`) for monitored proxy components. Protocol IDs are `hysteria2`, `anytls`, `vless`, `socks5`, `shadowsocks`, `vmess`, `trojan`, and `tuic`. Presence follows effective protected configuration, persisted setup overrides, or a submitted first-setup attempt. Untouched optional integrations remain absent. The shared sing-box core has ID `singbox` and is listed independently.
+
+Both overview and services consume this same list. Protocol availability requires a valid statistics API response and, for sing-box protocols, fresh read-only inventory matching the actual inbound type, exact tag, VLESS security profile, and core-owned listener. SOCKS5 maps to sing-box's `socks` or `mixed` inbound type. API availability alone does not establish protocol health. See [sing-box inbounds](https://sing-box.sagernet.org/configuration/inbound/) and [Clash API](https://sing-box.sagernet.org/configuration/experimental/clash-api/) for the upstream models.
+
+Failed first setup stores only an intent marker, never the rejected candidate URL, secrets, or tags. Successful existing configuration remains effective after a failed edit. Missing observations use `status: stopped` or `warning`, `version: unknown`, and omitted uptime rather than fabricated metrics. Install the probe using [DEPLOYMENT.md](DEPLOYMENT.md).
