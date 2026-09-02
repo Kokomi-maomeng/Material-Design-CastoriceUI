@@ -80,7 +80,7 @@ const PANEL_IDS: PageId[] = [
   "traffic",
   "audit",
 ];
-const PROJECT_VERSION = "3.5.0";
+const PROJECT_VERSION = "4.0.0";
 const PROJECT_NAME = "Material-Design-CastoriceUI";
 const PROJECT_AUTHOR = "Kokomi-maomeng";
 const PROJECT_URL = `https://github.com/${PROJECT_AUTHOR}/${PROJECT_NAME}`;
@@ -899,10 +899,7 @@ export function CastoriceApp() {
           }}
           nodeName={dashboard.overview.nodeName}
           trafficLimitBytes={dashboard.overview.trafficLimitBytes}
-          onEditQuota={() => {
-            setSettingsOpen(false);
-            openQuota();
-          }}
+          onEditQuota={openQuota}
           onSaveNodeName={async (nodeName) => {
             await saveIntegration("system", { nodeName });
           }}
@@ -927,7 +924,8 @@ export function CastoriceApp() {
         open={quotaOpen}
         onClose={() => { if (!quotaSaving) setQuotaOpen(false); }}
         title={t("设置总流量额度", "Set total traffic quota")}
-        size="small"
+        className="quota-dialog"
+        size="medium"
         actions={
           <>
             <Button
@@ -968,7 +966,7 @@ export function CastoriceApp() {
           <div className="field"><span>{t("计费单位", "Billing unit")}</span><MaterialSelect ariaLabel={t("计费单位", "Billing unit")} value={draftQuotaUnit} options={[{ value: "day", label: t("日", "day(s)") }, { value: "week", label: t("周", "week(s)") }, { value: "month", label: t("月", "month(s)") }, { value: "year", label: t("年", "year(s)") }]} onChange={(value) => setDraftQuotaUnit(value as typeof draftQuotaUnit)} /></div>
           <div className="field"><span>{t("重置基准日期", "Reset anchor date")}</span><MaterialDatePicker ariaLabel={t("重置基准日期", "Reset anchor date")} value={draftQuotaAnchor} onChange={setDraftQuotaAnchor} /></div>
           <div className="field"><span>{t("重置时间", "Reset time")}</span><div className="quota-time-selects"><MaterialSelect ariaLabel={t("重置小时", "Reset hour")} value={draftQuotaTime.slice(0, 2)} options={RESET_HOURS.map((value) => ({ value, label: value }))} onChange={(value) => setDraftQuotaTime(`${value}:${draftQuotaTime.slice(3, 5)}`)} /><span>:</span><MaterialSelect ariaLabel={t("重置分钟", "Reset minute")} value={draftQuotaTime.slice(3, 5)} options={RESET_MINUTES.map((value) => ({ value, label: value }))} onChange={(value) => setDraftQuotaTime(`${draftQuotaTime.slice(0, 2)}:${value}`)} /></div></div>
-          <div className="field"><span>{t("时区设定", "Timezone")}</span><MaterialSelect ariaLabel={t("时区设定", "Timezone")} value={draftQuotaTimezone} searchable options={TIMEZONE_NAMES.map((timezone) => ({ value: timezone, label: timezone, secondary: timezone === "UTC" ? t("协调世界时", "Coordinated Universal Time") : undefined }))} onChange={setDraftQuotaTimezone} /></div>
+          <div className="field field--wide"><span>{t("时区设定", "Timezone")}</span><MaterialSelect ariaLabel={t("时区设定", "Timezone")} value={draftQuotaTimezone} searchable options={TIMEZONE_NAMES.map((timezone) => ({ value: timezone, label: timezone, secondary: timezone === "UTC" ? t("协调世界时", "Coordinated Universal Time") : undefined }))} onChange={setDraftQuotaTimezone} /></div>
           <p className="field-hint quota-schedule-summary">{t(`每 ${draftQuotaCount || "?"} ${draftQuotaUnit === "day" ? "日" : draftQuotaUnit === "week" ? "周" : draftQuotaUnit === "month" ? "月" : "年"}重置；基准 ${draftQuotaAnchor || "—"} ${draftQuotaTime}，时区 ${draftQuotaTimezone || "UTC"}`, `Reset every ${draftQuotaCount || "?"} ${draftQuotaUnit}(s), anchored on ${draftQuotaAnchor || "—"} ${draftQuotaTime} in ${draftQuotaTimezone || "UTC"}`)}</p>
         </div> : null}
         {quotaError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{quotaError}</span></div> : null}
@@ -1129,7 +1127,7 @@ function SettingsDialog({
   ];
   if (!open) return null;
   return (
-    <Dialog
+    <Dialog className="settings-dialog"
       open
       onClose={closeSettings}
       title={t("设置", "Settings")}
@@ -1324,20 +1322,15 @@ function SettingsDialog({
         </details>
       </section>
       <section className="theme-section settings-about-section">
-        <details className="settings-disclosure settings-about">
-          <summary>
-            <span><Icon name="info" /><span><strong>{t("关于详情", "About")}</strong><small>CastoriceUI v{PROJECT_VERSION}</small></span></span>
-            <Icon name="expand_more" />
-          </summary>
-          <div className="settings-about__content disclosure-content">
-            <a href={PROJECT_URL} target="_blank" rel="noreferrer noopener"><Icon name="code" /><span>{t("项目 GitHub 主页", "Project GitHub homepage")}</span><Icon name="open_in_new" size={18} /></a>
-            <dl>
-              <div><dt>{t("GitHub 作者", "GitHub author")}</dt><dd>{PROJECT_AUTHOR}</dd></div>
-              <div><dt>{t("项目名称", "Project name")}</dt><dd>{PROJECT_NAME}</dd></div>
-              <div><dt>{t("当前版本", "Current version")}</dt><dd>v{PROJECT_VERSION}</dd></div>
-            </dl>
-          </div>
-        </details>
+        <h3 className="settings-about__heading"><Icon name="info" /><span>{t("关于详情", "About")}</span></h3>
+        <div className="settings-about__content">
+          <dl>
+            <div><dt>{t("GitHub 作者", "GitHub author")}</dt><dd>{PROJECT_AUTHOR}</dd></div>
+            <div><dt>{t("项目名称", "Project name")}</dt><dd>{PROJECT_NAME}</dd></div>
+            <div><dt>{t("当前版本", "Current version")}</dt><dd>v{PROJECT_VERSION}</dd></div>
+          </dl>
+          <a href={PROJECT_URL} target="_blank" rel="noreferrer noopener"><Icon name="code" /><span>{t("项目 GitHub 主页", "Project GitHub homepage")}</span><Icon name="open_in_new" size={18} /></a>
+        </div>
       </section>
     </Dialog>
   );

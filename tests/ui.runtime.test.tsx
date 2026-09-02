@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { SettingsSwitch } from "../components/CastoriceApp";
+import { useState } from "react";
+import { ServiceCards } from "../components/ServiceCards";
+import { Dialog } from "../components/ui/Dialog";
 import { AccountsPage } from "../components/pages/AccountsPage";
 import { ServicesPage } from "../components/pages/ServicesPage";
 import { TrafficPage } from "../components/pages/TrafficPage";
@@ -46,6 +49,47 @@ const renderEnglish = (view: React.ReactNode) => {
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
+describe("v4.0 service health and dialog layers", () => {
+  const service = { id: "hysteria2", name: "Hysteria2", status: "running", detail: "systemd active", version: "1.0.0", icon: "bolt" } as const;
+  it("shows every service and makes warnings and storage failures red", () => {
+    const { container, rerender } = renderEnglish(<ServiceCards services={[service, { ...service, id: "certificate", name: "TLS", status: "warning" }]} metrics={metrics} compact />);
+    expect(container.querySelectorAll(".service-card")).toHaveLength(3);
+    expect(screen.getByText("Abnormal").className).toContain("is-error");
+    expect(screen.getByText("Healthy").className).toContain("is-healthy");
+    expect(screen.queryByText("systemd active")).toBeNull();
+    rerender(<I18nProvider><ServiceCards services={[service]} metrics={{ ...metrics, databaseWritable: false }} compact /></I18nProvider>);
+    expect(screen.queryByText("Healthy")).toBeNull();
+    expect(screen.getByText("Abnormal").className).toContain("is-error");
+  });
+  it("includes storage failure in the service-page health summary", () => {
+    renderEnglish(<ServicesPage services={[service]} metrics={{ ...metrics, diskPercent: 95 }} onRefresh={vi.fn()} />);
+    expect(screen.queryByText("System is healthy")).toBeNull();
+    expect(screen.getByText("Some components need attention")).toBeTruthy();
+  });
+  it("closes only the top dialog and restores parent focus and scroll locking", () => {
+    function Layers() {
+      const [settings, setSettings] = useState(true);
+      const [quota, setQuota] = useState(false);
+      return <><Dialog open={settings} title="Settings" onClose={() => setSettings(false)}><button onClick={() => setQuota(true)}>Open quota</button></Dialog><Dialog open={quota} title="Quota" onClose={() => setQuota(false)}><input aria-label="Quota amount" /></Dialog></>;
+    }
+    renderEnglish(<Layers />);
+    const trigger = screen.getByRole("button", { name: "Open quota" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const parent = screen.getByRole("dialog", { name: "Settings" });
+    expect(parent.inert).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Quota" })).toBeNull();
+    expect(parent.inert).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+    expect(document.body.style.overflow).toBe("hidden");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+  });
+});
+
 describe("v3.3 runtime behavior", () => {
   it("removes only terminal Chinese and English sentence periods", () => {
     expect(withoutTerminalPeriod("第一句。第二句。")).toBe("第一句。第二句");
@@ -63,7 +107,7 @@ describe("v3.3 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v3.5")).toBeTruthy();
+    expect(screen.getByText("v4.0")).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -155,7 +199,8 @@ describe("v3.3 runtime behavior", () => {
       account: [{ name: "primary", value: 0 }, { name: "Unattributed", nameZh: "未归属", nameEn: "Unattributed", value: 532_000_000_000 }],
     }} integration={{ id: "traffic", enabled: true, configured: true, status: "ready", summary: "ready" }} onConfigure={vi.fn()} />);
     expect(Array.from(document.querySelectorAll(".ranking-row strong"), (node) => node.textContent)).toEqual(["Unattributed", "primary"]);
-    expect(screen.getByText("2 attribution entries")).toBeTruthy();
+    expect(screen.queryByText("2 attribution entries")).toBeNull();
+    expect(screen.getByText("Recent monthly traffic")).toBeTruthy();
     expect(screen.getByText("2026-04-01 – 2026-04-30")).toBeTruthy();
     expect(screen.getByText("800 GB")).toBeTruthy();
     const meters = Array.from(document.querySelectorAll<HTMLElement>(".monthly-traffic-track"));

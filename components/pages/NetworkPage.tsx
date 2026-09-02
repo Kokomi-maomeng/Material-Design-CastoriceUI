@@ -108,7 +108,7 @@ export function NetworkPage({
   };
 
   return (
-    <div className="page-content page-enter">
+    <div className="page-content page-enter network-page">
       <PageHeader
         eyebrow={t("链路可观测性", "Link observability")}
         title={t("网络质量", "Network quality")}
@@ -233,16 +233,18 @@ export function NetworkPage({
                   {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : t("不可达", "Down")}
                 </Chip>
               </div>
+              <div className="network-target-card__content">
+              <div className="network-target-card__metrics">
+                <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency.toFixed(1)} ms</b></div>
+                <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter.toFixed(1)} ms</b></div>
+                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.loss > 1 ? "text-warning" : ""}>{target.loss.toFixed(1)}%</b></div>
+              </div>
               <div className="network-target-card__chart">
                 <div className="network-target-card__chart-title"><span>{t("延迟趋势", "Latency trend")}</span><b>{target.latency.toFixed(1)} ms</b></div>
                 <div className="sparkline" aria-label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)}>
                   <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)} />
                 </div>
               </div>
-              <div className="network-target-card__metrics">
-                <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency.toFixed(1)} ms</b></div>
-                <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter.toFixed(1)} ms</b></div>
-                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.loss > 1 ? "text-warning" : ""}>{target.loss.toFixed(1)}%</b></div>
               </div>
             </Card>
           ))}
@@ -401,7 +403,7 @@ function Sparkline({
     const update = () => {
       const rect = svg.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      const next = Math.max(520, Math.min(1480, Math.round((rect.width / rect.height) * height)));
+      const next = Math.max(240, Math.min(1480, Math.round((rect.width / rect.height) * height)));
       setViewWidth((current) => Math.abs(current - next) > 1 ? next : current);
     };
     update();
