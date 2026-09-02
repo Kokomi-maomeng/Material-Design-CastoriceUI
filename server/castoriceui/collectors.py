@@ -424,13 +424,13 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     for definition, active, uptime, version in inspected:
         service_id, name, _unit, icon, _command, adapter = definition
         if active != "active" and adapter and adapter.get("available"):
-            status, detail, detail_zh = "warning", "statistics adapter responds · expected systemd unit is inactive or non-standard", "统计适配器响应正常 · 预期 systemd 单元未运行或使用了非标准名称"
+            status, detail, detail_zh = "warning", "expected systemd unit is inactive or non-standard", "预期 systemd 单元未运行或使用了非标准名称"
         elif active != "active":
             status, detail, detail_zh = "stopped", "systemd reports the service is not active", "systemd 报告服务未运行"
         elif adapter is None:
             status, detail, detail_zh = "running", "systemd reports active", "systemd 报告服务正在运行"
         elif adapter.get("available"):
-            status, detail, detail_zh = "running", "systemd active · statistics adapter responding", "systemd 正常 · 统计适配器响应正常"
+            status, detail, detail_zh = "running", "systemd active", "systemd 正常"
         else:
             status, detail, detail_zh = "warning", "systemd active · statistics adapter unavailable", "systemd 正常 · 统计适配器当前不可用"
         services.append({"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version, "uptimeSeconds": uptime, "icon": icon})

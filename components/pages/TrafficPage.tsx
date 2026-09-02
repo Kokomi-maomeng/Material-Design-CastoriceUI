@@ -8,7 +8,6 @@ import { DonutChart } from "../charts/DonutChart";
 import { TrafficChart } from "../charts/TrafficChart";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Card, CardHeader } from "../ui/Card";
-import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { Progress } from "../ui/Progress";
@@ -53,9 +52,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
     </section>
     <CollapsibleTrafficCard
       className="monthly-traffic-panel"
-      title={t("近六个自然月流量", "Six calendar months")}
-      description={t("严格按每月 1 日至月末统计；当前月包含截至现在的已采集用量", "Each period runs from the first through the final calendar day; the current month includes collected usage to date")}
-      status={t("6 个自然月", "6 calendar months")}
+      title={t("近期月流量", "Recent monthly traffic")}
     >
       <div className="monthly-traffic-list">
         {traffic.monthly.map((item) => {
@@ -71,20 +68,20 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
       </div>
     </CollapsibleTrafficCard>
     <section className="content-grid content-grid--traffic-bottom">
-      <CollapsibleTrafficCard title={t("管理账号用量排行", "Managed-account usage ranking")} status={t(`${accountTraffic.length} 项归属`, accountTraffic.length === 1 ? "1 attribution entry" : `${accountTraffic.length} attribution entries`)}>
+      <CollapsibleTrafficCard title={t("管理账号用量排行", "Managed-account usage ranking")}>
         <div className="ranking-list">{accountTraffic.map((item, index) => <div className="ranking-row" key={item.name}><span className="rank">{index + 1}</span><div><strong>{item.name}</strong><Progress value={(item.value / accountMax) * 100} /></div><b>{item.value.toFixed(1)} GB</b></div>)}</div>
       </CollapsibleTrafficCard>
     </section>
   </div>;
 }
 
-function CollapsibleTrafficCard({ title, description, status, className = "", children }: { title: string; description?: string; status: string; className?: string; children: ReactNode }) {
+function CollapsibleTrafficCard({ title, className = "", children }: { title: string; className?: string; children: ReactNode }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   return <details className={`md-card md-card--outlined traffic-disclosure ${className}`} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
     <summary>
-      <div><h2>{title}</h2>{description ? <p>{description}</p> : null}</div>
-      <span className="traffic-disclosure__action"><Chip staticChip>{status}</Chip><Icon name="expand_more" /></span>
+      <h2>{title}</h2>
+      <span className="traffic-disclosure__action"><Icon name="expand_more" /></span>
       <span className="sr-only">{t("展开或折叠卡片", "Expand or collapse card")}</span>
     </summary>
     <div className="traffic-disclosure__content">{children}</div>

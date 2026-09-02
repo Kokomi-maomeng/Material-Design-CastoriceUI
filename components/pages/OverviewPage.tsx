@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
+import { useI18n } from "../../lib/i18n";
 
 import { formatBytes, formatDecimalBytes, percent } from "../../lib/format";
 import type {
@@ -12,6 +12,7 @@ import type {
   ServiceStatus,
   TrafficRange,
 } from "../../lib/types";
+import { ServiceCards } from "../ServiceCards";
 import { TrafficChart } from "../charts/TrafficChart";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
@@ -268,7 +269,6 @@ export function OverviewPage({
               <Icon name="verified" size={26} />
             </span>
             <div>
-              <small>{t("当前质量等级", "Current quality")}</small>
               <strong>{networkGrade}</strong>
               <em>
                 {t(
@@ -323,55 +323,12 @@ export function OverviewPage({
         </Card>
       </section>
 
-      <section className="content-grid content-grid--dashboard-bottom">
-        <Card variant="outlined">
-          <CardHeader
-            title={t("服务健康度", "Service health")}
-            action={
-              <Button
-                variant="text"
-                compact
-                trailingIcon="arrow_forward"
-                onClick={onViewServices}
-              >
-                {t("查看全部", "View all")}
-              </Button>
-            }
-          />
-          <div className="service-compact-list">
-            {services.slice(0, 4).map((service) => (
-              <div className="service-compact" key={service.id}>
-                <span
-                  className={`service-icon service-icon--${service.status}`}
-                >
-                  <Icon name={service.icon} />
-                </span>
-                <div>
-                  <strong>
-                    {language === "zh"
-                      ? service.nameZh || service.name
-                      : service.nameEn || service.name}
-                  </strong>
-                  <span>
-                    {withoutTerminalPeriod(
-                      language === "zh"
-                        ? service.detailZh || service.detail
-                        : service.detailEn || service.detail,
-                    )}
-                  </span>
-                </div>
-                <Chip
-                  staticChip
-                  tone={service.status === "running" ? "success" : "warning"}
-                >
-                  {service.status === "running"
-                    ? t("运行中", "Running")
-                    : t("需关注", "Attention")}
-                </Chip>
-              </div>
-            ))}
-          </div>
-        </Card>
+      <section className="overview-service-health" aria-label={t("服务健康度", "Service health")}>
+        <div className="service-health-heading">
+          <h2>{t("服务健康度", "Service health")}</h2>
+          <Button variant="text" compact trailingIcon="arrow_forward" onClick={onViewServices}>{t("查看全部", "View all")}</Button>
+        </div>
+        <ServiceCards services={services} metrics={metrics} compact />
       </section>
     </div>
   );

@@ -119,7 +119,6 @@ export function AuditPage() {
         <button onClick={() => go(currentPage + 1)} disabled={currentPage === totalPages} aria-label={t("下一页", "Next page")}><Icon name="chevron_right" size={18} /></button>
         <form onSubmit={(event) => { event.preventDefault(); go(Number(jump)); setJump(""); }}><label><span>{t("跳至", "Go to")}</span><input inputMode="numeric" pattern="[0-9]*" value={jump} onChange={(event) => setJump(event.target.value.replace(/\D/g, ""))} aria-label={t("输入页码", "Enter page number")} /><span>/ {totalPages}</span></label><Button type="submit" compact disabled={!jump}>{t("跳转", "Go")}</Button></form>
       </nav> : null}
-      <div className="table-footer"><span>{t("展开后每页显示 50 条", "Expanded view shows 50 records per page")}</span></div>
     </Card>
   </div>;
 }
