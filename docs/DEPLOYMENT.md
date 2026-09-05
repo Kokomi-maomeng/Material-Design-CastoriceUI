@@ -12,7 +12,7 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 - Node.js 20.19+ on the build machine
 - Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
 
-Do not deploy the backend directly on a public address. The v4.0 login cookie is Secure by default and therefore requires HTTPS in production.
+Do not deploy the backend directly on a public address. The application login cookie is Secure by default and therefore requires HTTPS in production.
 
 ## 2. Choose an artifact and inspect it / 选择交付物并检查
 
@@ -165,7 +165,9 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Do **not** enable `auth_basic`. v4.0 provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out. Keep the complete security-header set inside every location that declares its own `add_header`; Nginx does not inherit parent `add_header` directives into such a location.
+The checked-in template deliberately uses `listen 443 ssl http2`, which is accepted by Debian 12's default Nginx 1.22 and Debian 13's default package. Do not replace it with the standalone `http2 on` directive unless every supported host runs Nginx 1.25.1 or newer. Validate the complete rendered site with `nginx -t` on the target host before reloading.
+
+Do **not** enable `auth_basic`. CastoriceUI provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out. Keep the complete security-header set inside every location that declares its own `add_header`; Nginx does not inherit parent `add_header` directives into such a location.
 
 Recommended validation before using a browser:
 

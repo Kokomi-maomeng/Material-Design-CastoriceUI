@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { TrafficPoint } from "../../lib/types";
 
-const BASE_WIDTH = 680; const HEIGHT = 270;
+const BASE_WIDTH = 680; const MIN_VIEW_WIDTH = 320; const HEIGHT = 270;
 interface Point { x: number; y: number }
 function smoothPath(points: Point[]): string { if (!points.length) return ""; if (points.length === 1) return `M ${points[0].x},${points[0].y}`; return points.slice(1).reduce((path, current, index) => { const previous = points[index]; const mid = (previous.x + current.x) / 2; return `${path} C ${mid},${previous.y} ${mid},${current.y} ${current.x},${current.y}`; }, `M ${points[0].x},${points[0].y}`); }
 
@@ -19,7 +19,7 @@ export function TrafficChart({ data }: { data: TrafficPoint[] }) {
     const update = () => {
       const rect = svg.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      const next = Math.max(BASE_WIDTH, Math.min(1480, Math.round((rect.width / rect.height) * HEIGHT)));
+      const next = Math.max(MIN_VIEW_WIDTH, Math.min(1480, Math.round((rect.width / rect.height) * HEIGHT)));
       setViewWidth((current) => Math.abs(current - next) > 1 ? next : current);
     };
     update();
@@ -54,7 +54,7 @@ export function TrafficChart({ data }: { data: TrafficPoint[] }) {
   const labelStep = Math.max(1, Math.ceil(data.length / 7));
   const showAxisLabel = (index: number) => index === 0 || index === data.length - 1 || index % labelStep === 0;
 
-  return <div className="chart chart--traffic" role="region" aria-label={t("流量图可左右滑动", "Traffic chart can be scrolled horizontally")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标查看数值", "Upload and download traffic trend; move the pointer to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive((value) => value ?? data.length - 1)} onBlur={() => setActive(null)}>
+  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标查看数值", "Upload and download traffic trend; move the pointer to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive((value) => value ?? data.length - 1)} onBlur={() => setActive(null)}>
     <defs><linearGradient id="nativeDownloadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-primary)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--chart-primary)" stopOpacity=".02" /></linearGradient><linearGradient id="nativeUploadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-secondary)" stopOpacity=".22" /><stop offset="100%" stopColor="var(--chart-secondary)" stopOpacity=".01" /></linearGradient></defs>
     {[0, .25, .5, .75, 1].map((ratio) => { const y = plot.y + plot.height - ratio * plot.height; return <g key={ratio}><line className="chart-grid-line" x1={plot.x} x2={plot.x + plot.width} y1={y} y2={y} /><text className="chart-axis-label" x={plot.x - 8} y={y + 4} textAnchor="end">{Math.round(max * ratio)} GB</text></g>; })}
     {data.map((item, index) => showAxisLabel(index) ? <text className="chart-axis-label" key={`${item.label}-${index}`} x={point(0, index).x} y={HEIGHT - 8} textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}>{displayLabel(item)}</text> : null)}

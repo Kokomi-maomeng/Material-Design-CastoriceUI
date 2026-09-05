@@ -14,14 +14,13 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
-from calendar import monthrange
-from datetime import date, datetime, time as datetime_time, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from .config import AppConfig
 from .storage import Storage
+from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -33,15 +32,6 @@ def run(command: list[str], timeout: float = 2.5) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
         return (result.stdout or result.stderr).strip() if result.returncode == 0 else ""
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-
-
-def run_status(command: list[str], timeout: float = 2.5) -> str:
-    """Return bounded command output even when a status command exits non-zero."""
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
-        return (result.stdout or result.stderr).strip()
     except (OSError, subprocess.TimeoutExpired):
         return ""
 
@@ -85,102 +75,6 @@ def detect_interface(configured: str) -> str:
     except OSError:
         return ""
     return candidates[0] if candidates else ""
-
-
-def billing_cycle_start(now: datetime, day: int, timezone_name: str) -> datetime:
-    zone = timezone.utc if timezone_name == "UTC" else ZoneInfo(timezone_name)
-    local = now.astimezone(zone)
-    year, month = local.year, local.month
-    if local.day < day:
-        month -= 1
-        if month == 0:
-            year -= 1
-            month = 12
-    return datetime(year, month, day, tzinfo=zone).astimezone(timezone.utc)
-
-
-def _month_at(anchor: date, month_index: int) -> date:
-    year = anchor.year + (anchor.month - 1 + month_index) // 12
-    month = (anchor.month - 1 + month_index) % 12 + 1
-    return date(year, month, min(anchor.day, monthrange(year, month)[1]))
-
-
-def traffic_quota_period(
-    now: datetime,
-    quota: dict[str, Any],
-    legacy_day: int = 1,
-    legacy_timezone: str = "UTC",
-) -> tuple[datetime, datetime | None, dict[str, Any]]:
-    """Return the active quota period and a normalized public schedule."""
-    timezone_name = str(quota.get("timezone") or legacy_timezone or "UTC")
-    zone = timezone.utc if timezone_name == "UTC" else ZoneInfo(timezone_name)
-    local_now = now.astimezone(zone)
-    unit = str(quota.get("periodUnit") or "month")
-    if unit not in {"day", "week", "month", "year"}:
-        unit = "month"
-    try:
-        count = max(1, min(int(quota.get("periodCount", 1)), 365))
-    except (TypeError, ValueError):
-        count = 1
-    try:
-        anchor = date.fromisoformat(str(quota.get("resetAnchor") or ""))
-    except ValueError:
-        anchor = date(2000, 1, max(1, min(int(legacy_day), 28)))
-    reset_time_text = str(quota.get("resetTime") or "00:00")
-    try:
-        reset_hour, reset_minute = (int(value) for value in reset_time_text.split(":"))
-        if not 0 <= reset_hour <= 23 or not 0 <= reset_minute <= 59:
-            raise ValueError
-    except (TypeError, ValueError):
-        reset_hour, reset_minute = 0, 0
-        reset_time_text = "00:00"
-    reset_time = datetime_time(reset_hour, reset_minute)
-    auto_reset = bool(quota.get("autoReset", False))
-
-    if not auto_reset:
-        try:
-            fixed = datetime.fromisoformat(str(quota.get("fixedCycleStart", "")).replace("Z", "+00:00"))
-            if fixed.tzinfo is None:
-                fixed = fixed.replace(tzinfo=zone)
-        except ValueError:
-            fixed = datetime.combine(anchor, datetime.min.time(), zone)
-        start = min(fixed.astimezone(timezone.utc), now.astimezone(timezone.utc))
-        return start, None, {
-            "autoReset": False,
-            "periodUnit": unit,
-            "periodCount": count,
-            "resetAnchor": anchor.isoformat(),
-            "resetTime": reset_time_text,
-            "timezone": timezone_name,
-        }
-
-    if unit in {"day", "week"}:
-        step_days = count * (7 if unit == "week" else 1)
-        elapsed = (local_now.date() - anchor).days
-        periods = elapsed // step_days
-        start_date = anchor + timedelta(days=periods * step_days)
-        if datetime.combine(start_date, reset_time, zone) > local_now:
-            start_date -= timedelta(days=step_days)
-        next_date = start_date + timedelta(days=step_days)
-    else:
-        step_months = count * (12 if unit == "year" else 1)
-        elapsed_months = (local_now.year - anchor.year) * 12 + local_now.month - anchor.month
-        periods = elapsed_months // step_months
-        start_date = _month_at(anchor, periods * step_months)
-        if datetime.combine(start_date, reset_time, zone) > local_now:
-            periods -= 1
-            start_date = _month_at(anchor, periods * step_months)
-        next_date = _month_at(anchor, (periods + 1) * step_months)
-    start = datetime.combine(start_date, reset_time, zone).astimezone(timezone.utc)
-    next_reset = datetime.combine(next_date, reset_time, zone).astimezone(timezone.utc)
-    return start, next_reset, {
-        "autoReset": True,
-        "periodUnit": unit,
-        "periodCount": count,
-        "resetAnchor": anchor.isoformat(),
-        "resetTime": reset_time_text,
-        "timezone": timezone_name,
-    }
 
 
 class SystemCollector:
@@ -255,17 +149,24 @@ class SystemCollector:
         if now - self.last_persisted_at >= 60:
             self.storage.record_sample(now, rx, tx, cpu, memory_pct, self.interface, self.boot_id)
             self.last_persisted_at = now
-        limit = int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes))
-        quota_setting = self.storage.get_setting("traffic_quota", {})
-        if not isinstance(quota_setting, dict):
-            quota_setting = {}
+        legacy_limit = self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)
+        quota_setting = normalize_quota_state(
+            self.storage.get_setting("traffic_quota", {}),
+            default_bytes=int(legacy_limit),
+            legacy_day=self.config.traffic_billing_day,
+            legacy_timezone=self.config.traffic_billing_timezone,
+            legacy_count_mode=self.config.traffic_count_mode,
+            legacy_initial_bytes=self.config.traffic_initial_used_bytes,
+            legacy_initial_cycle=self.config.traffic_initial_used_cycle,
+        )
+        limit = int(quota_setting["bytes"])
         cycle_start, next_reset, quota_schedule = traffic_quota_period(
             datetime.now(timezone.utc), quota_setting, self.config.traffic_billing_day, self.config.traffic_billing_timezone
         )
         traffic_usage = self.storage.traffic_usage_since(
             int(cycle_start.timestamp()),
-            self.config.traffic_count_mode,
-            self.config.traffic_initial_used_bytes if self.config.traffic_initial_used_cycle == cycle_start.date().isoformat() else 0,
+            str(quota_setting["countMode"]),
+            baseline_for_cycle(quota_setting, cycle_start),
         )
         load = os.getloadavg()
         return {
@@ -451,29 +352,6 @@ def certificate_info(path: str) -> dict[str, Any]:
         return {"status": "warning", "detail": "Unable to read certificate", "days": 0}
 
 
-def operating_system_version() -> str:
-    try:
-        values = {}
-        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
-            if "=" in line:
-                key, value = line.split("=", 1)
-                values[key] = value.strip().strip('"')
-        return values.get("PRETTY_NAME") or values.get("NAME") or "Linux"
-    except OSError:
-        return platform.system() or "Linux"
-
-
-def automatic_update_info() -> dict[str, str]:
-    enabled = run_status(["systemctl", "is-enabled", "unattended-upgrades.service"])
-    timer = run_status(["systemctl", "is-active", "apt-daily-upgrade.timer"])
-    active = enabled in {"enabled", "static"} and timer == "active"
-    if active:
-        detail = "unattended-upgrades enabled · apt-daily-upgrade timer active"
-    else:
-        detail = f"automatic update state: service {enabled or 'unknown'} · timer {timer or 'unknown'}"
-    return {"status": "running" if active else "warning", "detail": detail, "version": operating_system_version()}
-
-
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
     definitions = []
     if protocol_requested(config, "hysteria2"):
@@ -530,7 +408,7 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
 
 def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapters: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     connections: list[dict[str, Any]] = []
-    tag_protocols: dict[str, str] = {}
+    tag_protocols: dict[str, tuple[str, str]] = {}
     labels = {"anytls": "AnyTLS", "vless": "VLESS", "socks5": "SOCKS5", "shadowsocks": "Shadowsocks", "vmess": "VMess", "trojan": "Trojan", "tuic": "TUIC"}
     for adapter_id, adapter in (protocol_adapters or {}).items():
         label = labels.get(adapter_id)
@@ -538,7 +416,13 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
             label = {"xtls-vision": "VLESS · XTLS Vision", "reality": "VLESS · Reality", "xtls-vision-reality": "VLESS · XTLS Vision · Reality"}.get(str(adapter.get("securityProfile", "standard")), "VLESS")
         for tag in adapter.get("inboundTags", []) if isinstance(adapter, dict) else []:
             if str(tag).strip() and label:
-                tag_protocols[str(tag).strip().casefold()] = label
+                tag_protocols[str(tag).strip().casefold()] = (adapter_id, label)
+    inventory = sb.get("inventory", {}) if isinstance(sb.get("inventory"), dict) else {}
+    live_inbounds: dict[str, list[dict[str, Any]]] = {}
+    if inventory.get("available") and isinstance(inventory.get("inbounds"), list):
+        for inbound in inventory["inbounds"]:
+            if isinstance(inbound, dict) and str(inbound.get("tag", "")).strip():
+                live_inbounds.setdefault(str(inbound["tag"]).strip().casefold(), []).append(inbound)
     for index, stream in enumerate(hy2.get("streams", [])):
         started = stream.get("initial_at")
         account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "")
@@ -556,9 +440,25 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
         destination_port = metadata.get("destinationPort")
         destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None
         inbound_tag = str(metadata.get("inbound") or metadata.get("inboundTag") or "").strip()
-        protocol = tag_protocols.get(inbound_tag.casefold())
-        if not protocol:
+        metadata_protocol = ""
+        if not inbound_tag:
+            metadata_type = str(metadata.get("type") or "").strip()
+            if "/" in metadata_type:
+                metadata_protocol, inbound_tag = metadata_type.split("/", 1)
+                metadata_protocol = metadata_protocol.strip().casefold()
+                inbound_tag = inbound_tag.strip()
+        mapped = tag_protocols.get(inbound_tag.casefold())
+        if not mapped:
             continue
+        adapter_id, protocol = mapped
+        if metadata_protocol:
+            matches = live_inbounds.get(inbound_tag.casefold(), [])
+            if (
+                len(matches) != 1
+                or str(matches[0].get("type", "")).casefold() != metadata_protocol
+                or metadata_protocol not in PROTOCOLS[adapter_id][2]
+            ):
+                continue
         connections.append({"id": str(connection.get("id", f"singbox-{index}")), "protocol": protocol, "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start"), "destination": destination})
     return connections
 

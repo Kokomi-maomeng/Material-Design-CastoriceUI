@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import http.cookiejar
 import copy
+import sqlite3
 import sys
 import tempfile
 import threading
+import tracemalloc
 import unittest
 import urllib.error
 import urllib.request
@@ -18,11 +20,12 @@ SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
 
 from castoriceui.config import AppConfig  # noqa: E402
-from castoriceui.collectors import automatic_update_info, billing_cycle_start, connection_snapshots, detect_interface, http_json, hysteria_snapshot, semantic_version, service_snapshots, singbox_snapshot, traffic_quota_period  # noqa: E402
+from castoriceui.collectors import connection_snapshots, detect_interface, http_json, hysteria_snapshot, semantic_version, service_snapshots, singbox_snapshot  # noqa: E402
 from castoriceui.dashboard import DashboardService, ordered_visible_panels  # noqa: E402
 from castoriceui.api import ApiHandler, ApiServer, normalized_origin  # noqa: E402
 from castoriceui.security import _public_https_get, fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, probe_subscription_url, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
+from castoriceui.traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period  # noqa: E402
 
 
 class BackendTests(unittest.TestCase):
@@ -40,13 +43,6 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(semantic_version("\x1b[2JHysteria2 v2.11.0\x1b[0m", "hysteria2"), "2.11.0")
         self.assertEqual(semantic_version("sing-box version 1.13.15", "singbox"), "1.13.15")
         self.assertEqual(semantic_version("nginx version: nginx/1.26.3", "nginx"), "1.26.3")
-
-    def test_automatic_update_status_comes_from_systemd(self) -> None:
-        with patch("castoriceui.collectors.run_status", side_effect=["disabled", "inactive"]), patch("castoriceui.collectors.operating_system_version", return_value="Debian GNU/Linux 13"):
-            state = automatic_update_info()
-        self.assertEqual(state["status"], "warning")
-        self.assertIn("disabled", state["detail"])
-        self.assertEqual(state["version"], "Debian GNU/Linux 13")
 
     def test_connection_source_is_not_mislabelled_when_core_omits_it(self) -> None:
         payload = connection_snapshots(
@@ -257,6 +253,23 @@ class BackendTests(unittest.TestCase):
         ]}, {"vless": {"inboundTags": ["vless-in"]}})
         self.assertEqual([item["protocol"] for item in payload], ["VLESS"])
 
+    def test_singbox_113_type_is_cross_checked_against_live_inbound_inventory(self) -> None:
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "singbox-1.13-connections.json").read_text(encoding="utf-8"))
+        adapters = {
+            protocol: {"inboundTags": [f"{protocol}-in"]}
+            for protocol in ("anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic")
+        }
+        payload = connection_snapshots({}, fixture, adapters)
+        self.assertEqual(
+            {item["id"] for item in payload},
+            {f"server-{protocol}" for protocol in adapters},
+        )
+        self.assertEqual(
+            {item["protocol"] for item in payload},
+            {"AnyTLS", "VLESS", "SOCKS5", "Shadowsocks", "VMess", "Trojan", "TUIC"},
+        )
+        self.assertTrue(all(item["account"] == "" for item in payload))
+
     def test_vless_security_profile_is_reflected_without_inventing_a_protocol(self) -> None:
         payload = connection_snapshots({}, {"connections": [
             {"id": "one", "metadata": {"inbound": "reality-in", "sourceIP": "203.0.113.7"}},
@@ -359,6 +372,80 @@ class BackendTests(unittest.TestCase):
             with_baseline = storage.traffic_usage_since(100, "sum", 1_000_000_000)
             self.assertEqual(with_baseline["usedBytes"], without_baseline["usedBytes"] + 1_000_000_000)
 
+    def test_baseline_applies_only_to_its_exact_quota_cycle(self) -> None:
+        now = datetime(2026, 9, 15, 12, tzinfo=timezone.utc)
+        current_start, next_start, _ = traffic_quota_period(now, {
+            "autoReset": True,
+            "periodUnit": "month",
+            "periodCount": 1,
+            "resetAnchor": "2026-01-31",
+            "resetTime": "03:30",
+            "timezone": "UTC",
+        })
+        self.assertIsNotNone(next_start)
+        state = normalize_quota_state({
+            "bytes": 1_000_000_000_000,
+            "autoReset": True,
+            "periodUnit": "month",
+            "periodCount": 1,
+            "resetAnchor": "2026-01-31",
+            "resetTime": "03:30",
+            "timezone": "UTC",
+            "baseline": {"bytes": 50_000_000_000, "cycleStart": current_start.isoformat().replace("+00:00", "Z")},
+        }, default_bytes=1_000_000_000_000, now=now)
+        self.assertEqual(baseline_for_cycle(state, current_start), 50_000_000_000)
+        self.assertEqual(baseline_for_cycle(state, next_start), 0)
+
+    def test_five_year_traffic_query_has_bounded_python_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            hours = 5 * 366 * 24
+            connection = sqlite3.connect(storage.path)
+            try:
+                connection.executemany(
+                    "INSERT INTO traffic_hourly(bucket_start,received_bytes,transmitted_bytes) VALUES(?,?,?)",
+                    ((hour * 3600, 2, 3) for hour in range(hours)),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            tracemalloc.start()
+            for years in (1, 3, 5):
+                queried_hours = years * 366 * 24
+                usage = storage.traffic_usage_between(0, queried_hours * 3600)
+                self.assertEqual(usage["usedBytes"], queried_hours * 5)
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            self.assertLess(peak, 2_000_000)
+
+    def test_existing_v41_samples_are_migrated_into_the_bounded_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "state.db")
+            connection = sqlite3.connect(path)
+            try:
+                connection.executescript("""
+                    CREATE TABLE samples (
+                        captured_at INTEGER PRIMARY KEY,
+                        rx_bytes INTEGER NOT NULL,
+                        tx_bytes INTEGER NOT NULL,
+                        cpu REAL NOT NULL,
+                        memory REAL NOT NULL,
+                        interface TEXT NOT NULL DEFAULT '',
+                        boot_id TEXT NOT NULL DEFAULT ''
+                    );
+                    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+                """)
+                connection.executemany(
+                    "INSERT INTO samples VALUES(?,?,?,?,?,?,?)",
+                    [(100, 10, 20, 0, 0, "eth0", "boot-a"), (160, 70, 50, 0, 0, "eth0", "boot-a")],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            storage = Storage(path)
+            self.assertEqual(storage.get_setting("traffic_ledger_schema", 0), 2)
+            self.assertEqual(storage.traffic_usage_since(100)["usedBytes"], 90)
+
     def test_saved_traffic_baseline_keeps_its_original_cycle_on_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "state.db")
@@ -367,12 +454,30 @@ class BackendTests(unittest.TestCase):
             storage = Storage(path)
             dashboard = DashboardService(config, storage)
             dashboard.configure_integration("traffic", {"values": {"quotaGb": "1000", "billingDay": "1", "billingTimezone": "UTC", "initialUsedGb": "12", "countMode": "sum"}})
-            saved_cycle = storage.get_setting("integration_overrides", {})["traffic"]["values"]["initialUsedCycle"]
+            saved = storage.get_setting("traffic_quota", {})
             restarted = AppConfig(database_path=path)
             restarted.integrations = AppConfig.load(self._config_file(directory, path)).integrations
-            DashboardService(restarted, storage)
-            self.assertEqual(restarted.traffic_initial_used_cycle, saved_cycle)
+            next_dashboard = DashboardService(restarted, storage)
+            self.assertEqual(next_dashboard.traffic_quota_state(), saved)
             self.assertEqual(restarted.traffic_initial_used_bytes, 12_000_000_000)
+            self.assertNotIn("quotaGb", storage.get_setting("integration_overrides", {})["traffic"]["values"])
+
+    def test_quota_edit_wins_over_legacy_wizard_values_after_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "state.db")
+            config = AppConfig(database_path=path)
+            config.integrations = AppConfig.load(self._config_file(directory, path)).integrations
+            storage = Storage(path)
+            dashboard = DashboardService(config, storage)
+            dashboard.configure_integration("traffic", {"values": {"quotaGb": "1000", "billingDay": "5", "billingTimezone": "UTC", "initialUsedGb": "50", "countMode": "max"}})
+            updated = dashboard.update_traffic_quota({"bytes": 2_000_000_000_000, "autoReset": True, "periodUnit": "week", "periodCount": 2, "resetAnchor": "2026-08-17", "resetTime": "03:30", "timezone": "UTC"})
+            restarted = AppConfig(database_path=path)
+            restarted.integrations = AppConfig.load(self._config_file(directory, path)).integrations
+            next_dashboard = DashboardService(restarted, storage)
+            self.assertEqual(next_dashboard.traffic_quota_state(), updated)
+            self.assertEqual(updated["bytes"], 2_000_000_000_000)
+            self.assertEqual(updated["periodUnit"], "week")
+            self.assertFalse(storage.get_setting("traffic_limit_bytes", False))
 
     def test_audit_records_are_filtered_and_paginated_on_the_server(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -459,7 +564,7 @@ class BackendTests(unittest.TestCase):
         )
         self.assertEqual(yearly_start.date().isoformat(), "2025-02-28")
         self.assertEqual(yearly_next.date().isoformat(), "2026-02-28")
-        with patch("castoriceui.collectors.ZoneInfo", return_value=timezone(timedelta(hours=9))):
+        with patch("castoriceui.traffic_quota.ZoneInfo", return_value=timezone(timedelta(hours=9))):
             tokyo_start, tokyo_next, tokyo_schedule = traffic_quota_period(
                 datetime(2026, 8, 25, 0, 0, tzinfo=timezone.utc),
                 {"autoReset": True, "periodUnit": "day", "periodCount": 1, "resetAnchor": "2026-08-01", "resetTime": "03:00", "timezone": "Asia/Tokyo"},
@@ -673,6 +778,7 @@ class BackendTests(unittest.TestCase):
             dashboard = MagicMock()
             dashboard.snapshot.return_value = {"mode": "live", "generatedAt": "2026-08-11T00:00:00+00:00"}
             dashboard.audit_page.return_value = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1}
+            dashboard.update_traffic_quota.side_effect = DashboardService(config, storage).update_traffic_quota
             server = ApiServer(config, storage, dashboard)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()

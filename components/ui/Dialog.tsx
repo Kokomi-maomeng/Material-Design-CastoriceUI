@@ -64,7 +64,7 @@ export function Dialog({
     });
     (focusableElements()[0] ?? dialog).focus();
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (dialogStack.at(-1) !== dialog || event.defaultPrevented) return;
+      if (dialogStack[dialogStack.length - 1] !== dialog || event.defaultPrevented) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -89,7 +89,7 @@ export function Dialog({
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      const wasTop = dialogStack.at(-1) === dialog;
+      const wasTop = dialogStack[dialogStack.length - 1] === dialog;
       const index = dialogStack.indexOf(dialog);
       if (index !== -1) dialogStack.splice(index, 1);
       syncDialogStack();

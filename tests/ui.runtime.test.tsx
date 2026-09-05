@@ -13,8 +13,10 @@ import { emptyDashboard } from "../lib/empty-dashboard";
 import { FirstRunConfiguration } from "../components/setup/FirstRunConfiguration";
 import { SetupWizard } from "../components/setup/SetupWizard";
 import { MaterialDatePicker } from "../components/ui/MaterialDatePicker";
+import { TrafficQuotaDialog } from "../components/traffic/TrafficQuotaDialog";
 import { I18nProvider, withoutTerminalPeriod } from "../lib/i18n";
 import { formatDecimalBytes } from "../lib/format";
+import { PROJECT_VERSION } from "../lib/project";
 import type { OverviewMetrics, ServiceStatus } from "../lib/types";
 
 const metrics: OverviewMetrics = {
@@ -176,7 +178,7 @@ describe("v3.3 runtime behavior", () => {
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
-    expect(screen.getByText("v4.0")).toBeTruthy();
+    expect(screen.getByText(`v${PROJECT_VERSION}`)).toBeTruthy();
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
@@ -217,6 +219,32 @@ describe("v3.3 runtime behavior", () => {
     expect(control.className).toContain("is-on");
     fireEvent.click(control);
     expect(onChange).toHaveBeenCalledOnce();
+  });
+
+  it("preserves quota schedule fields after the dialog is split from the app shell", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    renderEnglish(<TrafficQuotaDialog
+      trafficLimitBytes={2_000_000_000_000}
+      quota={{ bytes: 2_000_000_000_000, autoReset: true, periodUnit: "week", periodCount: 2, resetAnchor: "2026-08-17", resetTime: "03:30", timezone: "UTC", cycleStart: "2026-08-31T03:30:00Z", nextReset: "2026-09-14T03:30:00Z" }}
+      onClose={onClose}
+      onSave={onSave}
+      onToast={vi.fn()}
+    />);
+    const amount = screen.getByRole("spinbutton", { name: "Total traffic (GB)" });
+    expect(amount).toHaveProperty("value", "2000");
+    fireEvent.change(amount, { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      bytes: 2_500_000_000_000,
+      autoReset: true,
+      periodUnit: "week",
+      periodCount: 2,
+      resetAnchor: "2026-08-17",
+      resetTime: "03:30",
+      timezone: "UTC",
+    }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("opens a year layer before selecting a month and day", () => {
