@@ -1,9 +1,23 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
+import { readStyles as loadStyles, styleModules } from "./style-source.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
+const readStyles = () => loadStyles(root);
+
+test("stylesheet modules stay bounded and network chart rules have one owner", async () => {
+  const [entry, styles, ...modules] = await Promise.all([
+    read("app/globals.css"),
+    readStyles(),
+    ...styleModules.map(read),
+  ]);
+  assert.equal(entry.match(/^@import /gm)?.length, styleModules.length);
+  assert.ok(modules.every((content) => content.length < 60_000));
+  assert.equal(styles.match(/^\.sparkline\s*\{/gm)?.length, 1);
+  assert.equal(styles.match(/^\.sparkline svg\s*\{/gm)?.length, 1);
+});
 
 test("production entry contains metadata, viewport, and mount point", async () => {
   const html = await read("index.html");
@@ -23,8 +37,8 @@ test("v3.1 production UI never falls back to fabricated dashboard data", async (
 });
 
 test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", async () => {
-  const [client, server, nginx, backendPackage] = await Promise.all([
-    read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"),
+  const [client, server, nginx, backendPackage, projectMetadata] = await Promise.all([
+    read("lib/api.ts"), read("server/castoriceui/api.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/__init__.py"), read("lib/project.ts"),
   ]);
   assert.match(client, /X-CSRF-Token/);
   assert.match(client, /\/api\/v2\/auth\/login/);
@@ -32,7 +46,8 @@ test("v3.1 uses application sessions, CSRF, and no browser Basic Auth prompt", a
   assert.match(server, /SameSite=Strict/);
   assert.match(server, /authentication_lock/);
   assert.doesNotMatch(nginx, /^\s*auth_basic\s+"/m);
-  assert.match(backendPackage, /__version__ = "4\.1\.0"/);
+  assert.match(backendPackage, /package\.json/);
+  assert.match(projectMetadata, /packageMetadata\.version/);
 });
 
 test("first run is protected by a one-time token and requires basics before overview", async () => {
@@ -49,10 +64,10 @@ test("first run is protected by a one-time token and requires basics before over
 });
 
 test("Chinese, English, and system language modes are available across UI modules", async () => {
-  const [i18n, app, integrations] = await Promise.all([read("lib/i18n.tsx"), read("components/CastoriceApp.tsx"), read("lib/integrations.ts")]);
+  const [i18n, settings, integrations] = await Promise.all([read("lib/i18n.tsx"), read("components/settings/SettingsDialog.tsx"), read("lib/integrations.ts")]);
   assert.match(i18n, /"system" \| "zh" \| "en"/);
   assert.match(i18n, /return "en"/);
-  assert.match(app, /Follow system/);
+  assert.match(settings, /Follow system/);
   assert.match(integrations, /LocalizedText/);
   const componentFiles = (await readdir(new URL("components/", root), { recursive: true })).filter((name) => /\.(?:ts|tsx)$/.test(name));
   for (const name of componentFiles) {
@@ -81,7 +96,9 @@ test("navigation badges are removed while notifications hide zero and cap at 99+
 });
 
 test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadata stay linked", async () => {
-  const [navigation, app, styles] = await Promise.all([read("lib/navigation.ts"), read("components/CastoriceApp.tsx"), read("app/globals.css")]);
+  const [navigation, app, settings, projectMetadata, styles] = await Promise.all([
+    read("lib/navigation.ts"), read("components/CastoriceApp.tsx"), read("components/settings/SettingsDialog.tsx"), read("lib/project.ts"), readStyles(),
+  ]);
   const order = ["overview", "setup", "alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"];
   let previous = -1;
   for (const id of order) {
@@ -89,15 +106,15 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
     assert.ok(position > previous, `${id} must follow the requested navigation order`);
     previous = position;
   }
-  assert.match(app, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"subscriptions"[^]*"services"[^]*"network"[^]*"connections"[^]*"traffic"[^]*"audit"/);
+  assert.match(navigation, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"subscriptions"[^]*"services"[^]*"network"[^]*"connections"[^]*"traffic"[^]*"audit"/);
   assert.match(app, /desktopNavigationHidden/);
   assert.match(styles, /app-shell--navigation-hidden/);
   assert.doesNotMatch(app, /className="bottom-navigation"/);
   assert.doesNotMatch(styles, /bottom-navigation/);
-  assert.match(app, /关于详情/);
-  assert.match(app, /Kokomi-maomeng/);
-  assert.match(app, /Material-Design-CastoriceUI/);
-  assert.match(app, /PROJECT_VERSION = "4\.1\.0"/);
+  assert.match(settings, /关于详情/);
+  assert.match(projectMetadata, /Kokomi-maomeng/);
+  assert.match(projectMetadata, /Material-Design-CastoriceUI/);
+  assert.match(projectMetadata, /PROJECT_VERSION = packageMetadata\.version/);
 });
 
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
@@ -107,7 +124,7 @@ test("connections group honestly, copy source IPs, and omit explanatory footer c
   assert.match(page, /Not provided by core/);
   assert.doesNotMatch(page, /同协议、账号和来源 IP 自动合并/);
   assert.doesNotMatch(page, /速率由相邻真实累计字节快照计算/);
-  assert.match(collector, /if not protocol:\s+continue/);
+  assert.match(collector, /if not mapped:\s+continue/);
   assert.match(collector, /inboundTags/);
   assert.match(dashboard, /aggregate_connections/);
 });
@@ -128,19 +145,19 @@ test("network targets are editable and charts use real smooth sample paths", asy
 });
 
 test("v3.1 settings and floating surfaces follow the requested Material interactions", async () => {
-  const [app, styles, types, backend] = await Promise.all([
-    read("components/CastoriceApp.tsx"), read("app/globals.css"), read("lib/types.ts"), read("server/castoriceui/api.py"),
+  const [app, settings, styles, types, backend] = await Promise.all([
+    read("components/CastoriceApp.tsx"), read("components/settings/SettingsDialog.tsx"), readStyles(), read("lib/types.ts"), read("server/castoriceui/api.py"),
   ]);
   assert.match(app, /closeFloatingMenus/);
   assert.match(app, /dateMenuRef/);
   assert.match(app, /userMenuRef/);
   assert.match(app, /idleTimeoutMinutes \* 60_000/);
   assert.match(app, /panelTitle/);
-  assert.match(app, /主题风格/);
-  assert.match(app, /function SettingsSwitch/);
-  assert.match(app, /className={`md-switch settings-switch-control/);
-  assert.doesNotMatch(app, /uiSettings\.showSetup \? t\("开启"/);
-  assert.doesNotMatch(app, /checked \? t\("显示"/);
+  assert.match(settings, /主题风格/);
+  assert.match(settings, /function SettingsSwitch/);
+  assert.match(settings, /className={`md-switch settings-switch-control/);
+  assert.doesNotMatch(settings, /uiSettings\.showSetup \? t\("开启"/);
+  assert.doesNotMatch(settings, /checked \? t\("显示"/);
   assert.match(styles, /\.floating-surface\.is-open/);
   assert.match(styles, /settings-disclosure::details-content/);
   assert.match(styles, /prefers-reduced-motion/);
@@ -150,8 +167,8 @@ test("v3.1 settings and floating surfaces follow the requested Material interact
 });
 
 test("v3.1 uses Material selection surfaces and a real password-change path", async () => {
-  const [app, client, api, storage, materialSelect, materialDate] = await Promise.all([
-    read("components/CastoriceApp.tsx"), read("lib/api.ts"), read("server/castoriceui/api.py"),
+  const [quotaDialog, client, api, storage, materialSelect, materialDate] = await Promise.all([
+    read("components/traffic/TrafficQuotaDialog.tsx"), read("lib/api.ts"), read("server/castoriceui/api.py"),
     read("server/castoriceui/storage.py"), read("components/ui/MaterialSelect.tsx"), read("components/ui/MaterialDatePicker.tsx"),
   ]);
   const componentFiles = (await readdir(new URL("components/", root), { recursive: true })).filter((name) => /\.(?:ts|tsx)$/.test(name));
@@ -161,24 +178,25 @@ test("v3.1 uses Material selection surfaces and a real password-change path", as
   assert.match(materialSelect, /role="listbox"/);
   assert.match(materialSelect, /searchable/);
   assert.match(materialDate, /md-date-picker/);
-  assert.match(app, /TIMEZONE_NAMES/);
+  assert.match(quotaDialog, /TIMEZONE_NAMES/);
   assert.match(client, /auth\/change-password/);
   assert.match(api, /invalid_current_password/);
   assert.match(storage, /DELETE FROM sessions WHERE user_id=\? AND token_hash<>\?/);
 });
 
-test("v3.1 keeps chart time, mobile scrolling, setup order, and toast motion consistent", async () => {
+test("v3.1 keeps chart time, responsive mobile sizing, setup order, and toast motion consistent", async () => {
   const [chart, network, setup, toast, styles, types, dashboard] = await Promise.all([
     read("components/charts/TrafficChart.tsx"), read("components/pages/NetworkPage.tsx"), read("components/setup/SetupPanel.tsx"),
-    read("components/ui/Toast.tsx"), read("app/globals.css"), read("lib/types.ts"), read("server/castoriceui/dashboard.py"),
+    read("components/ui/Toast.tsx"), readStyles(), read("lib/types.ts"), read("server/castoriceui/dashboard.py"),
   ]);
   assert.match(types, /capturedAt\?: string/);
   assert.match(dashboard, /"capturedAt"/);
   assert.match(chart, /Intl\.DateTimeFormat/);
   assert.match(chart, /ResizeObserver/);
   assert.match(chart, /viewWidth/);
+  assert.match(chart, /MIN_VIEW_WIDTH/);
   assert.match(chart, /index === data\.length - 1/);
-  assert.match(styles, /\.chart--traffic \.native-chart \{ width: 680px; min-width: 680px; \}/);
+  assert.match(styles, /\.chart--traffic \.native-chart \{ width: 100%; min-width: 0; \}/);
   assert.match(network, /const pick = \(event: PointerEvent<SVGSVGElement>\)/);
   assert.ok(setup.indexOf("setup-completed--first") < setup.indexOf("setup-list--pending"));
   assert.match(toast, /is-leaving/);
@@ -186,25 +204,25 @@ test("v3.1 keeps chart time, mobile scrolling, setup order, and toast motion con
 });
 
 test("subscription hints are removed and traffic quota remains one shared value", async () => {
-  const [subscriptions, overview, accounts, dashboard, app] = await Promise.all([
-    read("components/pages/SubscriptionsPage.tsx"), read("components/pages/OverviewPage.tsx"), read("components/pages/AccountsPage.tsx"), read("server/castoriceui/dashboard.py"), read("components/CastoriceApp.tsx"),
+  const [subscriptions, overview, accounts, dashboard, quotaDialog] = await Promise.all([
+    read("components/pages/SubscriptionsPage.tsx"), read("components/pages/OverviewPage.tsx"), read("components/pages/AccountsPage.tsx"), read("server/castoriceui/dashboard.py"), read("components/traffic/TrafficQuotaDialog.tsx"),
   ]);
   assert.doesNotMatch(subscriptions, /FeatureIntro|独立入口|快速导入/);
   assert.doesNotMatch(subscriptions, /tokenHint|updatedAt|lastFetchedAt|订阅安全提示|Subscription security/);
   assert.match(overview, /流量使用趋势/);
   assert.match(accounts, /统一累计账本/);
-  assert.match(dashboard, /"quotaBytes": int\(self\.storage\.get_setting/);
-  assert.match(app, /quota-input-stable/);
+  assert.match(dashboard, /"quotaBytes": int\(self\.traffic_quota_state\(\)\["bytes"\]\)/);
+  assert.match(quotaDialog, /quota-input-stable/);
 });
 
 test("v3.1 quota schedules, stable live layouts, and requested removals stay wired end to end", async () => {
-  const [app, api, collector, dashboard, connections, traffic, network, overview, services, audit, styles, security] = await Promise.all([
-    read("components/CastoriceApp.tsx"), read("server/castoriceui/api.py"), read("server/castoriceui/collectors.py"),
+  const [quotaDialog, api, collector, quotaModel, dashboard, connections, traffic, network, overview, services, audit, styles, security] = await Promise.all([
+    read("components/traffic/TrafficQuotaDialog.tsx"), read("server/castoriceui/api.py"), read("server/castoriceui/collectors.py"), read("server/castoriceui/traffic_quota.py"),
     read("server/castoriceui/dashboard.py"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/TrafficPage.tsx"),
     read("components/pages/NetworkPage.tsx"), read("components/pages/OverviewPage.tsx"), read("server/castoriceui/collectors.py"), read("components/pages/AuditPage.tsx"),
-    read("app/globals.css"), read("server/castoriceui/security.py"),
+    readStyles(), read("server/castoriceui/security.py"),
   ]);
-  for (const unit of ["day", "week", "month", "year"]) assert.match(`${app}\n${api}\n${collector}`, new RegExp(`"${unit}"`));
+  for (const unit of ["day", "week", "month", "year"]) assert.match(`${quotaDialog}\n${api}\n${collector}\n${quotaModel}`, new RegExp(`"${unit}"`));
   assert.match(api, /traffic_quota/);
   assert.match(collector, /nextReset/);
   assert.match(connections, /const columns = 8/);
@@ -234,7 +252,7 @@ test("common sing-box protocols are explicit and unmatched connections stay hidd
 
 test("v3.1 detail interactions avoid native or stale UI artifacts", async () => {
   const [app, styles, audit, traffic, donut, login] = await Promise.all([
-    read("components/CastoriceApp.tsx"), read("app/globals.css"), read("components/pages/AuditPage.tsx"),
+    read("components/CastoriceApp.tsx"), readStyles(), read("components/pages/AuditPage.tsx"),
     read("components/charts/TrafficChart.tsx"), read("components/charts/DonutChart.tsx"), read("components/auth/AuthPage.tsx"),
   ]);
   assert.match(app, /notification-badge/);
@@ -303,10 +321,10 @@ test("v3.1 fails closed for config, payload fields, traffic resets, login abuse,
 });
 
 test("v3.2 operator identity, layout, settings, and truthful status requirements remain enforced", async () => {
-  const [overview, connections, network, services, setup, app, datePicker, styles, dashboard, collector, storage, i18n] = await Promise.all([
+  const [overview, connections, network, services, setup, settings, datePicker, styles, dashboard, collector, storage, i18n] = await Promise.all([
     read("components/pages/OverviewPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/NetworkPage.tsx"),
-    read("components/pages/ServicesPage.tsx"), read("components/setup/SetupPanel.tsx"), read("components/CastoriceApp.tsx"),
-    read("components/ui/MaterialDatePicker.tsx"), read("app/globals.css"), read("server/castoriceui/dashboard.py"),
+    read("components/pages/ServicesPage.tsx"), read("components/setup/SetupPanel.tsx"), read("components/settings/SettingsDialog.tsx"),
+    read("components/ui/MaterialDatePicker.tsx"), readStyles(), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/collectors.py"), read("server/castoriceui/storage.py"), read("lib/i18n.tsx"),
   ]);
   assert.doesNotMatch(overview, /t\("稳定"|t\("正常"/);
@@ -322,14 +340,14 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.match(network, /preserveAspectRatio="xMinYMin meet"/);
   assert.match(network, /ResizeObserver/);
   assert.match(network, /viewWidth/);
-  assert.match(styles, /\.sparkline \{ width: 100%; min-width: 0; height: 220px; aspect-ratio: auto;/);
+  assert.match(styles, /\.sparkline \{ position: relative; width: 100%; min-width: 0; height: 200px; aspect-ratio: auto; overflow: visible; \}/);
   assert.doesNotMatch(network, /preserveAspectRatio="none"/);
   assert.match(services, /t\("刷新", "Refresh"\)/);
   assert.doesNotMatch(services, /实时检查|Live check|重新检查|Check again/);
-  assert.doesNotMatch(app, /显示在左上角品牌位置|Shown in the upper-left brand area|前后端都会执行该空闲时限|Both client and server enforce this inactivity limit|验证旧密码后更新当前管理员密码|Verify the current password before updating the administrator password/);
-  assert.match(app, /页面自定义/);
-  assert.ok(app.indexOf("显示初始化向导页面") < app.indexOf("面板自定义"));
-  for (const label of ["语言", "节点显示名称", "面板标题", "在线超时时长", "显示模式"]) assert.match(app, new RegExp(`settings-disclosure[^]*${label}`));
+  assert.doesNotMatch(settings, /显示在左上角品牌位置|Shown in the upper-left brand area|前后端都会执行该空闲时限|Both client and server enforce this inactivity limit|验证旧密码后更新当前管理员密码|Verify the current password before updating the administrator password/);
+  assert.match(settings, /页面自定义/);
+  assert.ok(settings.indexOf("显示初始化向导页面") < settings.indexOf("面板自定义"));
+  for (const label of ["语言", "节点显示名称", "面板标题", "在线超时时长", "显示模式"]) assert.match(settings, new RegExp(`settings-disclosure[^]*${label}`));
   assert.doesNotMatch(collector, /match else "eth0"/);
   assert.match(storage, /def is_writable/);
   assert.match(dashboard, /network_ready = bool\(network and any/);
@@ -338,11 +356,11 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
 });
 
 test("v3.3 validates subscriptions, account attribution, ranking, alerts, and reset time end to end", async () => {
-  const [wizard, definitions, traffic, accounts, connections, subscriptions, app, api, dashboard, collector, security] = await Promise.all([
+  const [wizard, definitions, traffic, accounts, connections, subscriptions, app, quotaDialog, dashboard, quota, security] = await Promise.all([
     read("components/setup/SetupWizard.tsx"), read("lib/integrations.ts"), read("components/pages/TrafficPage.tsx"),
     read("components/pages/AccountsPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/SubscriptionsPage.tsx"),
-    read("components/CastoriceApp.tsx"), read("server/castoriceui/api.py"), read("server/castoriceui/dashboard.py"),
-    read("server/castoriceui/collectors.py"), read("server/castoriceui/security.py"),
+    read("components/CastoriceApp.tsx"), read("components/traffic/TrafficQuotaDialog.tsx"), read("server/castoriceui/dashboard.py"),
+    read("server/castoriceui/traffic_quota.py"), read("server/castoriceui/security.py"),
   ]);
   assert.match(wizard, /配置已保存，但运行验证未通过/);
   assert.match(wizard, /订阅发布器未通过服务器实际访问验证/);
@@ -358,9 +376,9 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
   assert.match(connections, /协议账号/);
   assert.match(subscriptions, /关联管理账号/);
   assert.match(app, /new Date\(now\)\.toLocaleTimeString/);
-  assert.match(app, /draftQuotaTime/);
-  assert.match(api, /resetTime/);
-  assert.match(collector, /reset_time/);
+  assert.match(quotaDialog, /resetTime/);
+  assert.match(dashboard, /resetTime/);
+  assert.match(quota, /reset_time/);
 });
 
 test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and maintenance automation", async () => {
@@ -390,7 +408,7 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(vite, /CASTORICEUI_DEV_API_TARGET/);
   const spaLocation = nginx.match(/location \/ \{([^]*?)\n {4}\}/)?.[1] ?? "";
   for (const header of ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]) assert.match(spaLocation, new RegExp(header));
-  for (const asset of ["public/og.png", "CONTRIBUTING.md"]) assert.match(packager, new RegExp(asset.replaceAll("/", "\\/")));
+  for (const asset of ["public/og.png", "CONTRIBUTING.md", "docs/BROWSER_SUPPORT.md"]) assert.match(packager, new RegExp(asset.replaceAll("/", "\\/")));
   assert.doesNotMatch(packager, /docs\/images\/dashboard-mobile\.png/);
   assert.match(dependabot, /github\/codeql-action\/\*/);
   const codeqlPins = [...codeql.matchAll(/github\/codeql-action\/(?:init|analyze)@([0-9a-f]{40})/g)].map((match) => match[1]);

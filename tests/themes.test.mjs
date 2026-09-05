@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { readStyles } from "./style-source.mjs";
 
-const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const styles = await readStyles(new URL("../", import.meta.url));
 const luminance = (hex) => {
   const rgb = hex.match(/[a-f0-9]{2}/gi).map((part) => parseInt(part, 16) / 255)
     .map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);

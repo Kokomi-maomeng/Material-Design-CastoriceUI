@@ -5,18 +5,15 @@ import ipaddress
 import json
 import threading
 import time
-from datetime import date, datetime, timezone
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import __version__
 from .config import AppConfig
-from .collectors import traffic_quota_period
 from .dashboard import DashboardService, VISIBLE_PANEL_ORDER, ordered_visible_panels
 from .security import fetch_https_image_api, list_background_images, normalize_https_image_url, safe_background_image
 from .storage import Storage
@@ -278,54 +275,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         try:
             payload = self.read_json()
             if path in {"/api/v1/settings/traffic-limit", "/api/v2/settings/traffic-limit"}:
-                value = int(payload.get("bytes", 0))
-                if not 1_000_000_000 <= value <= 1_000_000_000_000_000:
-                    raise ValueError("Traffic limit must be between 1 GB and 1 PB")
-                previous = self.app.storage.get_setting("traffic_quota", {})
-                if not isinstance(previous, dict):
-                    previous = {}
-                auto_reset = bool(payload.get("autoReset", previous.get("autoReset", False)))
-                period_unit = str(payload.get("periodUnit", previous.get("periodUnit", "month")))
-                if period_unit not in {"day", "week", "month", "year"}:
-                    raise ValueError("periodUnit must be day, week, month, or year")
-                period_count = int(payload.get("periodCount", previous.get("periodCount", 1)))
-                if not 1 <= period_count <= 365:
-                    raise ValueError("periodCount must be between 1 and 365")
-                reset_anchor = date.fromisoformat(str(payload.get("resetAnchor", previous.get("resetAnchor", f"2000-01-{self.app.config.traffic_billing_day:02d}"))))
-                reset_time = str(payload.get("resetTime", previous.get("resetTime", "00:00"))).strip()
-                try:
-                    datetime.strptime(reset_time, "%H:%M")
-                except ValueError as error:
-                    raise ValueError("resetTime must use 24-hour HH:MM") from error
-                timezone_name = str(payload.get("timezone", previous.get("timezone", self.app.config.traffic_billing_timezone))).strip() or "UTC"
-                try:
-                    if timezone_name != "UTC":
-                        ZoneInfo(timezone_name)
-                except (ZoneInfoNotFoundError, TypeError) as error:
-                    raise ValueError("timezone must be UTC or an installed IANA timezone") from error
-                fixed_cycle_start = ""
-                if not auto_reset:
-                    if not bool(previous.get("autoReset", False)) and previous.get("fixedCycleStart"):
-                        fixed_cycle_start = str(previous["fixedCycleStart"])
-                    else:
-                        current_start, _, _ = traffic_quota_period(
-                            datetime.now(timezone.utc), previous, self.app.config.traffic_billing_day, self.app.config.traffic_billing_timezone
-                        )
-                        fixed_cycle_start = current_start.isoformat().replace("+00:00", "Z")
-                quota_setting = {
-                    "autoReset": auto_reset,
-                    "periodUnit": period_unit,
-                    "periodCount": period_count,
-                    "resetAnchor": reset_anchor.isoformat(),
-                    "resetTime": reset_time,
-                    "timezone": timezone_name,
-                }
-                if fixed_cycle_start:
-                    quota_setting["fixedCycleStart"] = fixed_cycle_start
-                self.app.storage.set_setting("traffic_limit_bytes", value)
-                self.app.storage.set_setting("traffic_quota", quota_setting)
+                quota_setting = self.app.dashboard.update_traffic_quota(payload)
                 self.app.storage.add_audit("更新流量额度", "配置", "总流量额度已更新", self.source_ip(), actor=str(session["username"]))
-                self.send_json(HTTPStatus.OK, {"ok": True, "bytes": value, **quota_setting})
+                self.send_json(HTTPStatus.OK, {"ok": True, **quota_setting})
                 return
             if path.startswith("/api/v1/integrations/") or path.startswith("/api/v2/integrations/"):
                 integration_id = path.rsplit("/", 1)[-1]

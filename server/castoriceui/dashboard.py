@@ -5,14 +5,13 @@ import time
 import copy
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .collectors import (
     SystemCollector,
-    billing_cycle_start,
     connection_snapshots,
     http_json,
     hysteria_snapshot,
@@ -28,6 +27,7 @@ from .collectors import (
 from .config import AppConfig
 from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
 from .storage import Storage
+from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
 
 
 VISIBLE_PANEL_ORDER = ("alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit")
@@ -56,6 +56,7 @@ class DashboardService:
         if isinstance(saved_targets, list):
             config.network_targets = saved_targets
         overrides = storage.get_setting("integration_overrides", {})
+        overrides = self._migrate_traffic_quota(overrides)
         sanitized_legacy_secrets = False
         if isinstance(overrides, dict):
             for integration_id, value in overrides.items():
@@ -82,6 +83,169 @@ class DashboardService:
         if sanitized_legacy_secrets:
             storage.set_setting("integration_overrides", overrides)
             storage.add_audit("清理旧版接入密钥", "配置", "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret")
+
+    def _apply_quota_state_to_config(self, state: dict[str, Any]) -> None:
+        self.config.traffic_limit_bytes = int(state["bytes"])
+        self.config.traffic_billing_timezone = str(state["timezone"])
+        self.config.traffic_count_mode = str(state["countMode"])
+        try:
+            self.config.traffic_billing_day = date.fromisoformat(str(state["resetAnchor"])).day
+        except ValueError:
+            self.config.traffic_billing_day = 1
+        cycle_start, _, _ = traffic_quota_period(datetime.now(timezone.utc), state)
+        baseline = baseline_for_cycle(state, cycle_start)
+        self.config.traffic_initial_used_bytes = baseline
+        self.config.traffic_initial_used_cycle = cycle_start.date().isoformat() if baseline else ""
+
+    @staticmethod
+    def _without_legacy_quota_values(overrides: Any) -> dict[str, Any]:
+        cleaned = copy.deepcopy(overrides) if isinstance(overrides, dict) else {}
+        traffic = cleaned.get("traffic")
+        if isinstance(traffic, dict) and isinstance(traffic.get("values"), dict):
+            values = dict(traffic["values"])
+            for key in ("quotaGb", "billingDay", "billingTimezone", "initialUsedGb", "initialUsedCycle", "countMode"):
+                values.pop(key, None)
+            traffic["values"] = values
+        return cleaned
+
+    def _migrate_traffic_quota(self, overrides: Any) -> dict[str, Any]:
+        original = overrides if isinstance(overrides, dict) else {}
+        traffic = original.get("traffic", {}) if isinstance(original.get("traffic", {}), dict) else {}
+        values = traffic.get("values", {}) if isinstance(traffic.get("values", {}), dict) else {}
+        stored = self.storage.get_setting("traffic_quota", None)
+        raw = dict(stored) if isinstance(stored, dict) else {}
+        legacy_limit = self.storage.get_setting("traffic_limit_bytes", None)
+        default_bytes = self.config.traffic_limit_bytes
+        if isinstance(legacy_limit, (int, float)):
+            default_bytes = int(legacy_limit)
+        elif str(values.get("quotaGb", "")).strip():
+            try:
+                default_bytes = round(float(values["quotaGb"]) * 1_000_000_000)
+            except (TypeError, ValueError):
+                pass
+        raw.setdefault("bytes", default_bytes)
+        raw.setdefault("countMode", str(values.get("countMode") or self.config.traffic_count_mode))
+        legacy_day = self.config.traffic_billing_day
+        try:
+            legacy_day = max(1, min(int(values.get("billingDay", legacy_day)), 28))
+        except (TypeError, ValueError):
+            pass
+        legacy_timezone = str(values.get("billingTimezone") or self.config.traffic_billing_timezone)
+        try:
+            legacy_initial_bytes = max(0, round(float(values.get("initialUsedGb", 0) or 0) * 1_000_000_000))
+        except (TypeError, ValueError):
+            legacy_initial_bytes = max(0, int(self.config.traffic_initial_used_bytes))
+        if not isinstance(stored, dict) and any(str(values.get(key, "")).strip() for key in ("billingDay", "billingTimezone", "initialUsedGb")):
+            raw.update({
+                "autoReset": True,
+                "periodUnit": "month",
+                "periodCount": 1,
+                "resetAnchor": f"2000-01-{legacy_day:02d}",
+                "resetTime": "00:00",
+                "timezone": legacy_timezone,
+            })
+        state = normalize_quota_state(
+            raw,
+            default_bytes=default_bytes,
+            legacy_day=legacy_day,
+            legacy_timezone=legacy_timezone,
+            legacy_count_mode=str(values.get("countMode") or self.config.traffic_count_mode),
+            legacy_initial_bytes=legacy_initial_bytes,
+            legacy_initial_cycle=str(values.get("initialUsedCycle") or self.config.traffic_initial_used_cycle),
+        )
+        if legacy_initial_bytes and not state["baseline"]["cycleStart"]:
+            cycle_start, _, _ = traffic_quota_period(datetime.now(timezone.utc), state)
+            state["baseline"] = {
+                "bytes": legacy_initial_bytes,
+                "cycleStart": utc_cycle_id(cycle_start),
+            }
+        self.storage.set_setting("traffic_quota", state)
+        self.storage.delete_setting("traffic_limit_bytes")
+        cleaned = self._without_legacy_quota_values(original)
+        if cleaned != original:
+            self.storage.set_setting("integration_overrides", cleaned)
+        self._apply_quota_state_to_config(state)
+        return cleaned
+
+    def traffic_quota_state(self) -> dict[str, Any]:
+        return normalize_quota_state(
+            self.storage.get_setting("traffic_quota", {}),
+            default_bytes=self.config.traffic_limit_bytes,
+            legacy_day=self.config.traffic_billing_day,
+            legacy_timezone=self.config.traffic_billing_timezone,
+            legacy_count_mode=self.config.traffic_count_mode,
+        )
+
+    def update_traffic_quota(self, values: dict[str, Any], *, wizard: bool = False) -> dict[str, Any]:
+        state = self.traffic_quota_state()
+        candidate = dict(state)
+        if "bytes" in values:
+            quota_bytes = int(values["bytes"])
+        elif str(values.get("quotaGb", "")).strip():
+            quota_bytes = round(float(values["quotaGb"]) * 1_000_000_000)
+        else:
+            quota_bytes = int(state["bytes"])
+        if not 1_000_000_000 <= quota_bytes <= 1_000_000_000_000_000:
+            raise ValueError("Traffic limit must be between 1 GB and 1 PB")
+        candidate["bytes"] = quota_bytes
+
+        has_legacy_cycle = wizard and any(str(values.get(key, "")).strip() for key in ("billingDay", "billingTimezone"))
+        auto_reset = bool(values.get("autoReset", True if has_legacy_cycle else state["autoReset"]))
+        period_unit = "month" if has_legacy_cycle else str(values.get("periodUnit", state["periodUnit"]))
+        if period_unit not in {"day", "week", "month", "year"}:
+            raise ValueError("periodUnit must be day, week, month, or year")
+        period_count = 1 if has_legacy_cycle else int(values.get("periodCount", state["periodCount"]))
+        if not 1 <= period_count <= 365:
+            raise ValueError("periodCount must be between 1 and 365")
+        timezone_name = validate_timezone(values.get("billingTimezone") if has_legacy_cycle else values.get("timezone", state["timezone"]))
+        if has_legacy_cycle:
+            billing_day = int(values.get("billingDay", self.config.traffic_billing_day))
+            if not 1 <= billing_day <= 28:
+                raise ValueError("Billing day must be between 1 and 28")
+            reset_anchor = date(2000, 1, billing_day)
+            reset_time = "00:00"
+        else:
+            try:
+                reset_anchor = date.fromisoformat(str(values.get("resetAnchor", state["resetAnchor"])))
+            except ValueError as error:
+                raise ValueError("resetAnchor must use YYYY-MM-DD") from error
+            reset_time = str(values.get("resetTime", state["resetTime"])).strip()
+            try:
+                datetime.strptime(reset_time, "%H:%M")
+            except ValueError as error:
+                raise ValueError("resetTime must use 24-hour HH:MM") from error
+        candidate.update({
+            "autoReset": auto_reset,
+            "periodUnit": period_unit,
+            "periodCount": period_count,
+            "resetAnchor": reset_anchor.isoformat(),
+            "resetTime": reset_time,
+            "timezone": timezone_name,
+        })
+        if auto_reset:
+            candidate.pop("fixedCycleStart", None)
+        elif not bool(state["autoReset"]):
+            candidate["fixedCycleStart"] = str(state.get("fixedCycleStart") or state["resetAnchor"])
+        else:
+            previous_start, _, _ = traffic_quota_period(datetime.now(timezone.utc), state)
+            candidate["fixedCycleStart"] = utc_cycle_id(previous_start)
+        count_mode = str(values.get("countMode", state["countMode"]))
+        if count_mode not in {"sum", "max"}:
+            raise ValueError("countMode must be sum or max")
+        candidate["countMode"] = count_mode
+        normalized = normalize_quota_state(candidate, default_bytes=quota_bytes)
+        if "initialUsedGb" in values and str(values.get("initialUsedGb", "")).strip():
+            initial_bytes = round(float(values["initialUsedGb"]) * 1_000_000_000)
+            if not 0 <= initial_bytes <= 1_000_000_000_000_000:
+                raise ValueError("Initial traffic usage must be between 0 and 1 PB")
+            cycle_start, _, _ = traffic_quota_period(datetime.now(timezone.utc), normalized)
+            normalized["baseline"] = {"bytes": initial_bytes, "cycleStart": utc_cycle_id(cycle_start)}
+        self.storage.set_setting("traffic_quota", normalized)
+        overrides = self._without_legacy_quota_values(self.storage.get_setting("integration_overrides", {}))
+        self.storage.set_setting("integration_overrides", overrides)
+        self._apply_quota_state_to_config(normalized)
+        self.monthly_traffic_cache = None
+        return normalized
 
     def _apply_integration_values(self, integration_id: str, values: dict[str, str]) -> None:
         if integration_id == "system":
@@ -110,21 +274,8 @@ class DashboardService:
                 if interface:
                     interface = validate_interface_name(interface)
                 self.system_collector.configure_interface(interface)
-            quota = values.get("quotaGb", "").strip()
-            if quota:
-                quota_bytes = round(float(quota) * 1_000_000_000)
-                if quota_bytes < 1_000_000_000:
-                    raise ValueError("Traffic quota must be at least 1 GB")
-                self.storage.set_setting("traffic_limit_bytes", quota_bytes)
-            if values.get("billingDay", "").strip():
-                self.config.traffic_billing_day = int(values["billingDay"])
-            if values.get("billingTimezone", "").strip():
-                self.config.traffic_billing_timezone = values["billingTimezone"].strip()
-            if values.get("countMode", "").strip():
-                self.config.traffic_count_mode = values["countMode"].strip()
-            if values.get("initialUsedGb", "").strip():
-                self.config.traffic_initial_used_bytes = round(float(values["initialUsedGb"]) * 1_000_000_000)
-                self.config.traffic_initial_used_cycle = values.get("initialUsedCycle", "").strip()
+            if any(key in values for key in ("quotaGb", "billingDay", "billingTimezone", "initialUsedGb", "countMode")):
+                self.update_traffic_quota(values, wizard=True)
         elif integration_id == "subscriptions":
             # Subscription addresses remain in protected configuration. The
             # browser value is accepted only as a one-time live probe.
@@ -175,10 +326,6 @@ class DashboardService:
         if not isinstance(values, dict):
             raise ValueError("Integration values must be an object")
         clean_values = {key: str(value)[:2048] for key, value in values.items() if key in allowed_fields[integration_id]}
-        if integration_id == "traffic" and clean_values.get("initialUsedGb", "").strip():
-            effective_day = int(clean_values.get("billingDay") or self.config.traffic_billing_day)
-            effective_timezone = clean_values.get("billingTimezone") or self.config.traffic_billing_timezone
-            clean_values["initialUsedCycle"] = billing_cycle_start(datetime.now(timezone.utc), effective_day, effective_timezone).date().isoformat()
         enabled = bool(payload.get("enabled", True))
         required = {
             "hysteria2": {"endpoint"},
@@ -229,8 +376,10 @@ class DashboardService:
         }
         summary = summaries.get(integration_id, "Configuration saved") if configured else "Complete the required fields"
         persisted_values = {} if integration_id == "subscriptions" else clean_values
+        if integration_id == "traffic":
+            persisted_values = {key: value for key, value in clean_values.items() if key == "interface"}
         state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": persisted_values}
-        self._apply_integration_values(integration_id, persisted_values)
+        self._apply_integration_values(integration_id, clean_values)
         overrides = self.storage.get_setting("integration_overrides", {})
         overrides[integration_id] = state
         self.storage.set_setting("integration_overrides", overrides)
@@ -503,13 +652,15 @@ class DashboardService:
         return datetime(year, zero_based_month + 1, 1, tzinfo=moment.tzinfo)
 
     def monthly_traffic_usage(self) -> list[dict[str, Any]]:
+        quota_state = self.traffic_quota_state()
         try:
-            zone = ZoneInfo(self.config.traffic_billing_timezone)
+            zone = ZoneInfo(str(quota_state["timezone"]))
         except ZoneInfoNotFoundError:
             zone = timezone.utc
         now = datetime.fromtimestamp(time.time(), timezone.utc).astimezone(zone)
         cache_minute = int(now.timestamp()) // 60
-        cache_key = (cache_minute, str(zone), self.config.traffic_count_mode)
+        count_mode = str(quota_state["countMode"])
+        cache_key = (cache_minute, str(zone), count_mode)
         if self.monthly_traffic_cache and self.monthly_traffic_cache[:3] == cache_key:
             return copy.deepcopy(self.monthly_traffic_cache[3])
 
@@ -520,7 +671,7 @@ class DashboardService:
             usage = self.storage.traffic_usage_between(
                 int(start.astimezone(timezone.utc).timestamp()),
                 int(end.astimezone(timezone.utc).timestamp()),
-                self.config.traffic_count_mode,
+                count_mode,
             )
             result.append({
                 "startDate": start.date().isoformat(),
@@ -572,7 +723,7 @@ class DashboardService:
                 "usedBytes": max(0, int(_total_bytes)) if unified_owner else core_used,
                 "usageSource": "durableLedger" if unified_owner else "protocolCounter" if mapped_identities else "unmapped",
                 "onlineDevices": sum(int(online.get(identity, 0)) for identity in mapped_identities),
-                "quotaBytes": int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)),
+                "quotaBytes": int(self.traffic_quota_state()["bytes"]),
             })
         return public_accounts
 
@@ -700,13 +851,15 @@ class DashboardService:
             if integration_id == "vless":
                 values["securityProfile"] = str(adapter.get("securityProfile", "standard"))
             states[integration_id]["values"] = values
+        quota_state = self.traffic_quota_state()
+        current_cycle, _, _ = traffic_quota_period(datetime.now(timezone.utc), quota_state)
         states["traffic"]["values"] = {
             "interface": self.config.interface,
-            "quotaGb": str(int(self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)) / 1_000_000_000),
-            "billingDay": str(self.config.traffic_billing_day),
-            "billingTimezone": self.config.traffic_billing_timezone,
-            "countMode": self.config.traffic_count_mode,
-            "initialUsedGb": str(self.config.traffic_initial_used_bytes / 1_000_000_000),
+            "quotaGb": str(int(quota_state["bytes"]) / 1_000_000_000),
+            "billingDay": str(date.fromisoformat(str(quota_state["resetAnchor"])).day),
+            "billingTimezone": str(quota_state["timezone"]),
+            "countMode": str(quota_state["countMode"]),
+            "initialUsedGb": str(baseline_for_cycle(quota_state, current_cycle) / 1_000_000_000),
         }
         states["network"]["values"] = {
             "targets": "\n".join(f"{item.get('name', item.get('address', ''))},{item.get('address', '')}" for item in self.config.network_targets),

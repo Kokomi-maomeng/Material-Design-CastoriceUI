@@ -5,6 +5,15 @@
   "engines": {
     "node": ">=20.19.0"
   },
+  "browserslist": {
+    "production": [
+      "Chrome >= 111",
+      "Edge >= 111",
+      "Firefox >= 113",
+      "Safari >= 16.2",
+      "iOS >= 16.2"
+    ]
+  },
   "scripts": {
     "dev": "vite",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",

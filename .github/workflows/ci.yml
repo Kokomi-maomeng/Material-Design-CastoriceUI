@@ -21,3 +21,73 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  nginx-template:
+    name: Nginx template (Debian ${{ matrix.debian }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["12", "13"]
+    container: debian:${{ matrix.debian }}-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate the complete TLS template
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates nginx openssl
+          install -d /etc/letsencrypt/live/panel.example.com /var/www/castorice-ui/current
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj '/CN=panel.example.com' \
+            -keyout /etc/letsencrypt/live/panel.example.com/privkey.pem \
+            -out /etc/letsencrypt/live/panel.example.com/fullchain.pem
+          cat > /tmp/castorice-nginx.conf <<EOF
+          pid /tmp/castorice-nginx.pid;
+          error_log stderr;
+          events {}
+          http {
+              access_log off;
+              include /etc/nginx/mime.types;
+              include $GITHUB_WORKSPACE/deploy/nginx.conf.example;
+          }
+          EOF
+          nginx -t -c /tmp/castorice-nginx.conf
+
+  browser-matrix:
+    name: Browser matrix (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install browser runtime
+        run: |
+          python3 -m pip install 'playwright==1.58.0'
+          python3 -m playwright install --with-deps '${{ matrix.engine }}'
+      - name: Run interaction and viewport matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run dev > /tmp/castorice-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --insecure https://127.0.0.1:5173/ >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              cat /tmp/castorice-vite.log
+              exit 1
+            fi
+            sleep 1
+          done
+          python3 scripts/browser-matrix.py '${{ matrix.engine }}'

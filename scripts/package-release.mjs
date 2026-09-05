@@ -9,8 +9,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const version = String(packageJson.version);
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Invalid release version: ${version}`);
-const backendVersion = await readFile(path.join(root, "server", "castoriceui", "__init__.py"), "utf8");
-if (!backendVersion.includes(`__version__ = "${version}"`)) throw new Error("Frontend and backend release versions do not match");
 const releaseNotes = path.join(root, "docs", `RELEASE_NOTES_v${version}.md`);
 await readFile(releaseNotes, "utf8");
 
@@ -37,6 +35,7 @@ await Promise.all([
   copy("server/config.example.json", "server/config.example.json"),
   copy("deploy", "deploy"),
   copy("docs/DEPLOYMENT.md", "docs/DEPLOYMENT.md"),
+  copy("docs/BROWSER_SUPPORT.md", "docs/BROWSER_SUPPORT.md"),
   copy("docs/INTEGRATION.md", "docs/INTEGRATION.md"),
   cp(releaseNotes, path.join(stageDirectory, "docs", `RELEASE_NOTES_v${version}.md`)),
   copy("public/og.png", "public/og.png"),
@@ -45,6 +44,11 @@ await Promise.all([
   copy("SECURITY.md", "SECURITY.md"),
   copy("LICENSE", "LICENSE"),
 ]);
+await writeFile(
+  path.join(stageDirectory, "server", "castoriceui", "_version.py"),
+  `# Generated from package.json by scripts/package-release.mjs.\nVERSION = ${JSON.stringify(version)}\n`,
+  "utf8",
+);
 
 async function collectFiles(directory) {
   const result = [];

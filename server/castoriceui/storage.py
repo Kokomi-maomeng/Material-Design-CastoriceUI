@@ -13,6 +13,11 @@ from typing import Any, Iterator
 from .auth import dummy_password_check, hash_password, token_hash, validate_password, validate_username, verify_password
 
 
+RAW_SAMPLE_RETENTION_SECONDS = 8 * 86400
+DELTA_RETENTION_SECONDS = 400 * 86400
+TRAFFIC_BUCKET_SECONDS = 3600
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -65,10 +70,6 @@ class Storage:
                     detail TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS acknowledgements (
-                    alert_id TEXT PRIMARY KEY,
-                    acknowledged_at TEXT NOT NULL
-                );
                 CREATE TABLE IF NOT EXISTS alert_state (
                     alert_id TEXT PRIMARY KEY,
                     episode_id TEXT NOT NULL,
@@ -96,9 +97,21 @@ class Storage:
                     source_ip TEXT NOT NULL,
                     failed_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS traffic_deltas (
+                    captured_at INTEGER PRIMARY KEY,
+                    previous_at INTEGER,
+                    received_bytes INTEGER NOT NULL,
+                    transmitted_bytes INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS traffic_hourly (
+                    bucket_start INTEGER PRIMARY KEY,
+                    received_bytes INTEGER NOT NULL,
+                    transmitted_bytes INTEGER NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
                 CREATE INDEX IF NOT EXISTS audits_category_id ON audits(category, id DESC);
                 CREATE INDEX IF NOT EXISTS login_failures_source_time ON login_failures(source_ip, failed_at);
+                CREATE INDEX IF NOT EXISTS traffic_deltas_previous_at ON traffic_deltas(previous_at);
                 """
             )
             sample_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(samples)")}
@@ -106,13 +119,145 @@ class Storage:
                 connection.execute("ALTER TABLE samples ADD COLUMN interface TEXT NOT NULL DEFAULT ''")
             if "boot_id" not in sample_columns:
                 connection.execute("ALTER TABLE samples ADD COLUMN boot_id TEXT NOT NULL DEFAULT ''")
+            self._initialize_traffic_ledger(connection)
+
+    @staticmethod
+    def _initialize_traffic_ledger(connection: sqlite3.Connection) -> None:
+        migrated = connection.execute("SELECT value FROM settings WHERE key='traffic_ledger_schema'").fetchone()
+        if migrated is None:
+            connection.execute("DELETE FROM traffic_deltas")
+            connection.execute("DELETE FROM traffic_hourly")
+            connection.execute(
+                """
+                INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes)
+                WITH ordered AS (
+                    SELECT
+                        captured_at,
+                        rx_bytes,
+                        tx_bytes,
+                        LAG(captured_at) OVER (PARTITION BY interface,boot_id ORDER BY captured_at) AS previous_at,
+                        LAG(rx_bytes) OVER (PARTITION BY interface,boot_id ORDER BY captured_at) AS previous_rx,
+                        LAG(tx_bytes) OVER (PARTITION BY interface,boot_id ORDER BY captured_at) AS previous_tx
+                    FROM samples
+                )
+                SELECT
+                    captured_at,
+                    previous_at,
+                    CASE WHEN previous_rx IS NOT NULL AND rx_bytes >= previous_rx THEN rx_bytes - previous_rx ELSE 0 END,
+                    CASE WHEN previous_tx IS NOT NULL AND tx_bytes >= previous_tx THEN tx_bytes - previous_tx ELSE 0 END
+                FROM ordered
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO traffic_hourly(bucket_start,received_bytes,transmitted_bytes)
+                SELECT
+                    CAST(captured_at / ? AS INTEGER) * ?,
+                    COALESCE(SUM(received_bytes), 0),
+                    COALESCE(SUM(transmitted_bytes), 0)
+                FROM traffic_deltas
+                GROUP BY CAST(captured_at / ? AS INTEGER)
+                """,
+                (TRAFFIC_BUCKET_SECONDS, TRAFFIC_BUCKET_SECONDS, TRAFFIC_BUCKET_SECONDS),
+            )
+            connection.execute(
+                "INSERT INTO settings(key,value,updated_at) VALUES('traffic_ledger_schema','2',?)",
+                (utc_now(),),
+            )
+        newest = connection.execute("SELECT MAX(captured_at) FROM samples").fetchone()[0]
+        if newest is not None:
+            cutoff = int(newest) - RAW_SAMPLE_RETENTION_SECONDS
+            connection.execute("DELETE FROM samples WHERE captured_at < ?", (cutoff,))
+            connection.execute("DELETE FROM traffic_deltas WHERE captured_at < ?", (int(newest) - DELTA_RETENTION_SECONDS,))
+
+    @staticmethod
+    def _next_sample_at(connection: sqlite3.Connection, interface: str, boot_id: str, captured_at: int) -> int | None:
+        row = connection.execute(
+            "SELECT captured_at FROM samples WHERE interface=? AND boot_id=? AND captured_at>? ORDER BY captured_at LIMIT 1",
+            (interface, boot_id, captured_at),
+        ).fetchone()
+        return int(row[0]) if row is not None else None
+
+    @staticmethod
+    def _rebuild_delta(connection: sqlite3.Connection, captured_at: int) -> set[int]:
+        buckets: set[int] = {captured_at // TRAFFIC_BUCKET_SECONDS * TRAFFIC_BUCKET_SECONDS}
+        previous_delta = connection.execute(
+            "SELECT captured_at FROM traffic_deltas WHERE captured_at=?", (captured_at,)
+        ).fetchone()
+        if previous_delta is not None:
+            buckets.add(int(previous_delta[0]) // TRAFFIC_BUCKET_SECONDS * TRAFFIC_BUCKET_SECONDS)
+        sample = connection.execute("SELECT * FROM samples WHERE captured_at=?", (captured_at,)).fetchone()
+        if sample is None:
+            connection.execute("DELETE FROM traffic_deltas WHERE captured_at=?", (captured_at,))
+            return buckets
+        previous = connection.execute(
+            """
+            SELECT captured_at,rx_bytes,tx_bytes FROM samples
+            WHERE interface=? AND boot_id=? AND captured_at<?
+            ORDER BY captured_at DESC LIMIT 1
+            """,
+            (sample["interface"], sample["boot_id"], captured_at),
+        ).fetchone()
+        received = transmitted = 0
+        previous_at: int | None = None
+        if previous is not None:
+            previous_at = int(previous["captured_at"])
+            received = max(0, int(sample["rx_bytes"]) - int(previous["rx_bytes"]))
+            transmitted = max(0, int(sample["tx_bytes"]) - int(previous["tx_bytes"]))
+        connection.execute(
+            """
+            INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes) VALUES(?,?,?,?)
+            ON CONFLICT(captured_at) DO UPDATE SET
+                previous_at=excluded.previous_at,
+                received_bytes=excluded.received_bytes,
+                transmitted_bytes=excluded.transmitted_bytes
+            """,
+            (captured_at, previous_at, received, transmitted),
+        )
+        return buckets
+
+    @staticmethod
+    def _rebuild_hourly(connection: sqlite3.Connection, buckets: set[int]) -> None:
+        for bucket in buckets:
+            row = connection.execute(
+                """
+                SELECT COALESCE(SUM(received_bytes),0),COALESCE(SUM(transmitted_bytes),0)
+                FROM traffic_deltas WHERE captured_at>=? AND captured_at<?
+                """,
+                (bucket, bucket + TRAFFIC_BUCKET_SECONDS),
+            ).fetchone()
+            connection.execute(
+                """
+                INSERT INTO traffic_hourly(bucket_start,received_bytes,transmitted_bytes) VALUES(?,?,?)
+                ON CONFLICT(bucket_start) DO UPDATE SET
+                    received_bytes=excluded.received_bytes,
+                    transmitted_bytes=excluded.transmitted_bytes
+                """,
+                (bucket, int(row[0]), int(row[1])),
+            )
 
     def record_sample(self, captured_at: int, rx: int, tx: int, cpu: float, memory: float, interface: str = "", boot_id: str = "") -> None:
         with self.lock, self.connect() as connection:
+            old = connection.execute("SELECT interface,boot_id FROM samples WHERE captured_at=?", (captured_at,)).fetchone()
+            affected = {int(captured_at)}
+            if old is not None:
+                next_old = self._next_sample_at(connection, str(old["interface"]), str(old["boot_id"]), captured_at)
+                if next_old is not None:
+                    affected.add(next_old)
             connection.execute(
                 "INSERT OR REPLACE INTO samples(captured_at,rx_bytes,tx_bytes,cpu,memory,interface,boot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (captured_at, rx, tx, cpu, memory, interface[:32], boot_id[:64]),
             )
+            next_new = self._next_sample_at(connection, interface[:32], boot_id[:64], captured_at)
+            if next_new is not None:
+                affected.add(next_new)
+            buckets: set[int] = set()
+            for timestamp in affected:
+                buckets.update(self._rebuild_delta(connection, timestamp))
+            self._rebuild_hourly(connection, buckets)
+            cutoff = int(captured_at) - RAW_SAMPLE_RETENTION_SECONDS
+            connection.execute("DELETE FROM samples WHERE captured_at < ?", (cutoff,))
+            connection.execute("DELETE FROM traffic_deltas WHERE captured_at < ?", (int(captured_at) - DELTA_RETENTION_SECONDS,))
 
     def is_writable(self) -> bool:
         try:
@@ -132,17 +277,12 @@ class Storage:
         return [dict(row) for row in rows]
 
     def traffic_usage_since(self, timestamp: int, count_mode: str = "sum", initial_used_bytes: int = 0) -> dict[str, Any]:
-        samples = self.samples_since(timestamp)
-        last_by_source: dict[tuple[str, str], tuple[int, int]] = {}
-        received = transmitted = 0
-        for sample in samples:
-            source = (str(sample.get("interface") or "legacy"), str(sample.get("boot_id") or "legacy"))
-            previous = last_by_source.get(source)
-            current = (int(sample["rx_bytes"]), int(sample["tx_bytes"]))
-            if previous is not None:
-                received += max(0, current[0] - previous[0])
-                transmitted += max(0, current[1] - previous[1])
-            last_by_source[source] = current
+        with self.connect() as connection:
+            newest = connection.execute("SELECT MAX(bucket_start) FROM traffic_hourly").fetchone()[0]
+        end_timestamp = int(newest) + TRAFFIC_BUCKET_SECONDS if newest is not None else int(timestamp) + 1
+        usage = self.traffic_usage_between(timestamp, end_timestamp, count_mode)
+        received = int(usage["receivedBytes"])
+        transmitted = int(usage["transmittedBytes"])
         measured = max(received, transmitted) if count_mode == "max" else received + transmitted
         baseline = max(0, int(initial_used_bytes))
         return {
@@ -154,40 +294,46 @@ class Storage:
         }
 
     def traffic_usage_between(self, start_timestamp: int, end_timestamp: int, count_mode: str = "sum") -> dict[str, int | str]:
-        """Return deltas whose two samples both fall inside one exact time range."""
+        """Return traffic from bounded SQL aggregates without loading sample history."""
         if end_timestamp <= start_timestamp:
             raise ValueError("Traffic range end must be after its start")
+        first_full_bucket = ((int(start_timestamp) + TRAFFIC_BUCKET_SECONDS - 1) // TRAFFIC_BUCKET_SECONDS) * TRAFFIC_BUCKET_SECONDS
+        final_full_bucket = (int(end_timestamp) // TRAFFIC_BUCKET_SECONDS) * TRAFFIC_BUCKET_SECONDS
         with self.connect() as connection:
-            row = connection.execute(
+            boundary = connection.execute(
                 """
-                WITH ordered AS (
-                    SELECT
-                        rx_bytes,
-                        tx_bytes,
-                        LAG(rx_bytes) OVER (
-                            PARTITION BY interface, boot_id ORDER BY captured_at
-                        ) AS previous_rx,
-                        LAG(tx_bytes) OVER (
-                            PARTITION BY interface, boot_id ORDER BY captured_at
-                        ) AS previous_tx
-                    FROM samples
-                    WHERE captured_at >= ? AND captured_at < ?
-                )
                 SELECT
-                    COALESCE(SUM(
-                        CASE WHEN previous_rx IS NOT NULL AND rx_bytes >= previous_rx
-                            THEN rx_bytes - previous_rx ELSE 0 END
-                    ), 0) AS received,
-                    COALESCE(SUM(
-                        CASE WHEN previous_tx IS NOT NULL AND tx_bytes >= previous_tx
-                            THEN tx_bytes - previous_tx ELSE 0 END
-                    ), 0) AS transmitted
-                FROM ordered
+                    COALESCE(SUM(received_bytes),0) AS received,
+                    COALESCE(SUM(transmitted_bytes),0) AS transmitted
+                FROM traffic_deltas
+                WHERE captured_at>=? AND captured_at<? AND previous_at>=?
                 """,
-                (int(start_timestamp), int(end_timestamp)),
+                (int(start_timestamp), min(int(end_timestamp), first_full_bucket), int(start_timestamp)),
             ).fetchone()
-        received = int(row["received"])
-        transmitted = int(row["transmitted"])
+            hourly = connection.execute(
+                """
+                SELECT COALESCE(SUM(received_bytes),0),COALESCE(SUM(transmitted_bytes),0)
+                FROM traffic_hourly WHERE bucket_start>=? AND bucket_start<?
+                """,
+                (first_full_bucket, final_full_bucket),
+            ).fetchone()
+            tail = connection.execute(
+                """
+                SELECT COALESCE(SUM(received_bytes),0),COALESCE(SUM(transmitted_bytes),0)
+                FROM traffic_deltas WHERE captured_at>=? AND captured_at<? AND previous_at>=?
+                """,
+                (max(first_full_bucket, final_full_bucket), int(end_timestamp), int(start_timestamp)),
+            ).fetchone()
+            crossing = connection.execute(
+                """
+                SELECT COALESCE(SUM(received_bytes),0),COALESCE(SUM(transmitted_bytes),0)
+                FROM traffic_deltas
+                WHERE captured_at>=? AND captured_at<? AND previous_at<?
+                """,
+                (first_full_bucket, final_full_bucket, int(start_timestamp)),
+            ).fetchone()
+        received = int(boundary["received"]) + int(hourly[0]) + int(tail[0]) - int(crossing[0])
+        transmitted = int(boundary["transmitted"]) + int(hourly[1]) + int(tail[1]) - int(crossing[1])
         used = max(received, transmitted) if count_mode == "max" else received + transmitted
         return {
             "usedBytes": used,
@@ -207,6 +353,10 @@ class Storage:
                 "INSERT INTO settings VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                 (key, json.dumps(value, ensure_ascii=False), utc_now()),
             )
+
+    def delete_setting(self, key: str) -> None:
+        with self.lock, self.connect() as connection:
+            connection.execute("DELETE FROM settings WHERE key=?", (key,))
 
     def add_audit(self, action: str, category: str, detail: str, source_ip: str = "127.0.0.1", result: str = "成功", actor: str = "system") -> None:
         with self.lock, self.connect() as connection:
@@ -295,13 +445,6 @@ class Storage:
                 (utc_now(), alert_id),
             )
         return cursor.rowcount == 1
-
-    def acknowledged(self) -> set[str]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                "SELECT alert_id FROM alert_state WHERE active=1 AND acknowledged_at IS NOT NULL"
-            ).fetchall()
-        return {str(row["alert_id"]) for row in rows}
 
     def has_users(self) -> bool:
         with self.connect() as connection:

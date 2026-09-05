@@ -49,6 +49,8 @@ npm run dev
 
 安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v4.1.0.md`](docs/RELEASE_NOTES_v4.1.0.md)。
 
+浏览器最低版本与发布验证边界见 [`docs/BROWSER_SUPPORT.md`](docs/BROWSER_SUPPORT.md)。
+
 ## English
 
 CastoriceUI is a Material Design 3 observability console for Linux VPS hosts. It combines host metrics, real interface traffic, proxy connections, network quality, service health, subscriptions, alerts, and audit records in a responsive interface.

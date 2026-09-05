@@ -18,7 +18,7 @@ CastoriceUI follows Material Design 3 principles without depending on a heavywei
 | Above 1180 px | Full navigation rail | Dense multi-column layout |
 | 901–1180 px | Compact icon rail | Reduced card metadata |
 | 681–900 px | Modal drawer | Two-column cards where useful |
-| Up to 680 px | Bottom navigation + drawer | Stacked cards and card-style tables |
+| Up to 680 px | Modal drawer | Stacked cards and card-style tables |
 
 ## Component rules
 
@@ -35,3 +35,5 @@ CastoriceUI follows Material Design 3 principles without depending on a heavywei
 2. Add its selector overrides in `app/globals.css` for both light and dark themes.
 3. Confirm text and status contrast in both modes.
 4. Test charts, focus rings, selected navigation, buttons, and dialogs.
+
+Minimum browser versions and the progressive-enhancement boundary are defined in [BROWSER_SUPPORT.md](BROWSER_SUPPORT.md).

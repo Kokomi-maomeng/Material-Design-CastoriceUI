@@ -1,0 +1,31 @@
+{
+  "source": "Sanitized from an official sing-box 1.13.19 Clash API loopback run",
+  "connections": [
+    {"id": "client-shadowsocks", "metadata": {"type": "socks/shadowsocks-client", "sourceIP": "127.0.0.1"}, "upload": 41, "download": 41},
+    {"id": "client-vmess", "metadata": {"type": "socks/vmess-client", "sourceIP": "127.0.0.1"}, "upload": 35, "download": 35},
+    {"id": "server-anytls", "metadata": {"type": "anytls/anytls-in", "sourceIP": "127.0.0.1"}, "upload": 36, "download": 36},
+    {"id": "client-trojan", "metadata": {"type": "socks/trojan-client", "sourceIP": "127.0.0.1"}, "upload": 36, "download": 36},
+    {"id": "server-trojan", "metadata": {"type": "trojan/trojan-in", "sourceIP": "127.0.0.1"}, "upload": 36, "download": 36},
+    {"id": "client-tuic", "metadata": {"type": "socks/tuic-client", "sourceIP": "127.0.0.1"}, "upload": 34, "download": 34},
+    {"id": "server-socks5", "metadata": {"type": "socks/socks5-in", "sourceIP": "127.0.0.1"}, "upload": 36, "download": 36},
+    {"id": "server-tuic", "metadata": {"type": "tuic/tuic-in", "sourceIP": "127.0.0.1"}, "upload": 34, "download": 34},
+    {"id": "server-vless", "metadata": {"type": "vless/vless-in", "sourceIP": "127.0.0.1"}, "upload": 35, "download": 35},
+    {"id": "client-vless", "metadata": {"type": "socks/vless-client", "sourceIP": "127.0.0.1"}, "upload": 35, "download": 35},
+    {"id": "client-anytls", "metadata": {"type": "socks/anytls-client", "sourceIP": "127.0.0.1"}, "upload": 36, "download": 36},
+    {"id": "client-socks5", "metadata": {"type": "socks/socks5-client", "sourceIP": "127.0.0.1"}, "upload": 36, "download": 36},
+    {"id": "server-vmess", "metadata": {"type": "vmess/vmess-in", "sourceIP": "127.0.0.1"}, "upload": 35, "download": 35},
+    {"id": "server-shadowsocks", "metadata": {"type": "shadowsocks/shadowsocks-in", "sourceIP": "127.0.0.1"}, "upload": 41, "download": 41}
+  ],
+  "inventory": {
+    "available": true,
+    "inbounds": [
+      {"tag": "anytls-in", "type": "anytls", "listening": true},
+      {"tag": "vless-in", "type": "vless", "listening": true},
+      {"tag": "socks5-in", "type": "socks", "listening": true},
+      {"tag": "shadowsocks-in", "type": "shadowsocks", "listening": true},
+      {"tag": "vmess-in", "type": "vmess", "listening": true},
+      {"tag": "trojan-in", "type": "trojan", "listening": true},
+      {"tag": "tuic-in", "type": "tuic", "listening": true}
+    ]
+  }
+}

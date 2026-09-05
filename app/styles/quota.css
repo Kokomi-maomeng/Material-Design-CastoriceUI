@@ -1,0 +1,17 @@
+/* Stable quota, connection and live-network layouts. */
+.toast { z-index: 240; }
+.quota-reset-switch { margin-top: 18px; }
+.quota-schedule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.quota-schedule-grid .field { min-width: 0; }
+.quota-schedule-grid .field--wide { grid-column: 1 / -1; }
+.quota-dialog .field input, .quota-dialog .md-select-trigger, .quota-dialog .md-date-trigger { height: 48px; min-height: 48px; }
+.quota-dialog .field > span { font-size: 13px; }
+.quota-schedule-summary { grid-column: 1 / -1; margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-container); }
+.dialog-error { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; padding: 11px 12px; border-radius: 12px; background: var(--error-container); color: var(--on-error-container); }
+.background-layout-controls { margin-top: 2px; }
+.password-settings { display: grid; gap: 14px; padding-top: 12px; }
+.password-settings .field-hint { margin-top: 2px; }
+.password-settings > .md-button { justify-self: start; }
+.security-settings { margin-top: 2px; }
+.auth-language-select { width: min(190px, 100%); }
+.connection-detail-grid.no-destination { grid-template-columns: 34px minmax(110px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr); }

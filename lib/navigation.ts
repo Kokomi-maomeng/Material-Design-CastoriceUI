@@ -1,4 +1,15 @@
-import type { NavigationItem } from "./types";
+import type { NavigationItem, PageId } from "./types";
+
+export const PANEL_IDS: PageId[] = [
+  "alerts",
+  "accounts",
+  "subscriptions",
+  "services",
+  "network",
+  "connections",
+  "traffic",
+  "audit",
+];
 
 export const navigation: NavigationItem[] = [
   { id: "overview", labelZh: "总览", labelEn: "Overview", icon: "space_dashboard" },

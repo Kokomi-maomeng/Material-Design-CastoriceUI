@@ -1,0 +1,27 @@
+/* Truthful setup, quota time, and wide network-chart layout. */
+.traffic-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sparkline { position: relative; width: 100%; min-width: 0; height: 200px; aspect-ratio: auto; overflow: visible; }
+.sparkline svg { display: block; width: 100%; min-width: 0; height: 200px; overflow: visible; }
+.network-trend-chart { max-height: none; }
+.wizard-success.is-warning .material-symbols-rounded { color: var(--warning); }
+.quota-time-selects { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
+@media (max-width: 760px) { .traffic-kpis { grid-template-columns: 1fr 1fr; } }
+
+@media (max-width: 620px) {
+  .background-layout-controls { grid-template-columns: 1fr; }
+  .connection-detail-grid.has-destination, .connection-detail-grid.no-destination { grid-template-columns: 32px 1fr; }
+}
+
+@media (max-width: 760px) {
+  .chart--traffic { overflow: hidden; }
+  .chart--traffic .native-chart { width: 100%; min-width: 0; }
+  .chart--traffic .native-chart--interactive { touch-action: pan-y; }
+  .traffic-trend-panel { min-height: 400px; }
+}
+
+.page-enter > * { animation: md-content-rise .42s cubic-bezier(.2,0,0,1) both; }
+.page-enter > *:nth-child(2) { animation-delay: 35ms; }
+.page-enter > *:nth-child(3) { animation-delay: 70ms; }
+.page-enter > *:nth-child(4) { animation-delay: 105ms; }
+.page-enter > *:nth-child(n+5) { animation-delay: 140ms; }
+@keyframes md-content-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
