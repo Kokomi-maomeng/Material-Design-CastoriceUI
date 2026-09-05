@@ -88,21 +88,21 @@ For VLESS, `securityProfile` accepts `standard`, `xtls-vision`, `reality`, or `x
 
 ## Traffic samples and account totals
 
-The backend sampler runs independently of browser refreshes. It stores bounded adjacent interface-counter snapshots, derives non-negative deltas, and treats counter decreases as resets. The `1h`, `6h`, `24h`, `3 day`, and `7 day` views use real retained buckets with denser points than v1.5.
+The backend sampler runs independently of browser refreshes. It stores bounded adjacent interface-counter snapshots and derives non-negative deltas. On a counter decrease it starts a new epoch and counts the new counter value because those bytes are known to have occurred after reset; it also marks the preceding interval as a coverage gap and never estimates its unknown traffic. The `1h`, `6h`, `24h`, `3 day`, and `7 day` views use real retained buckets.
 
 `traffic.monthly` contains exactly six entries in chronological order: the current calendar month and the preceding five months. Each entry exposes `startDate`, `endDate`, and measured `bytes`. Boundaries use the configured traffic timezone and always run from day 1 through that calendar month's final day. Deltas are calculated only between samples inside the same month and the same interface/boot source, so a month never borrows a counter interval from its neighbor.
 
 Host-interface traffic and protocol-account traffic are different sources:
 
 - Overview/Traffic time series: selected host interface counter deltas;
-- account usage/rankings: the durable ledger for one complete, explicit owner; otherwise mapped protocol counters plus an unattributed remainder;
+- account usage/rankings: only explicitly mapped protocol/account counters; a single account never inherits the whole host ledger;
 - account quota and Overview quota: one shared backend traffic-limit setting.
 
-Every account row exposes whether its number comes from the durable ledger, a protocol-core counter, or no mapping. Protocol and multi-account core counters are preserved exactly: CastoriceUI never scales them to fit the interface ledger. When the durable ledger is larger, only the positive difference is added as `Unattributed`; when core lifetime counters are larger than the current billing cycle, the protocol/account total remains larger and is labelled as a separate source. `protocolTotalBytes` and `accountTotalBytes` expose those displayed sums separately from the durable `totalBytes`. Do not claim that a protocol cumulative value is billing-cycle usage unless the upstream core resets on that exact cycle.
+Every account row exposes a mapped protocol-core counter or no mapping, separately from registered status, recorded expiry state, and current core observation evidence. CastoriceUI never scales protocol counters to fit the interface ledger. Positive host-ledger remainder appears only in aggregate breakdowns as `Unattributed`; `protocolTotalBytes` and `accountTotalBytes` remain separate from host-interface `totalBytes`. A protocol cumulative value is not billing-cycle usage unless the upstream core resets on that exact cycle.
 
 ## Subscription validation
 
-The setup field accepts an actual HTTPS subscription URL for a one-time server-side probe. The candidate may contain a path or query token, but is never written to SQLite, returned in a response, or included in audit/error details; the UI clears it after validation. Complete subscription records remain in protected server configuration. On save, the backend probes both the candidate and enabled protected records. Cached runtime rechecks probe only protected records (or the protected legacy base URL when no record exists). Every request requires public DNS results, pins the validated address for the TCP connection while retaining the original TLS SNI/Host, accepts valid TLS only, follows no redirects, and limits the non-empty response to 256 KiB. A failed configured probe produces an integration alert. An already configured deployment can leave the field blank to revalidate protected records.
+The setup field accepts an actual HTTPS subscription URL for a one-time server-side probe. The candidate may contain a path or query token, but is never written to SQLite, returned in a response, or included in audit/error details; the UI clears it after validation. Complete subscription records remain in protected server configuration. Cached runtime rechecks probe only protected records. Every request requires public DNS results, pins the validated address while retaining the original TLS SNI/Host, accepts valid TLS only, follows no redirects, and limits the response to 256 KiB. HTML, empty/error pages and invalid node data are rejected. Supported parse checks cover sing-box JSON, Clash JSON/YAML, proxy URI lists, and Base64-wrapped content. Success proves only publisher reachability and parseability; it does not prove client import behavior or proxy connectivity. A failed configured probe produces an integration alert.
 
 ## Quota reset time and timezone
 
@@ -112,7 +112,7 @@ Quota resets store `resetAnchor`, 24-hour `resetTime`, and an IANA `timezone` in
 
 Connection groups use protocol, account, and real source IP. The earliest active entry establishes group duration and expandable children retain the actual destinations and ports returned by adapters. When a protocol omits source IP, the value remains unavailable and must not be made copyable.
 
-Upload/download rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing cumulative counters. A first observation, missing ID, counter reset, or disappeared/recreated connection has no rate. The frontend hides rate columns when no group has a valid rate.
+Upload/download rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing cumulative counters. A first observation, missing ID, counter reset, or disappeared/recreated connection has no rate. Unknown rates display as unavailable; mixed summaries include only measured rates and are labelled partial.
 
 ## Network probes
 

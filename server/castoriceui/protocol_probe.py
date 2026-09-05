@@ -22,9 +22,13 @@ PROTOCOL_TYPES = {"anytls", "vless", "socks", "mixed", "shadowsocks", "vmess", "
 def config_paths(arguments: list[str], cwd: Path) -> list[Path]:
     files: list[Path] = []
     directory = cwd
-    for index, arg in enumerate(arguments[:-1]):
-        if arg in {"-D", "--directory"}:
-            directory = Path(arguments[index + 1])
+    for index, arg in enumerate(arguments):
+        option, separator, inline = arg.partition("=")
+        if option in {"-D", "--directory"}:
+            raw_directory = inline if separator else arguments[index + 1] if index + 1 < len(arguments) else ""
+            if not raw_directory:
+                raise ValueError("unreadable_config")
+            directory = Path(raw_directory)
             if not directory.is_absolute():
                 directory = cwd / directory
     for index, arg in enumerate(arguments):
@@ -73,15 +77,32 @@ def inbound_records(configs: list[dict[str, Any]], listeners: set[tuple[str, int
             port = inbound.get("listen_port")
             if not isinstance(tag, str) or not 0 < len(tag) <= 80 or not isinstance(port, int) or not 1 <= port <= 65535:
                 continue
+            verification_supported = True
+            verification_reason = "verified"
             transports = {"udp"} if kind in {"tuic", "hysteria2"} else {"tcp"}
             if kind == "shadowsocks":
                 network = inbound.get("network", "")
                 transports = {network} if network in {"tcp", "udp"} else {"tcp", "udp"}
+            elif kind in {"vmess", "vless", "trojan"}:
+                transport_type = str((inbound.get("transport") or {}).get("type", "tcp")).casefold()
+                if transport_type == "quic":
+                    transports = {"udp"}
+                elif transport_type in {"", "tcp", "http", "ws", "grpc", "httpupgrade"}:
+                    transports = {"tcp"}
+                else:
+                    transports = set()
+                    verification_supported = False
+                    verification_reason = "unsupported_transport"
             tls = inbound.get("tls") or {}
             reality = bool(tls.get("enabled") and (tls.get("reality") or {}).get("enabled"))
             vision = any(user.get("flow") == "xtls-rprx-vision" for user in inbound.get("users", []))
             profile = "xtls-vision-reality" if vision and reality else "xtls-vision" if vision else "reality" if reality else "standard"
-            records.append({"tag": tag, "type": kind, "listening": all((transport, port) in listeners for transport in transports), "securityProfile": profile})
+            records.append({
+                "tag": tag, "type": kind,
+                "listening": verification_supported and all((transport, port) in listeners for transport in transports),
+                "transports": sorted(transports), "verificationSupported": verification_supported,
+                "verificationReason": verification_reason, "securityProfile": profile,
+            })
     return records
 
 
@@ -132,8 +153,8 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--unit", default="sing-box")
-    parser.add_argument("--output", default="/run/castoriceui/protocol-status.json")
+    parser.add_argument("--unit", default=os.environ.get("SING_BOX_UNIT", "sing-box"))
+    parser.add_argument("--output", default=os.environ.get("CASTORICEUI_PROTOCOL_STATUS", "/run/castoriceui/protocol-status.json"))
     args = parser.parse_args()
     output = Path(args.output)
     output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)

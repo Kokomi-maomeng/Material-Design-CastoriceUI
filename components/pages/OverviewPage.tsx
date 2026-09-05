@@ -65,7 +65,7 @@ export function OverviewPage({
   const totalUp = connectionRatesAvailable
     ? connections.reduce((sum, item) => sum + (item.uploadBps ?? 0), 0)
     : metrics.uploadBps;
-  const onlineAccounts = new Set(connections.map((item) => item.account)).size;
+  const onlineAccounts = new Set(connections.filter((item) => item.account.trim()).map((item) => `${item.protocol}\0${item.account}`)).size;
   const remaining = Math.max(
     0,
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
@@ -78,20 +78,16 @@ export function OverviewPage({
         `Resets every ${quota.periodCount} ${quota.periodUnit}(s) · next ${nextResetInBillingZone} (${quota.timezone})`,
       )
     : "";
-  const reachableTargets = networkTargets.filter(
-    (target) => target.status !== "down",
-  ).length;
-  const averageLatency = networkTargets.length
-    ? networkTargets.reduce((sum, target) => sum + target.latency, 0) /
-      networkTargets.length
-    : 0;
-  const averageLoss = networkTargets.length
-    ? networkTargets.reduce((sum, target) => sum + target.loss, 0) /
-      networkTargets.length
-    : 0;
+  const reachableTargets = networkTargets.filter((target) => target.status === "healthy" || target.status === "degraded").length;
+  const measuredLatency = networkTargets.flatMap((target) => target.latency === null ? [] : [target.latency]);
+  const measuredLoss = networkTargets.flatMap((target) => target.loss === null ? [] : [target.loss]);
+  const averageLatency = measuredLatency.length ? measuredLatency.reduce((sum, value) => sum + value, 0) / measuredLatency.length : null;
+  const averageLoss = measuredLoss.length ? measuredLoss.reduce((sum, value) => sum + value, 0) / measuredLoss.length : null;
   const networkGrade =
     networkTargets.length === 0
       ? t("暂无数据", "No data")
+      : averageLoss === null || averageLatency === null
+        ? t("部分不可用", "Partially unavailable")
       : averageLoss >= 5 || averageLatency >= 150
         ? t("较差", "Poor")
         : averageLoss >= 1 || averageLatency >= 80
@@ -295,18 +291,18 @@ export function OverviewPage({
             <div>
               <span>{t("平均延迟", "Average latency")}</span>
               <b>
-                {networkTargets.length
+                {averageLatency !== null
                   ? `${averageLatency.toFixed(1)} ms`
                   : t("等待探测", "Waiting")}
               </b>
               <Progress
                 value={
-                  networkTargets.length
+                  averageLatency !== null
                     ? Math.max(0, 100 - averageLatency / 2)
                     : 0
                 }
                 tone={
-                  networkTargets.length && averageLatency < 80
+                  averageLatency !== null && averageLatency < 80
                     ? "success"
                     : "warning"
                 }
@@ -315,18 +311,18 @@ export function OverviewPage({
             <div>
               <span>{t("平均丢包", "Average loss")}</span>
               <b>
-                {networkTargets.length
+                {averageLoss !== null
                   ? `${averageLoss.toFixed(1)}%`
                   : t("等待探测", "Waiting")}
               </b>
               <Progress
                 value={
-                  networkTargets.length
+                  averageLoss !== null
                     ? Math.max(0, 100 - averageLoss * 10)
                     : 0
                 }
                 tone={
-                  networkTargets.length && averageLoss < 1
+                  averageLoss !== null && averageLoss < 1
                     ? "success"
                     : "warning"
                 }

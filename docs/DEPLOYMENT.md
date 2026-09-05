@@ -14,6 +14,33 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 
 Do not deploy the backend directly on a public address. The application login cookie is Secure by default and therefore requires HTTPS in production.
 
+### Supported installation paths / 支持的安装路径
+
+Choose exactly one path before changing the host:
+
+| Path | Use when | Required preflight | Proxy-core impact |
+| --- | --- | --- | --- |
+| Minimal panel | A new Debian 12/13 host has no existing panel | Verify TCP 18080 and TCP 443 are free, install Nginx/Python, create the service account | None; proxy integrations stay unconfigured |
+| Existing proxy host | Hysteria2 or sing-box already carries traffic | Record exact unit names, binary/config paths, TCP/UDP listeners and an independent management route | Never restart or rewrite a proxy core as part of panel installation |
+| Upgrade | CastoriceUI is already installed | Back up config, SQLite including WAL, units, Nginx site and current symlink; stage the new release separately | None; switch only backend/frontend after validation |
+
+On Debian 12/13 the minimal package step is:
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends python3 nginx ca-certificates
+```
+
+Before installation or upgrade, run the shipped read-only preflight from the staged release:
+
+```bash
+sudo python3 server/preflight.py --config /etc/castoriceui/config.json | tee /tmp/castoriceui-preflight.json
+```
+
+For a first install without a config, first copy `server/config.example.json` to a temporary root-only file, edit only intended values, and pass that temporary path to preflight. The preflight reads OS metadata, paths, listeners, systemd state, the protected configuration and `nginx -t`; it does not install, write, reload, enable, stop or restart anything. A `fail` blocks deployment. A `warning` requires an operator decision and written rollback point.
+
+If existing units or binaries have non-default names, set `hysteria_unit`, `singbox_unit`, `nginx_unit`, `hysteria_binary`, `singbox_binary`, and `protocol_status_path` in the protected config. For the root protocol probe, place matching `SING_BOX_UNIT` and `CASTORICEUI_PROTOCOL_STATUS` values in `/etc/castoriceui/protocol-probe.env`; do not edit the upstream proxy configuration merely to fit defaults.
+
 ## 2. Choose an artifact and inspect it / 选择交付物并检查
 
 From a source checkout, install the locked dependencies and build `dist/`:
@@ -160,6 +187,19 @@ The supplied Nginx example uses `root /var/www/castorice-ui/current` and SPA fal
 
 Copy [`../deploy/nginx.conf.example`](../deploy/nginx.conf.example), replace only the documentation domain/certificate paths on the server, then run:
 
+For an existing certificate, copy neither the private key nor full chain into the repository. Point Nginx at the certificate provider's protected files. If the unprivileged backend must read a separate full-chain file for expiry evidence, install a certificate-only copy such as `/etc/castoriceui/tls-fullchain.pem` as `0640 root:castoriceui`; never grant it the private key. `certificate_renewal_unit` is optional evidence only: an empty value means renewal is unconfigured/unknown, not automatic.
+
+Install the site explicitly and check for conflicts before enabling it:
+
+```bash
+sudo install -m 0644 deploy/nginx.conf.example /etc/nginx/sites-available/castoriceui
+sudo grep -R "listen .*443\|server_name panel.example.com" /etc/nginx/sites-enabled /etc/nginx/conf.d
+sudo ln -s /etc/nginx/sites-available/castoriceui /etc/nginx/sites-enabled/castoriceui
+sudo nginx -t
+```
+
+If the grep shows another owner for the same address/name, stop and merge the required `location /api/` and SPA `location /` blocks into that existing site instead of enabling a competing server block. TCP 443 belongs to Nginx; UDP 443 may independently belong to QUIC/Hysteria2 and is not a TCP conflict.
+
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
@@ -216,6 +256,8 @@ Rollback:
 3. Restore the previous unit/Nginx file when changed.
 4. Run `systemd-analyze verify` and `nginx -t`.
 5. Restart the backend, reload Nginx only if its config changed, and repeat health/auth/protocol checks.
+
+Common blocking results: `address already in use` means identify the exact TCP/UDP listener before choosing a new loopback port; `permission denied` on the certificate means fix only the certificate-chain group/mode and never broaden private-key access; `nginx -t` failure means do not reload; an unknown unit/binary means configure its real name/path or leave that integration unconfigured; a failed database migration means restore the matched database/WAL/config backup with the previous backend. Never claim rollback is available until the prior symlink, backend, unit, Nginx site, config and database backup have all been recorded.
 
 ## 12. Restart recovery and release checklist / 重启恢复与发布检查
 

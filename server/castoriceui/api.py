@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import json
+import socket
 import threading
 import time
 from http import HTTPStatus
@@ -21,6 +22,15 @@ from .storage import Storage
 
 SESSION_COOKIE = "castorice_session"
 VISIBLE_PANELS = set(VISIBLE_PANEL_ORDER)
+
+
+def validation_error_payload(error: ValueError) -> dict[str, str]:
+    message = str(error)
+    if message.startswith("Username must"):
+        return {"error": "invalid_username", "field": "username", "message": message}
+    if message.startswith("Password must"):
+        return {"error": "weak_password", "field": "password", "message": message}
+    return {"error": "invalid_request", "message": message}
 
 
 def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple[str, str, int] | None:
@@ -281,7 +291,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/api/v1/integrations/") or path.startswith("/api/v2/integrations/"):
                 integration_id = path.rsplit("/", 1)[-1]
-                result = self.app.dashboard.configure_integration(integration_id, payload, self.source_ip())
+                result = self.app.dashboard.configure_integration(integration_id, payload, self.source_ip(), str(session["username"]))
                 self.send_json(HTTPStatus.OK, result)
                 return
             if path == "/api/v2/settings/network-targets":
@@ -338,7 +348,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, self.login_appearance())
                 return
         except (ValueError, json.JSONDecodeError) as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
@@ -388,7 +398,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, {"username": username, "csrfToken": csrf, "expiresAt": expires_at, "setupComplete": bool(self.app.storage.get_setting("initial_setup_complete", False))}, {"Set-Cookie": self.session_cookie(token, self.app.config.session_lifetime_seconds)})
                 return
         except (ValueError, json.JSONDecodeError) as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
             return
 
         session = self.require_session(mutation=True)
@@ -453,6 +463,11 @@ class ApiServer(ThreadingHTTPServer):
         self.background_cache_lock = threading.Lock()
         self.background_cache: tuple[str, float, bytes, str] | None = None
         self.request_slots = threading.BoundedSemaphore(self.max_request_workers)
+        try:
+            if ipaddress.ip_address(config.listen_host).version == 6:
+                self.address_family = socket.AF_INET6
+        except ValueError:
+            pass
         super().__init__((config.listen_host, config.listen_port), ApiHandler)
 
     def process_request(self, request: Any, client_address: Any) -> None:

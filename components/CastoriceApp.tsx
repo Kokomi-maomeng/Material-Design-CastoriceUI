@@ -107,6 +107,7 @@ export function CastoriceApp() {
   const [desktopNavigationHidden, setDesktopNavigationHidden] = useState(() => readBooleanPreference("castorice-desktop-navigation-hidden", false));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
@@ -200,11 +201,19 @@ export function CastoriceApp() {
   }, []);
 
   const signOut = useCallback(async () => {
+    setSigningOut(true);
     try {
       await logout();
-    } catch {
-      /* Clear the local state even if the session already expired. */
+    } catch (error) {
+      setSigningOut(false);
+      setUserMenuOpen(false);
+      if (!(error instanceof ApiError && error.status === 401)) {
+        toastSequence.current += 1;
+        setToast({ id: toastSequence.current, message: t("服务器未确认注销；当前会话仍保留，请重试。", "The server did not confirm sign-out. Your session remains active; try again.") });
+        return;
+      }
     }
+    setSigningOut(false);
     setSession(null);
     setDashboard(emptyDashboard);
     setAlerts([]);
@@ -217,7 +226,7 @@ export function CastoriceApp() {
       setBootError(true);
     }
     window.history.replaceState(null, "", "#/overview");
-  }, []);
+  }, [t]);
   const loadDashboard = useCallback(async () => {
     if (!session || dashboardLoading.current) return;
     dashboardLoading.current = true;
@@ -317,7 +326,7 @@ export function CastoriceApp() {
   );
   const pageTitle = labelFor(page);
   const unacknowledgedAlerts = alerts.filter(
-    (item) => !item.acknowledged,
+    (item) => item.status !== "resolved" && !item.acknowledged,
   ).length;
   const navigate = useCallback((id: PageId) => {
     setPage(id);
@@ -716,9 +725,9 @@ export function CastoriceApp() {
                 />
               </button>
                 <div className={`user-popover floating-surface ${userMenuOpen ? "is-open" : ""}`} role="menu" aria-hidden={!userMenuOpen}>
-                  <button role="menuitem" onClick={() => void signOut()}>
+                  <button role="menuitem" disabled={signingOut} onClick={() => void signOut()}>
                     <Icon name="logout" size={19} />
-                    {t("注销", "Sign out")}
+                    {signingOut ? t("正在注销…", "Signing out…") : t("注销", "Sign out")}
                   </button>
                 </div>
             </div>

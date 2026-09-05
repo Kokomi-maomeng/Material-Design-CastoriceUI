@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import http.client
+import base64
+import binascii
 import ipaddress
 import json
 import re
@@ -59,7 +61,55 @@ def normalize_subscription_url(value: str) -> str:
     return urlunsplit(("https", parsed.netloc, parsed.path or "/", parsed.query, ""))
 
 
-def probe_subscription_url(value: str, max_bytes: int = 256 * 1024) -> None:
+_SUBSCRIPTION_SCHEMES = {"ss", "shadowsocks", "vmess", "vless", "trojan", "hysteria2", "hy2", "tuic", "socks", "anytls"}
+
+
+def _parse_subscription(body: bytes, content_type: str, depth: int = 0) -> dict[str, int | str]:
+    if depth > 1:
+        raise ValueError("Subscription response contains no valid proxy node")
+    text = body.decode("utf-8-sig", errors="strict").strip()
+    lowered = text[:512].casefold()
+    if "html" in content_type or lowered.startswith(("<!doctype html", "<html", "<head", "<body")):
+        raise ValueError("Subscription publisher returned HTML instead of a subscription")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        if isinstance(payload.get("proxies"), list):
+            valid = [item for item in payload["proxies"] if isinstance(item, dict) and item.get("name") and item.get("server") and item.get("port")]
+            if valid:
+                return {"format": "clash-json", "nodeCount": len(valid)}
+        if isinstance(payload.get("outbounds"), list):
+            valid = [item for item in payload["outbounds"] if isinstance(item, dict) and item.get("type") in _SUBSCRIPTION_SCHEMES and item.get("server") and item.get("server_port")]
+            if valid:
+                return {"format": "sing-box-json", "nodeCount": len(valid)}
+        raise ValueError("Subscription response contains no valid proxy node")
+    uri_count = 0
+    for line in text.splitlines():
+        candidate = line.strip()
+        if "://" in candidate and candidate.split("://", 1)[0].casefold() in _SUBSCRIPTION_SCHEMES:
+            uri_count += 1
+    if uri_count:
+        return {"format": "uri-list", "nodeCount": uri_count}
+    # Conservative Clash YAML recognition: require proxies plus per-node name/server/port fields.
+    if re.search(r"(?m)^proxies\s*:\s*$", text):
+        blocks = re.split(r"(?m)^\s*-\s+", text)[1:]
+        valid = [block for block in blocks if re.search(r"(?m)^\s*name\s*:", block) and re.search(r"(?m)^\s*server\s*:", block) and re.search(r"(?m)^\s*port\s*:", block)]
+        if valid:
+            return {"format": "clash-yaml", "nodeCount": len(valid)}
+    try:
+        compact = "".join(text.split())
+        decoded = base64.b64decode(compact + "=" * (-len(compact) % 4), validate=True)
+        if decoded and decoded != body:
+            parsed = _parse_subscription(decoded, "text/plain", depth + 1)
+            return {"format": f"base64-{parsed['format']}", "nodeCount": int(parsed["nodeCount"])}
+    except (binascii.Error, UnicodeError, ValueError):
+        pass
+    raise ValueError("Subscription response contains no valid proxy node")
+
+
+def probe_subscription_url(value: str, max_bytes: int = 256 * 1024, timeout: float = 8) -> dict[str, int | str]:
     """Perform a bounded, no-redirect, public-network HTTPS subscription probe."""
     normalized = normalize_subscription_url(value)
     try:
@@ -69,7 +119,7 @@ def probe_subscription_url(value: str, max_bytes: int = 256 * 1024) -> None:
                 "Accept": "text/plain,application/octet-stream,application/yaml,application/json;q=0.8,*/*;q=0.5",
                 "User-Agent": f"CastoriceUI/{__version__} subscription-check",
             },
-            max_bytes,
+            max_bytes, timeout,
         )
     except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
         raise ValueError("Subscription publisher is unreachable") from error
@@ -87,6 +137,7 @@ def probe_subscription_url(value: str, max_bytes: int = 256 * 1024) -> None:
         raise ValueError("Subscription publisher returned an empty response")
     if len(body) > max_bytes:
         raise ValueError("Subscription response exceeds 256 KiB")
+    return _parse_subscription(body, headers.get_content_type().lower())
 
 
 def validate_probe_target(value: str) -> tuple[str, int]:

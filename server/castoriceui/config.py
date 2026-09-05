@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -54,6 +55,9 @@ class AppConfig:
     interface: str = ""
     traffic_limit_bytes: int = 1_000_000_000_000
     certificate_path: str = ""
+    certificate_host: str = ""
+    certificate_port: int = 443
+    certificate_renewal_unit: str = ""
     subscription_base_url: str = ""
     hysteria_api: dict[str, Any] = field(default_factory=dict)
     singbox_api: dict[str, Any] = field(default_factory=dict)
@@ -75,6 +79,12 @@ class AppConfig:
     traffic_count_mode: str = "sum"
     audit_retention_days: int = 180
     external_background_hosts: list[str] = field(default_factory=list)
+    hysteria_unit: str = "hysteria-server"
+    singbox_unit: str = "sing-box"
+    nginx_unit: str = "nginx"
+    hysteria_binary: str = "/usr/local/bin/hysteria"
+    singbox_binary: str = "/usr/bin/sing-box"
+    protocol_status_path: str = "/run/castoriceui/protocol-status.json"
 
     @classmethod
     def load(cls, path: str | Path) -> "AppConfig":
@@ -135,6 +145,19 @@ class AppConfig:
                 raise ValueError(f"{field_name} must be an absolute path")
         if self.certificate_path and not (PurePosixPath(self.certificate_path).is_absolute() or PureWindowsPath(self.certificate_path).is_absolute()):
             raise ValueError("certificate_path must be an absolute path")
+        if self.certificate_host and (len(self.certificate_host) > 253 or "/" in self.certificate_host):
+            raise ValueError("certificate_host is invalid")
+        if not isinstance(self.certificate_port, int) or not 1 <= self.certificate_port <= 65535:
+            raise ValueError("certificate_port must be between 1 and 65535")
+        if self.certificate_renewal_unit and not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", self.certificate_renewal_unit):
+            raise ValueError("certificate_renewal_unit is invalid")
+        for field_name in ("hysteria_unit", "singbox_unit", "nginx_unit"):
+            if not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", str(getattr(self, field_name))):
+                raise ValueError(f"{field_name} is invalid")
+        for field_name in ("hysteria_binary", "singbox_binary", "protocol_status_path"):
+            value = str(getattr(self, field_name))
+            if not (PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()):
+                raise ValueError(f"{field_name} must be an absolute path")
         if self.interface:
             self.interface = validate_interface_name(self.interface)
         for field_name in ("hysteria_api", "singbox_api"):

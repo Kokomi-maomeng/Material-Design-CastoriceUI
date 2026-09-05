@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const root = new URL("../", import.meta.url);
-const ignoredDirectories = new Set([".git", ".next", ".vinext", ".wrangler", "dist", "node_modules"]);
-const ignoredFiles = new Set(["package-lock.json"]);
+const ignoredDirectories = new Set([".git", ".next", ".vinext", ".wrangler", "node_modules"]);
+const ignoredFiles = new Set();
 const forbiddenNames = /(^|\/)(\.env(?:\..+)?|.*\.(?:key|pem|p12|pfx)|.*(?:credential|secret|password).*)$/i;
 const forbiddenContent = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
@@ -56,8 +56,21 @@ try {
   if (metadataEmails.some(isPrivateEmail) || taggerEmails.some(isPrivateEmail)) {
     findings.push("Git history contains non-privacy author, committer, or tagger email metadata");
   }
+  const historicalObjects = execFileSync("git", ["rev-list", "--objects", "--all"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  for (const line of historicalObjects.split(/\r?\n/).filter(Boolean)) {
+    const separator = line.indexOf(" ");
+    const historicalPath = separator < 0 ? "" : line.slice(separator + 1);
+    if (historicalPath && forbiddenNames.test(historicalPath)) findings.push(`${historicalPath}: forbidden sensitive filename in Git history`);
+  }
+  const objectIds = historicalObjects.split(/\r?\n/).map((line) => line.split(" ", 1)[0]).filter(Boolean);
+  const historyBlobs = execFileSync("git", ["cat-file", "--batch"], {
+    cwd: root, input: `${objectIds.join("\n")}\n`, encoding: "utf8", maxBuffer: 256 * 1024 * 1024,
+  });
+  for (const pattern of forbiddenContent) {
+    if (pattern.test(historyBlobs)) findings.push(`Git history blobs matched ${pattern}`);
+  }
 } catch {
-  findings.push("Git history metadata could not be inspected");
+  findings.push("Git history metadata and blobs could not be inspected");
 }
 
 if (findings.length > 0) {

@@ -44,21 +44,18 @@ export function NetworkPage({
       ),
     [targets, version],
   );
-  const avgLatency = filtered.length
-    ? filtered.reduce((sum, item) => sum + item.latency, 0) / filtered.length
-    : 0;
-  const avgJitter = filtered.length
-    ? filtered.reduce((sum, item) => sum + item.jitter, 0) / filtered.length
-    : 0;
-  const avgLoss = filtered.length
-    ? filtered.reduce((sum, item) => sum + item.loss, 0) / filtered.length
-    : 0;
-  const available = filtered.filter(
-    (target) => target.status !== "down",
-  ).length;
+  const measuredLatency = filtered.flatMap((item) => item.latency === null ? [] : [item.latency]);
+  const measuredJitter = filtered.flatMap((item) => item.jitter === null ? [] : [item.jitter]);
+  const measuredLoss = filtered.flatMap((item) => item.loss === null ? [] : [item.loss]);
+  const avgLatency = measuredLatency.length ? measuredLatency.reduce((sum, value) => sum + value, 0) / measuredLatency.length : null;
+  const avgJitter = measuredJitter.length ? measuredJitter.reduce((sum, value) => sum + value, 0) / measuredJitter.length : null;
+  const avgLoss = measuredLoss.length ? measuredLoss.reduce((sum, value) => sum + value, 0) / measuredLoss.length : null;
+  const available = filtered.filter((target) => target.status === "healthy" || target.status === "degraded").length;
   const quality =
     filtered.length === 0
       ? t("暂无数据", "No data")
+      : avgLoss === null || avgLatency === null
+        ? t("部分不可用", "Partially unavailable")
       : avgLoss >= 5 || avgLatency >= 150
         ? t("较差", "Poor")
         : avgLoss >= 1 || avgLatency >= 80
@@ -67,6 +64,8 @@ export function NetworkPage({
   const grade =
     filtered.length === 0
       ? "—"
+      : avgLoss === null || avgLatency === null
+        ? "—"
       : avgLoss >= 5 || avgLatency >= 150
         ? "C"
         : avgLoss >= 1 || avgLatency >= 80
@@ -122,8 +121,8 @@ export function NetworkPage({
         status={integration}
         name="网络探测"
         nameEn="Network probes"
-        description="设置 IPv4 / IPv6 目标后，后端按 5 秒刷新周期计算延迟、抖动和丢包。"
-        descriptionEn="After targets are configured, the backend refreshes latency, jitter, and packet loss every five seconds."
+        description="设置 IPv4 / IPv6 目标后，后端独立监控任务约每 15 秒更新一次；浏览器不负责触发探测。"
+        descriptionEn="After targets are configured, an independent backend monitor refreshes them about every 15 seconds; the browser does not trigger probes."
         onConfigure={onConfigure}
       />
       <FeatureIntro
@@ -173,9 +172,9 @@ export function NetworkPage({
         <NetworkMetric
           icon="timer"
           label={t("平均延迟", "Average latency")}
-          value={filtered.length ? `${avgLatency.toFixed(1)} ms` : "—"}
+          value={avgLatency !== null ? `${avgLatency.toFixed(1)} ms` : "—"}
           state={
-            filtered.length
+            avgLatency !== null
               ? t("最近探测", "Latest probe")
               : t("等待探测", "Waiting")
           }
@@ -183,8 +182,8 @@ export function NetworkPage({
         <NetworkMetric
           icon="ssid_chart"
           label={t("平均抖动", "Average jitter")}
-          value={filtered.length ? `${avgJitter.toFixed(1)} ms` : "—"}
-          state={filtered.length ? t("真实响应样本", "Real response samples") : t("等待探测", "Waiting")}
+          value={avgJitter !== null ? `${avgJitter.toFixed(1)} ms` : "—"}
+          state={avgJitter !== null ? t("真实响应样本", "Real response samples") : t("探测不可用或无响应", "Probe unavailable or no reply")}
         />
         <NetworkMetric
           icon="public"
@@ -229,18 +228,18 @@ export function NetworkPage({
               <div className="network-target-card__header">
                 <div className="provider-mark">{target.name.slice(0, 1)}</div>
                 <div className="network-target__identity"><strong>{target.name}</strong><span>{target.address} · IPv{target.ipVersion}</span></div>
-                <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "degraded" ? "warning" : "danger"}>
-                  {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : t("不可达", "Down")}
+                <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "degraded" || target.status === "unavailable" ? "warning" : "danger"}>
+                  {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
                 </Chip>
               </div>
               <div className="network-target-card__content">
               <div className="network-target-card__metrics">
-                <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency.toFixed(1)} ms</b></div>
-                <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter.toFixed(1)} ms</b></div>
-                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.loss > 1 ? "text-warning" : ""}>{target.loss.toFixed(1)}%</b></div>
+                <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency === null ? "—" : `${target.latency.toFixed(1)} ms`}</b></div>
+                <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter === null ? "—" : `${target.jitter.toFixed(1)} ms`}</b></div>
+                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={(target.loss ?? 0) > 1 ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
               </div>
               <div className="network-target-card__chart">
-                <div className="network-target-card__chart-title"><span>{t("延迟趋势", "Latency trend")}</span><b>{target.latency.toFixed(1)} ms</b></div>
+                <div className="network-target-card__chart-title"><span>{t("延迟趋势", "Latency trend")}</span><b>{target.latency === null ? t("无有效样本", "No valid sample") : `${target.latency.toFixed(1)} ms`}</b></div>
                 <div className="sparkline" aria-label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)}>
                   <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)} />
                 </div>

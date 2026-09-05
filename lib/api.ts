@@ -4,7 +4,7 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message?: string) {
+  constructor(public status: number, public code: string, message?: string, public field?: string) {
     super(message || code || `API request failed with ${status}`);
   }
 }
@@ -15,12 +15,29 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
     headers["X-CastoriceUI-Request"] = "1";
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   }
-  const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers });
+  const controller = new AbortController();
+  const timeoutMs = path.includes("/dashboard") ? 10_000 : 8_000;
+  const timeout = window.setTimeout(() => controller.abort("request_timeout"), timeoutMs);
+  const externalSignal = init?.signal;
+  const abortFromCaller = () => controller.abort(externalSignal?.reason);
+  externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && !externalSignal?.aborted) throw new ApiError(408, "request_timeout");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
+  }
   let body: unknown = null;
   try { body = await response.json(); } catch { /* A proxy error may not be JSON. */ }
   if (!response.ok) {
     const error = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "request_failed";
-    throw new ApiError(response.status, error);
+    const message = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : undefined;
+    const field = body && typeof body === "object" && "field" in body ? String((body as { field: unknown }).field) : undefined;
+    throw new ApiError(response.status, error, message, field);
   }
   return body as T;
 }

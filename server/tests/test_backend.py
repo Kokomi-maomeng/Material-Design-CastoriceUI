@@ -76,14 +76,14 @@ class BackendTests(unittest.TestCase):
             mapped = dashboard.account_metrics(accounts, {"traffic": {"u1": {"tx": 9, "rx": 1}, "u2": {"tx": 8, "rx": 2}}, "online": {"u1": 1, "u2": 3}}, 400)
             self.assertEqual([(item["usedBytes"], item["onlineDevices"]) for item in mapped], [(10, 1), (10, 3)])
 
-    def test_single_explicit_owner_uses_the_unified_durable_ledger(self) -> None:
+    def test_single_explicit_owner_keeps_protocol_counter_separate_from_host_ledger(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = AppConfig(database_path=str(Path(directory) / "state.db"))
             dashboard = DashboardService(config, Storage(config.database_path))
             accounts = [{"id": "primary", "name": "primary", "trafficIdentities": {"hysteria2": ["user"]}}]
             mapped = dashboard.account_metrics(accounts, {"traffic": {"user": {"tx": 90, "rx": 10}}, "online": {"user": 3}}, 532)
-            self.assertEqual(mapped[0]["usedBytes"], 532)
-            self.assertEqual(mapped[0]["usageSource"], "durableLedger")
+            self.assertEqual(mapped[0]["usedBytes"], 100)
+            self.assertEqual(mapped[0]["usageSource"], "protocolCounter")
             self.assertEqual(mapped[0]["onlineDevices"], 3)
 
     def test_protocol_breakdowns_preserve_observed_counters_and_only_add_a_remainder(self) -> None:
@@ -199,8 +199,9 @@ class BackendTests(unittest.TestCase):
             with patch("castoriceui.dashboard.time.time", return_value=timestamps["now"]):
                 monthly = dashboard.monthly_traffic_usage()
             self.assertEqual([item["startDate"] for item in monthly], ["2023-10-01", "2023-11-01", "2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01"])
-            self.assertEqual(monthly[3], {"startDate": "2024-01-01", "endDate": "2024-01-31", "bytes": 130})
-            self.assertEqual(monthly[4], {"startDate": "2024-02-01", "endDate": "2024-02-29", "bytes": 250})
+            self.assertEqual({key: monthly[3][key] for key in ("startDate", "endDate", "bytes")}, {"startDate": "2024-01-01", "endDate": "2024-01-31", "bytes": 130})
+            self.assertEqual({key: monthly[4][key] for key in ("startDate", "endDate", "bytes")}, {"startDate": "2024-02-01", "endDate": "2024-02-29", "bytes": 250})
+            self.assertTrue(monthly[3]["coverage"]["complete"])
             self.assertEqual(monthly[5]["bytes"], 0)
 
     def test_traffic_usage_between_does_not_cross_calendar_or_source_boundaries(self) -> None:
@@ -443,7 +444,7 @@ class BackendTests(unittest.TestCase):
             finally:
                 connection.close()
             storage = Storage(path)
-            self.assertEqual(storage.get_setting("traffic_ledger_schema", 0), 2)
+            self.assertEqual(storage.get_setting("traffic_ledger_schema", 0), 3)
             self.assertEqual(storage.traffic_usage_since(100)["usedBytes"], 90)
 
     def test_saved_traffic_baseline_keeps_its_original_cycle_on_restart(self) -> None:
@@ -683,8 +684,10 @@ class BackendTests(unittest.TestCase):
     def test_subscription_probe_requires_a_nonempty_public_https_response(self) -> None:
         headers = MagicMock()
         headers.get.return_value = "4"
-        with patch("castoriceui.security._public_https_get", return_value=(200, headers, b"data")) as fetch:
-            probe_subscription_url("https://subscriptions.example.test/path/token")
+        headers.get_content_type.return_value = "text/plain"
+        with patch("castoriceui.security._public_https_get", return_value=(200, headers, b"vless://identifier@example.test:443")) as fetch:
+            parsed = probe_subscription_url("https://subscriptions.example.test/path/token")
+            self.assertEqual(parsed["format"], "uri-list")
             self.assertNotIn("path/token", repr(fetch.call_args.args[1]))
             fetch.return_value = (200, headers, b"")
             with self.assertRaisesRegex(ValueError, "empty"):

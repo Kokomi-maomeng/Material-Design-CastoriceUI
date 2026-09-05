@@ -25,10 +25,10 @@ export function AlertsPage({
   const { language, t } = useI18n();
   const [filter, setFilter] = useState<"active" | "all">("active");
   const visible = useMemo(
-    () => alerts.filter((item) => filter === "all" || !item.acknowledged),
+    () => alerts.filter((item) => filter === "all" || (item.status !== "resolved" && !item.acknowledged)),
     [alerts, filter],
   );
-  const unacknowledged = alerts.filter((item) => !item.acknowledged).length;
+  const unacknowledged = alerts.filter((item) => item.status !== "resolved" && !item.acknowledged).length;
   return (
     <div className="page-content page-enter">
       <PageHeader
@@ -52,7 +52,7 @@ export function AlertsPage({
           <span className="alert-count alert-count--critical">
             {
               alerts.filter(
-                (item) => item.severity === "critical" && !item.acknowledged,
+                (item) => item.status !== "resolved" && item.severity === "critical" && !item.acknowledged,
               ).length
             }
           </span>
@@ -64,7 +64,7 @@ export function AlertsPage({
           <span className="alert-count alert-count--warning">
             {
               alerts.filter(
-                (item) => item.severity === "warning" && !item.acknowledged,
+                (item) => item.status !== "resolved" && item.severity === "warning" && !item.acknowledged,
               ).length
             }
           </span>
@@ -76,7 +76,7 @@ export function AlertsPage({
           <span className="alert-count alert-count--info">
             {
               alerts.filter(
-                (item) => item.severity === "info" && !item.acknowledged,
+                (item) => item.status !== "resolved" && item.severity === "info" && !item.acknowledged,
               ).length
             }
           </span>
@@ -105,7 +105,7 @@ export function AlertsPage({
             disabled={unacknowledged === 0}
             onClick={() =>
               alerts
-                .filter((item) => !item.acknowledged)
+                .filter((item) => item.status !== "resolved" && !item.acknowledged)
                 .forEach((item) => void onAcknowledge(item.id))
             }
           >
@@ -116,7 +116,7 @@ export function AlertsPage({
           {visible.map((alert) => (
             <div
               className={`alert-row alert-row--${alert.severity} ${alert.acknowledged ? "is-acknowledged" : ""}`}
-              key={alert.id}
+              key={alert.episodeId || alert.id}
             >
               <span className="alert-row__icon">
                 <Icon
@@ -158,7 +158,7 @@ export function AlertsPage({
                 </span>
               </div>
               <div className="alert-row__actions">
-                {!alert.acknowledged ? (
+                {alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : !alert.acknowledged ? (
                   <Button
                     variant="tonal"
                     compact

@@ -11,16 +11,19 @@ export type Protocol =
   | "Trojan"
   | "TUIC";
 
-export type AccountStatus = "active" | "disabled" | "expiring";
+export type AccountStatus = "registered" | "disabled" | "expiring" | "expired" | "unknown";
 
 export interface Account {
   id: string;
   name: string;
   email: string;
   status: AccountStatus;
+  configuredStatus: "active" | "disabled" | "unknown";
+  expiryStatus: "valid" | "expiring" | "expired" | "notConfigured" | "unknown";
+  coreEvidence: "observed" | "notObserved" | "unavailable" | "unknown";
   protocols: Protocol[];
   usedBytes: number;
-  usageSource: "durableLedger" | "protocolCounter" | "unmapped";
+  usageSource: "protocolCounter" | "unmapped";
   quotaBytes: number;
   expiresAt: string;
   onlineDevices: number;
@@ -63,7 +66,10 @@ export interface MonthlyTrafficUsage {
   startDate: string;
   endDate: string;
   bytes: number;
+  coverage?: TrafficCoverage;
 }
+
+export interface TrafficCoverage { complete: boolean; gapCount: number; resetCount: number; firstSampleAt: number | null; lastSampleAt: number | null; }
 
 export type TrafficRange = "1h" | "6h" | "24h" | "3day" | "7day";
 
@@ -73,10 +79,13 @@ export interface NetworkTarget {
   provider: string;
   address: string;
   ipVersion: 4 | 6;
-  latency: number;
-  jitter: number;
-  loss: number;
-  status: "healthy" | "degraded" | "down";
+  latency: number | null;
+  jitter: number | null;
+  loss: number | null;
+  status: "healthy" | "degraded" | "down" | "unavailable";
+  measurementStatus?: "measured" | "unavailable";
+  probeReason?: string;
+  observedAt?: string;
   history: number[];
   order?: number;
 }
@@ -95,6 +104,9 @@ export interface ServiceStatus {
   uptime?: string;
   uptimeSeconds?: number;
   icon: string;
+  certificateState?: "unconfigured" | "unreadable" | "valid" | "expiring" | "expired";
+  renewalEvidence?: string;
+  endpointEvidence?: string;
 }
 
 export type IntegrationId =
@@ -123,6 +135,7 @@ export interface IntegrationStatus {
   summaryZh?: string;
   summaryEn?: string;
   values?: Record<string, string>;
+  observedAt?: string;
 }
 
 export interface OverviewMetrics {
@@ -144,6 +157,7 @@ export interface OverviewMetrics {
   trafficCountMode: "sum" | "max";
   trafficQuotaUnit: "GB";
   trafficQuota?: TrafficQuotaSettings;
+  trafficCoverage?: TrafficCoverage;
   downloadBps: number;
   uploadBps: number;
   interface: string;
@@ -190,6 +204,7 @@ export interface DashboardPayload {
     monthly: MonthlyTrafficUsage[];
     protocol: TrafficBreakdown[];
     account: TrafficBreakdown[];
+    coverage?: TrafficCoverage;
   };
   subscriptions: Subscription[];
   networkTargets: NetworkTarget[];
@@ -241,6 +256,8 @@ export interface AlertItem {
   acknowledged: boolean;
   episodeId: string;
   startedAt: string;
+  resolvedAt?: string | null;
+  status?: "active" | "resolved";
   source: string;
   sourceZh?: string;
   sourceEn?: string;

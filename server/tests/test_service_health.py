@@ -132,7 +132,7 @@ class ProtocolHealthTests(unittest.TestCase):
     def test_probe_allowlist_excludes_secrets_and_matches_owned_sockets(self):
         data = {"inbounds": [{"type": "vless", "tag": "vless-in", "listen_port": 443, "password": "never-export", "users": [{"uuid": "never-export", "flow": "xtls-rprx-vision"}], "tls": {"enabled": True, "reality": {"enabled": True, "private_key": "never-export"}}}]}
         records = inbound_records([data], {("tcp", 443)})
-        self.assertEqual(records, [{"tag": "vless-in", "type": "vless", "listening": True, "securityProfile": "xtls-vision-reality"}])
+        self.assertEqual(records, [{"tag": "vless-in", "type": "vless", "listening": True, "transports": ["tcp"], "verificationSupported": True, "verificationReason": "verified", "securityProfile": "xtls-vision-reality"}])
         self.assertNotIn("never-export", json.dumps(records))
         self.assertFalse(inbound_records([data], {("udp", 443)})[0]["listening"])
 

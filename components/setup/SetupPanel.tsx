@@ -28,13 +28,15 @@ export function SetupPanel({
         <div className="setup-completed setup-completed--first">
           <h3>{t("已配置", "Configured")}</h3>
           {completed.map((item) => {
-            const isReady = statusMap.get(item.id)?.status === "ready";
+            const sourceStatus = statusMap.get(item.id);
+            const isReady = sourceStatus?.status === "ready";
+            const observed = sourceStatus?.observedAt && !Number.isNaN(Date.parse(sourceStatus.observedAt)) ? new Date(sourceStatus.observedAt).toLocaleString(language === "zh" ? "zh-CN" : "en") : "";
             return (
             <button key={item.id} onClick={() => onOpen(item.id)}>
               <Icon name={isReady ? "check_circle" : "error"} filled className={isReady ? "setup-status-icon--ready" : "setup-status-icon--error"} />
               <span>
                 <strong>{local(item.name)}</strong>
-                <small>{t(statusMap.get(item.id)?.summaryZh || statusMap.get(item.id)?.summary || "", statusMap.get(item.id)?.summaryEn || statusMap.get(item.id)?.summary || "")}</small>
+                <small>{t(sourceStatus?.summaryZh || sourceStatus?.summary || "", sourceStatus?.summaryEn || sourceStatus?.summary || "")}{observed ? t(` · 采集于 ${observed}`, ` · observed ${observed}`) : t(" · 尚无后台采集时间", " · no background observation yet")}</small>
               </span>
               <Chip staticChip tone={isReady ? "success" : "warning"}>
                 {isReady ? t("正常", "Ready") : t("需检查", "Check")}

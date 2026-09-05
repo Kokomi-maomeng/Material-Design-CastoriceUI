@@ -37,9 +37,10 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
     <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="尚未配置流量采集。" descriptionEn="Traffic collection is not configured." onConfigure={onConfigure} />
     <section className="traffic-kpis">
       <Kpi label={t("近 24 小时用量", "Last 24 hours")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0) * 1_000_000_000)} icon="today" />
-      <Kpi label={t("统一累计统计", "Unified cumulative total")} value={formatDecimalBytes(traffic.totalBytes)} icon="calendar_month" />
+      <Kpi label={t("主机网卡已测用量", "Measured host-interface usage")} value={formatDecimalBytes(traffic.totalBytes)} icon="calendar_month" />
       <Kpi label={t("协议数据源", "Protocol sources")} value={t(`${protocolTraffic.length} 个`, `${protocolTraffic.length}`)} icon="speed" />
     </section>
+    {traffic.coverage && !traffic.coverage.complete ? <div className="preview-mode-banner" role="status"><Icon name="info" size={20} /><div><strong>{t("统计覆盖不完整", "Measurement coverage is incomplete")}</strong><span>{t(`已计入可确认的重置后计数；存在 ${traffic.coverage.gapCount} 个采集间隙，未推算缺失流量。`, `Known post-reset counters are included; ${traffic.coverage.gapCount} collection gap(s) remain and missing traffic was not estimated.`)}</span></div></div> : null}
     <section className="content-grid content-grid--traffic-main">
       <Card variant="outlined" className="traffic-trend-panel">
         <CardHeader title={t("流量趋势", "Traffic trend")} action={<div className="segmented-control traffic-range-control">{(["1h", "6h", "24h", "3day", "7day"] as const).map((item) => <button key={item} className={range === item ? "is-selected" : ""} onClick={() => setRange(item)}>{item === "3day" ? t("3天", "3 days") : item === "7day" ? t("7天", "7 days") : item}</button>)}</div>} />
@@ -63,7 +64,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
             <div className="monthly-traffic-track" role="meter" aria-label={t(`${formatPeriod(item.startDate, item.endDate)} 流量`, `${formatPeriod(item.startDate, item.endDate)} traffic`)} aria-valuemin={0} aria-valuemax={monthlyMax} aria-valuenow={item.bytes}>
               <span style={{ width: `${width}%`, minWidth: item.bytes > 0 ? 3 : 0 }} />
             </div>
-            <strong>{formatMonthlyUsage(item.bytes)}</strong>
+            <strong>{formatMonthlyUsage(item.bytes)}{item.coverage && !item.coverage.complete ? ` ${t("（部分）", "(partial)")}` : ""}</strong>
           </div>;
         })}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { Component, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { TrafficPoint } from "../../lib/types";
 
@@ -8,11 +8,45 @@ const BASE_WIDTH = 680; const MIN_VIEW_WIDTH = 320; const HEIGHT = 270;
 interface Point { x: number; y: number }
 function smoothPath(points: Point[]): string { if (!points.length) return ""; if (points.length === 1) return `M ${points[0].x},${points[0].y}`; return points.slice(1).reduce((path, current, index) => { const previous = points[index]; const mid = (previous.x + current.x) / 2; return `${path} C ${mid},${previous.y} ${mid},${current.y} ${current.x},${current.y}`; }, `M ${points[0].x},${points[0].y}`); }
 
+interface TrafficChartBoundaryState { failed: boolean }
+
+class TrafficChartBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, TrafficChartBoundaryState> {
+  state: TrafficChartBoundaryState = { failed: false };
+
+  static getDerivedStateFromError(): TrafficChartBoundaryState {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+function sampleKeys(data: TrafficPoint[]): string[] {
+  const occurrences = new Map<string, number>();
+  return data.map((item) => {
+    const identity = item.capturedAt || item.label;
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return `${identity}\u0000${occurrence}`;
+  });
+}
+
 export function TrafficChart({ data }: { data: TrafficPoint[] }) {
+  const { t } = useI18n();
+  const resetKey = `${data.length}:${data[0]?.capturedAt ?? data[0]?.label ?? "empty"}:${data.at(-1)?.capturedAt ?? data.at(-1)?.label ?? "empty"}`;
+  return <TrafficChartBoundary key={resetKey} fallback={<div className="chart-empty" role="alert">{t("流量图暂时无法显示；其他页面仍可使用", "The traffic chart is temporarily unavailable; other pages remain usable")}</div>}>
+    <TrafficChartPlot data={data} />
+  </TrafficChartBoundary>;
+}
+
+function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
   const { language, t } = useI18n();
-  const [active, setActive] = useState<number | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [viewWidth, setViewWidth] = useState(BASE_WIDTH);
   const svgRef = useRef<SVGSVGElement>(null);
+  const keys = sampleKeys(data);
+  const active = activeKey === null ? -1 : keys.indexOf(activeKey);
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -40,9 +74,22 @@ export function TrafficChart({ data }: { data: TrafficPoint[] }) {
     if (!matrix) return;
     const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     const ratio = (cursor.x - plot.x) / plot.width;
-    setActive(Math.max(0, Math.min(data.length - 1, Math.round(ratio * (data.length - 1)))));
+    const index = Math.max(0, Math.min(data.length - 1, Math.round(ratio * (data.length - 1))));
+    setActiveKey(keys[index] ?? null);
   };
-  const selected = active === null ? null : data[active]; const selectedX = active === null ? 0 : downloadPoints[active].x; const tooltipX = Math.min(viewWidth - 170, Math.max(54, selectedX - 74));
+  const moveSelection = (event: KeyboardEvent<SVGSVGElement>) => {
+    let next = active >= 0 ? active : data.length - 1;
+    if (event.key === "ArrowLeft") next = Math.max(0, next - 1);
+    else if (event.key === "ArrowRight") next = Math.min(data.length - 1, next + 1);
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = data.length - 1;
+    else return;
+    event.preventDefault();
+    setActiveKey(keys[next] ?? null);
+  };
+  const selected = active >= 0 ? data[active] : null;
+  const selectedX = active >= 0 ? downloadPoints[active]?.x ?? 0 : 0;
+  const tooltipX = Math.min(viewWidth - 170, Math.max(54, selectedX - 74));
   const timestamps = data.map((item) => item.capturedAt ? Date.parse(item.capturedAt) : Number.NaN).filter(Number.isFinite);
   const longRange = timestamps.length > 1 && timestamps[timestamps.length - 1] - timestamps[0] > 36 * 60 * 60 * 1000;
   const displayLabel = (item: TrafficPoint) => {
@@ -54,7 +101,7 @@ export function TrafficChart({ data }: { data: TrafficPoint[] }) {
   const labelStep = Math.max(1, Math.ceil(data.length / 7));
   const showAxisLabel = (index: number) => index === 0 || index === data.length - 1 || index % labelStep === 0;
 
-  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标查看数值", "Upload and download traffic trend; move the pointer to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive((value) => value ?? data.length - 1)} onBlur={() => setActive(null)}>
+  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend; use the pointer or arrow keys to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActiveKey(null)} onFocus={() => setActiveKey((value) => value && keys.includes(value) ? value : keys.at(-1) ?? null)} onBlur={() => setActiveKey(null)} onKeyDown={moveSelection}>
     <defs><linearGradient id="nativeDownloadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-primary)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--chart-primary)" stopOpacity=".02" /></linearGradient><linearGradient id="nativeUploadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-secondary)" stopOpacity=".22" /><stop offset="100%" stopColor="var(--chart-secondary)" stopOpacity=".01" /></linearGradient></defs>
     {[0, .25, .5, .75, 1].map((ratio) => { const y = plot.y + plot.height - ratio * plot.height; return <g key={ratio}><line className="chart-grid-line" x1={plot.x} x2={plot.x + plot.width} y1={y} y2={y} /><text className="chart-axis-label" x={plot.x - 8} y={y + 4} textAnchor="end">{Math.round(max * ratio)} GB</text></g>; })}
     {data.map((item, index) => showAxisLabel(index) ? <text className="chart-axis-label" key={`${item.label}-${index}`} x={point(0, index).x} y={HEIGHT - 8} textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}>{displayLabel(item)}</text> : null)}

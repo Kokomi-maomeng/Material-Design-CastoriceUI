@@ -77,6 +77,14 @@ class Storage:
                     started_at TEXT NOT NULL,
                     acknowledged_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS alert_history (
+                    episode_id TEXT PRIMARY KEY,
+                    alert_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    acknowledged_at TEXT
+                );
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -101,7 +109,8 @@ class Storage:
                     captured_at INTEGER PRIMARY KEY,
                     previous_at INTEGER,
                     received_bytes INTEGER NOT NULL,
-                    transmitted_bytes INTEGER NOT NULL
+                    transmitted_bytes INTEGER NOT NULL,
+                    coverage_state TEXT NOT NULL DEFAULT 'source_start'
                 );
                 CREATE TABLE IF NOT EXISTS traffic_hourly (
                     bucket_start INTEGER PRIMARY KEY,
@@ -119,17 +128,20 @@ class Storage:
                 connection.execute("ALTER TABLE samples ADD COLUMN interface TEXT NOT NULL DEFAULT ''")
             if "boot_id" not in sample_columns:
                 connection.execute("ALTER TABLE samples ADD COLUMN boot_id TEXT NOT NULL DEFAULT ''")
+            delta_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(traffic_deltas)")}
+            if "coverage_state" not in delta_columns:
+                connection.execute("ALTER TABLE traffic_deltas ADD COLUMN coverage_state TEXT NOT NULL DEFAULT 'source_start'")
             self._initialize_traffic_ledger(connection)
 
     @staticmethod
     def _initialize_traffic_ledger(connection: sqlite3.Connection) -> None:
         migrated = connection.execute("SELECT value FROM settings WHERE key='traffic_ledger_schema'").fetchone()
-        if migrated is None:
+        if migrated is None or str(migrated[0]) != "3":
             connection.execute("DELETE FROM traffic_deltas")
             connection.execute("DELETE FROM traffic_hourly")
             connection.execute(
                 """
-                INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes)
+                INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes,coverage_state)
                 WITH ordered AS (
                     SELECT
                         captured_at,
@@ -143,8 +155,11 @@ class Storage:
                 SELECT
                     captured_at,
                     previous_at,
-                    CASE WHEN previous_rx IS NOT NULL AND rx_bytes >= previous_rx THEN rx_bytes - previous_rx ELSE 0 END,
-                    CASE WHEN previous_tx IS NOT NULL AND tx_bytes >= previous_tx THEN tx_bytes - previous_tx ELSE 0 END
+                    CASE WHEN previous_rx IS NULL THEN 0 WHEN rx_bytes >= previous_rx THEN rx_bytes - previous_rx ELSE rx_bytes END,
+                    CASE WHEN previous_tx IS NULL THEN 0 WHEN tx_bytes >= previous_tx THEN tx_bytes - previous_tx ELSE tx_bytes END,
+                    CASE WHEN previous_rx IS NULL THEN 'source_start'
+                         WHEN rx_bytes < previous_rx OR tx_bytes < previous_tx THEN 'counter_reset'
+                         ELSE 'continuous' END
                 FROM ordered
                 """
             )
@@ -161,7 +176,8 @@ class Storage:
                 (TRAFFIC_BUCKET_SECONDS, TRAFFIC_BUCKET_SECONDS, TRAFFIC_BUCKET_SECONDS),
             )
             connection.execute(
-                "INSERT INTO settings(key,value,updated_at) VALUES('traffic_ledger_schema','2',?)",
+                "INSERT INTO settings(key,value,updated_at) VALUES('traffic_ledger_schema','3',?) "
+                "ON CONFLICT(key) DO UPDATE SET value='3',updated_at=excluded.updated_at",
                 (utc_now(),),
             )
         newest = connection.execute("SELECT MAX(captured_at) FROM samples").fetchone()[0]
@@ -199,20 +215,24 @@ class Storage:
             (sample["interface"], sample["boot_id"], captured_at),
         ).fetchone()
         received = transmitted = 0
+        coverage_state = "source_start"
         previous_at: int | None = None
         if previous is not None:
             previous_at = int(previous["captured_at"])
-            received = max(0, int(sample["rx_bytes"]) - int(previous["rx_bytes"]))
-            transmitted = max(0, int(sample["tx_bytes"]) - int(previous["tx_bytes"]))
+            reset = int(sample["rx_bytes"]) < int(previous["rx_bytes"]) or int(sample["tx_bytes"]) < int(previous["tx_bytes"])
+            received = int(sample["rx_bytes"]) if reset else int(sample["rx_bytes"]) - int(previous["rx_bytes"])
+            transmitted = int(sample["tx_bytes"]) if reset else int(sample["tx_bytes"]) - int(previous["tx_bytes"])
+            coverage_state = "counter_reset" if reset else "continuous"
         connection.execute(
             """
-            INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes) VALUES(?,?,?,?)
+            INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes,coverage_state) VALUES(?,?,?,?,?)
             ON CONFLICT(captured_at) DO UPDATE SET
                 previous_at=excluded.previous_at,
                 received_bytes=excluded.received_bytes,
-                transmitted_bytes=excluded.transmitted_bytes
+                transmitted_bytes=excluded.transmitted_bytes,
+                coverage_state=excluded.coverage_state
             """,
-            (captured_at, previous_at, received, transmitted),
+            (captured_at, previous_at, received, transmitted, coverage_state),
         )
         return buckets
 
@@ -291,9 +311,10 @@ class Storage:
             "transmittedBytes": transmitted,
             "baselineBytes": baseline,
             "countMode": count_mode,
+            "coverage": usage["coverage"],
         }
 
-    def traffic_usage_between(self, start_timestamp: int, end_timestamp: int, count_mode: str = "sum") -> dict[str, int | str]:
+    def traffic_usage_between(self, start_timestamp: int, end_timestamp: int, count_mode: str = "sum") -> dict[str, Any]:
         """Return traffic from bounded SQL aggregates without loading sample history."""
         if end_timestamp <= start_timestamp:
             raise ValueError("Traffic range end must be after its start")
@@ -332,6 +353,16 @@ class Storage:
                 """,
                 (first_full_bucket, final_full_bucket, int(start_timestamp)),
             ).fetchone()
+            coverage_row = connection.execute(
+                """
+                SELECT COUNT(*) AS samples,
+                       SUM(CASE WHEN coverage_state='counter_reset' THEN 1 ELSE 0 END) AS resets,
+                       SUM(CASE WHEN coverage_state='source_start' AND captured_at>? THEN 1 ELSE 0 END) AS gaps,
+                       MIN(captured_at) AS first_at, MAX(captured_at) AS last_at
+                FROM traffic_deltas WHERE captured_at>=? AND captured_at<?
+                """,
+                (int(start_timestamp), int(start_timestamp), int(end_timestamp)),
+            ).fetchone()
         received = int(boundary["received"]) + int(hourly[0]) + int(tail[0]) - int(crossing[0])
         transmitted = int(boundary["transmitted"]) + int(hourly[1]) + int(tail[1]) - int(crossing[1])
         used = max(received, transmitted) if count_mode == "max" else received + transmitted
@@ -340,6 +371,13 @@ class Storage:
             "receivedBytes": received,
             "transmittedBytes": transmitted,
             "countMode": count_mode,
+            "coverage": {
+                "complete": int(coverage_row["resets"] or 0) == 0 and int(coverage_row["gaps"] or 0) == 0,
+                "gapCount": int(coverage_row["gaps"] or 0) + int(coverage_row["resets"] or 0),
+                "resetCount": int(coverage_row["resets"] or 0),
+                "firstSampleAt": int(coverage_row["first_at"]) if coverage_row["first_at"] is not None else None,
+                "lastSampleAt": int(coverage_row["last_at"]) if coverage_row["last_at"] is not None else None,
+            },
         }
 
     def get_setting(self, key: str, default: Any) -> Any:
@@ -398,9 +436,17 @@ class Storage:
             "totalPages": total_pages,
         }
 
-    def reconcile_alerts(self, alert_ids: list[str]) -> dict[str, dict[str, Any]]:
+    def reconcile_alerts(self, alerts: list[str] | list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Track alert episodes so a recovered condition can notify again later."""
-        current_ids = list(dict.fromkeys(str(value)[:160] for value in alert_ids if value))
+        payloads = {
+            str(value.get("id", ""))[:160]: dict(value)
+            for value in alerts
+            if isinstance(value, dict) and value.get("id")
+        }
+        current_ids = list(dict.fromkeys(
+            str(value.get("id") if isinstance(value, dict) else value)[:160]
+            for value in alerts if value
+        ))
         now = utc_now()
         with self.lock, self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -412,20 +458,53 @@ class Storage:
                 )
             else:
                 connection.execute("UPDATE alert_state SET active=0 WHERE active=1")
+            connection.execute(
+                """UPDATE alert_history SET resolved_at=? WHERE resolved_at IS NULL AND episode_id IN
+                   (SELECT episode_id FROM alert_state WHERE active=0)""",
+                (now,),
+            )
             for alert_id in current_ids:
                 row = connection.execute(
                     "SELECT active FROM alert_state WHERE alert_id=?", (alert_id,)
                 ).fetchone()
                 if row is None:
+                    episode_id = secrets.token_urlsafe(18)
                     connection.execute(
                         "INSERT INTO alert_state(alert_id,episode_id,active,started_at,acknowledged_at) VALUES(?,?,?,?,NULL)",
-                        (alert_id, secrets.token_urlsafe(18), 1, now),
+                        (alert_id, episode_id, 1, now),
+                    )
+                    connection.execute(
+                        "INSERT INTO alert_history VALUES(?,?,?,?,NULL,NULL)",
+                        (episode_id, alert_id, json.dumps(payloads.get(alert_id, {"id": alert_id}), ensure_ascii=False), now),
                     )
                 elif not bool(row["active"]):
+                    episode_id = secrets.token_urlsafe(18)
                     connection.execute(
                         "UPDATE alert_state SET episode_id=?,active=1,started_at=?,acknowledged_at=NULL WHERE alert_id=?",
-                        (secrets.token_urlsafe(18), now, alert_id),
+                        (episode_id, now, alert_id),
                     )
+                    connection.execute(
+                        "INSERT INTO alert_history VALUES(?,?,?,?,NULL,NULL)",
+                        (episode_id, alert_id, json.dumps(payloads.get(alert_id, {"id": alert_id}), ensure_ascii=False), now),
+                    )
+                else:
+                    # Databases created before alert_history existed can already
+                    # contain an active alert_state row. Backfill that episode so
+                    # recovery is not silently omitted from the durable history.
+                    state = connection.execute(
+                        "SELECT episode_id,started_at,acknowledged_at FROM alert_state WHERE alert_id=?",
+                        (alert_id,),
+                    ).fetchone()
+                    payload_json = json.dumps(payloads.get(alert_id, {"id": alert_id}), ensure_ascii=False)
+                    connection.execute(
+                        "INSERT OR IGNORE INTO alert_history VALUES(?,?,?,?,NULL,?)",
+                        (state["episode_id"], alert_id, payload_json, state["started_at"], state["acknowledged_at"]),
+                    )
+                    if alert_id in payloads:
+                        connection.execute(
+                            "UPDATE alert_history SET payload_json=? WHERE episode_id=?",
+                            (payload_json, state["episode_id"]),
+                        )
             rows = connection.execute(
                 "SELECT alert_id,episode_id,started_at,acknowledged_at FROM alert_state WHERE active=1"
             ).fetchall()
@@ -444,7 +523,29 @@ class Storage:
                 "UPDATE alert_state SET acknowledged_at=? WHERE alert_id=? AND active=1",
                 (utc_now(), alert_id),
             )
+            if cursor.rowcount == 1:
+                connection.execute(
+                    "UPDATE alert_history SET acknowledged_at=? WHERE episode_id=(SELECT episode_id FROM alert_state WHERE alert_id=?)",
+                    (utc_now(), alert_id),
+                )
         return cursor.rowcount == 1
+
+    def alert_history(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM alert_history ORDER BY started_at DESC LIMIT ?", (max(1, min(int(limit), 1000)),)
+            ).fetchall()
+        result = []
+        for row in rows:
+            payload = json.loads(str(row["payload_json"]))
+            payload.update({
+                "alertId": str(row["alert_id"]), "episodeId": str(row["episode_id"]),
+                "startedAt": str(row["started_at"]), "resolvedAt": row["resolved_at"],
+                "acknowledged": row["acknowledged_at"] is not None,
+                "status": "resolved" if row["resolved_at"] else "active",
+            })
+            result.append(payload)
+        return result
 
     def has_users(self) -> bool:
         with self.connect() as connection:

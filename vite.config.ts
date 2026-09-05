@@ -4,9 +4,10 @@ import react from "@vitejs/plugin-react";
 
 const apiTarget = process.env.CASTORICEUI_DEV_API_TARGET || "http://127.0.0.1:18080";
 const parsedTarget = new URL(apiTarget);
+const targetHostname = parsedTarget.hostname.replace(/^\[|\]$/g, "");
 if (
   parsedTarget.protocol !== "http:" ||
-  !["127.0.0.1", "::1", "localhost"].includes(parsedTarget.hostname) ||
+  !["127.0.0.1", "::1", "localhost"].includes(targetHostname) ||
   parsedTarget.username ||
   parsedTarget.password ||
   parsedTarget.pathname !== "/" ||

@@ -187,6 +187,7 @@ class SystemCollector:
             "trafficBaselineBytes": traffic_usage["baselineBytes"],
             "trafficCountMode": traffic_usage["countMode"],
             "trafficQuotaUnit": "GB",
+            "trafficCoverage": traffic_usage["coverage"],
             "trafficQuota": {
                 "bytes": limit,
                 **quota_schedule,
@@ -204,16 +205,24 @@ class SystemCollector:
         }
 
 
-def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float = 2, strict: bool = False) -> Any:
+def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float = 2, strict: bool = False, max_bytes: int = 1_048_576) -> Any:
     headers = {"Accept": "application/json"}
     if secret:
         headers["Authorization"] = f"Bearer {secret}" if bearer else secret
     request = urllib.request.Request(url, headers=headers)
     try:
-        opener = urllib.request.build_opener(_NoRedirect) if strict else urllib.request.build_opener()
+        # Management credentials must never cross a redirect boundary. Runtime
+        # collection and setup validation deliberately use the same policy.
+        opener = urllib.request.build_opener(_NoRedirect)
         with opener.open(request, timeout=timeout) as response:
-            return json.load(response)
-    except (OSError, ValueError, urllib.error.URLError) as error:
+            declared = response.headers.get("Content-Length")
+            if declared and int(declared) > max_bytes:
+                raise ValueError("Integration response exceeds the size limit")
+            body = response.read(max_bytes + 1)
+            if len(body) > max_bytes:
+                raise ValueError("Integration response exceeds the size limit")
+            return json.loads(body)
+    except (OSError, ValueError, TypeError, urllib.error.URLError) as error:
         if strict:
             raise ValueError("Integration endpoint validation failed") from error
         return None
@@ -223,7 +232,7 @@ def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
     api = config.hysteria_api
     base = str(api.get("url", "")).rstrip("/")
     if not base:
-        return {"available": False, "traffic": {}, "online": {}, "streams": []}
+        return {"available": False, "traffic": {}, "online": {}, "streams": [], "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     secret = str(api.get("secret", ""))
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="hysteria-api") as pool:
         traffic_future = pool.submit(http_json, base + "/traffic", secret)
@@ -246,6 +255,7 @@ def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
         "online": online,
         "streams": stream_data.get("streams", []) if isinstance(stream_data.get("streams", []), list) else [],
         "endpointStatus": endpoint_status,
+        "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
 
@@ -253,14 +263,14 @@ def singbox_snapshot(config: AppConfig) -> dict[str, Any]:
     api = config.singbox_api
     base = str(api.get("url", "")).rstrip("/")
     if not base:
-        return {"available": False, "traffic": {}, "connections": [], "inventory": read_protocol_inventory()}
+        return {"available": False, "traffic": {}, "connections": [], "inventory": read_protocol_inventory(config), "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     secret = str(api.get("secret", ""))
     payload_raw = http_json(base + "/connections", secret, bearer=True)
     payload = payload_raw if isinstance(payload_raw, dict) else {}
     valid = valid_singbox_payload(payload_raw)
     traffic = {"up": int(payload.get("uploadTotal", 0)), "down": int(payload.get("downloadTotal", 0))} if valid else {}
     connections = payload.get("connections", [])
-    return {"available": valid, "traffic": traffic, "connections": connections if valid else [], "inventory": read_protocol_inventory()}
+    return {"available": valid, "traffic": traffic, "connections": connections if valid else [], "inventory": read_protocol_inventory(config), "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
 PROTOCOLS = {
@@ -280,13 +290,13 @@ def valid_singbox_payload(payload: Any) -> bool:
             and all(type(payload.get(key)) in {int, float} and 0 <= payload[key] < 1e30 for key in ("uploadTotal", "downloadTotal")))
 
 
-def read_protocol_inventory() -> dict[str, Any]:
+def read_protocol_inventory(config: AppConfig | None = None) -> dict[str, Any]:
     try:
-        path = Path("/run/castoriceui/protocol-status.json")
+        path = Path(config.protocol_status_path if config else "/run/castoriceui/protocol-status.json")
         if path.stat().st_size > 1_000_000:
             return {}
         data = json.loads(path.read_text(encoding="utf-8"))
-        pid = run(["systemctl", "show", "sing-box", "-p", "MainPID", "--value"])
+        pid = run(["systemctl", "show", config.singbox_unit if config else "sing-box", "-p", "MainPID", "--value"])
         if (data.get("schema") != 1 or not 0 <= time.time() - float(data["sampledAt"]) <= 90
                 or not pid.isdigit() or int(pid) <= 0 or data.get("pid") != int(pid)
                 or not isinstance(data.get("inbounds"), list)):
@@ -298,8 +308,9 @@ def read_protocol_inventory() -> dict[str, Any]:
 
 def protocol_requested(config: AppConfig, protocol: str) -> bool:
     state = config.integrations.get(protocol, {})
+    tags = config.protocol_adapters.get(protocol, {}).get("inboundTags", [])
     return bool(state.get("enabled") or state.get("configured") or state.get("attempted")
-                or (str(config.hysteria_api.get("url", "")).strip() if protocol == "hysteria2" else protocol in config.protocol_adapters))
+                or (str(config.hysteria_api.get("url", "")).strip() if protocol == "hysteria2" else tags))
 
 
 def protocol_readiness(config: AppConfig, protocol: str, sb: dict[str, Any]) -> tuple[bool, str, str]:
@@ -325,6 +336,8 @@ def protocol_readiness(config: AppConfig, protocol: str, sb: dict[str, Any]) -> 
             return False, "Inbound tag is assigned to multiple protocols", "入站标签被重复分配给多个协议"
         if protocol == "vless" and matches[0].get("securityProfile") != profile:
             return False, "VLESS security profile does not match the loaded inbound", "VLESS 安全组合与已加载入站不一致"
+        if matches[0].get("verificationSupported") is False:
+            return False, "Listener transport is unsupported by the local verifier", "本地验证器不支持该监听传输方式"
         if not matches[0].get("listening"):
             return False, "Protocol listener is unavailable", "协议监听不可用"
     return True, "Core active · inbound and statistics API verified", "核心正常 · 入站监听及统计 API 验证通过"
@@ -340,26 +353,44 @@ def service_state(unit: str) -> tuple[str, int]:
     return active, uptime
 
 
-def certificate_info(path: str) -> dict[str, Any]:
-    if not path or not Path(path).exists():
-        return {"status": "stopped", "detail": "Certificate path is not configured", "days": 0}
+def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: int = 443) -> dict[str, Any]:
+    if not path:
+        return {"status": "warning", "state": "unconfigured", "detail": "Certificate path is not configured", "days": None, "renewalEvidence": "unconfigured"}
+    if not Path(path).exists():
+        return {"status": "warning", "state": "unreadable", "detail": "Configured certificate file does not exist", "days": None, "renewalEvidence": "unknown"}
     try:
         decoded = ssl._ssl._test_decode_cert(path)  # type: ignore[attr-defined]
         expires = datetime.strptime(decoded["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
-        days = max(0, int((expires - datetime.now(timezone.utc)).total_seconds() / 86400))
-        return {"status": "running" if days > 21 else "warning", "detail": f"{days} days remaining · automatic renewal", "days": days}
+        seconds = (expires - datetime.now(timezone.utc)).total_seconds()
+        days = int(seconds / 86400)
+        state = "expired" if seconds <= 0 else "expiring" if days <= 21 else "valid"
+        renewal = service_state(renewal_unit)[0] if renewal_unit else "unconfigured"
+        endpoint_evidence = "unconfigured"
+        if host:
+            try:
+                expected = ssl.PEM_cert_to_DER_cert(Path(path).read_text(encoding="ascii"))
+                context = ssl.create_default_context()
+                with socket.create_connection((host, port), timeout=3) as raw_socket:
+                    with context.wrap_socket(raw_socket, server_hostname=host) as tls_socket:
+                        endpoint_evidence = "verified" if tls_socket.getpeercert(binary_form=True) == expected else "different-certificate"
+            except (OSError, ssl.SSLError, ValueError):
+                endpoint_evidence = "unavailable"
+        evidence_ok = endpoint_evidence in {"verified", "unconfigured"} and renewal in {"active", "unconfigured"}
+        return {"status": "running" if state == "valid" and evidence_ok else "warning", "state": state,
+                "detail": "Certificate is expired" if state == "expired" else f"{days} days remaining",
+                "days": days, "renewalEvidence": renewal, "endpointEvidence": endpoint_evidence}
     except (OSError, ValueError, KeyError):
-        return {"status": "warning", "detail": "Unable to read certificate", "days": 0}
+        return {"status": "warning", "state": "unreadable", "detail": "Unable to read certificate", "days": None, "renewalEvidence": "unknown"}
 
 
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
     definitions = []
     if protocol_requested(config, "hysteria2"):
-        definitions.append(("hysteria2", "Hysteria2", "hysteria-server", "bolt", ["/usr/local/bin/hysteria", "version"], hy2))
+        definitions.append(("hysteria2", "Hysteria2", config.hysteria_unit, "bolt", [config.hysteria_binary, "version"], hy2))
     singbox_configured = bool(str(config.singbox_api.get("url", "")).strip() or any(protocol_requested(config, key) for key in PROTOCOLS))
     if singbox_configured:
-        definitions.append(("singbox", "sing-box", "sing-box", "encrypted", ["/usr/bin/sing-box", "version"], sb))
-    definitions.append(("nginx", "Nginx", "nginx", "language", ["nginx", "-v"], None))
+        definitions.append(("singbox", "sing-box", config.singbox_unit, "encrypted", [config.singbox_binary, "version"], sb))
+    definitions.append(("nginx", "Nginx", config.nginx_unit, "language", ["nginx", "-v"], None))
     services: list[dict[str, Any]] = []
     def inspect(definition: tuple[str, str, str, str, list[str], dict[str, Any] | None]) -> tuple[tuple[str, str, str, str, list[str], dict[str, Any] | None], str, int, str]:
         active, uptime = service_state(definition[2])
@@ -397,11 +428,12 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
                 if ready:
                     protocol_record["uptimeSeconds"] = uptime
                 services.append(protocol_record)
-    cert = certificate_info(config.certificate_path)
-    certificate_zh = "未配置证书路径" if not config.certificate_path else f"证书剩余 {cert['days']} 天" if cert.get("days") else "无法读取证书"
+    cert = certificate_info(config.certificate_path, config.certificate_renewal_unit, config.certificate_host, config.certificate_port)
+    certificate_state = str(cert.get("state", "unreadable"))
+    certificate_zh = "未配置证书路径" if certificate_state == "unconfigured" else "证书已过期" if certificate_state == "expired" else f"证书剩余 {cert['days']} 天" if cert.get("days") is not None else "无法读取证书"
     services.extend([
         {"id": "kernel", "name": "Linux kernel", "nameZh": "Linux 内核", "nameEn": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "detailZh": f"{system['cpuCores']} 核 CPU · 负载 {system['load'][0]}", "detailEn": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
-        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "version": "TLS", "icon": "verified_user"},
+        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "certificateState": certificate_state, "renewalEvidence": cert.get("renewalEvidence", "unknown"), "endpointEvidence": cert.get("endpointEvidence", "unknown"), "version": "TLS", "icon": "verified_user"},
     ])
     return services
 
@@ -467,14 +499,33 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
     address = str(target.get("address", ""))
     version = int(target.get("ipVersion", 4))
     command = ["ping", "-6" if version == 6 else "-4", "-c", "8", "-i", "0.2", "-W", "1", address]
-    output = run(command, timeout=4)
+    base = {"id": str(target.get("id", address)), "name": str(target.get("name", address)),
+            "provider": str(target.get("provider", "Custom")), "address": address,
+            "ipVersion": version, "order": int(target.get("order", 0)), "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    if not shutil.which("ping"):
+        return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
+                "measurementStatus": "unavailable", "probeReason": "probeUnavailable", "history": []}
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=4, check=False)
+        output = "\n".join(value for value in (completed.stdout, completed.stderr) if value)
+    except subprocess.TimeoutExpired:
+        return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
+                "measurementStatus": "unavailable", "probeReason": "timeout", "history": []}
+    except OSError:
+        return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
+                "measurementStatus": "unavailable", "probeReason": "probeFailed", "history": []}
     values = [float(value) for value in re.findall(r"time[=<]([0-9.]+)\s*ms", output)]
     loss_match = re.search(r"([0-9.]+)% packet loss", output)
-    loss = float(loss_match.group(1)) if loss_match else 100.0
-    latency = round(statistics.mean(values), 1) if values else 0.0
-    jitter = round(statistics.pstdev(values), 1) if len(values) > 1 else 0.0
-    status = "down" if not values else "degraded" if loss >= 5 or latency >= 150 else "healthy"
-    return {"id": str(target.get("id", address)), "name": str(target.get("name", address)), "provider": str(target.get("provider", "Custom")), "address": address, "ipVersion": version, "order": int(target.get("order", 0)), "latency": latency, "jitter": jitter, "loss": loss, "status": status, "history": values}
+    loss = float(loss_match.group(1)) if loss_match else None
+    if not values:
+        reason = "noReply" if loss is not None else "dnsFailure" if "unknown host" in output.casefold() or "name or service" in output.casefold() else "probeFailed"
+        return {**base, "latency": None, "jitter": None, "loss": loss, "status": "down" if loss is not None else "unavailable",
+                "measurementStatus": "measured" if loss is not None else "unavailable", "probeReason": reason, "history": []}
+    latency = round(statistics.mean(values), 1)
+    jitter = round(statistics.pstdev(values), 1) if len(values) > 1 else None
+    status = "degraded" if (loss or 0) >= 5 or latency >= 150 else "healthy"
+    return {**base, "latency": latency, "jitter": jitter, "loss": loss, "status": status,
+            "measurementStatus": "measured", "probeReason": "measured", "history": values}
 
 
 def network_snapshots(config: AppConfig) -> list[dict[str, Any]]:

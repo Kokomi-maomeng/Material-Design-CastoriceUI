@@ -42,13 +42,21 @@ def main() -> None:
     def sample_traffic() -> None:
         while not sampler_stop.is_set():
             try:
-                with dashboard.snapshot_lock:
-                    dashboard.system_collector.snapshot()
+                dashboard.collect_system_snapshot()
             except Exception as error:  # keep collection alive; systemd captures the diagnostic
                 print(f"Traffic sampler failed: {error}")
             sampler_stop.wait(60)
 
     threading.Thread(target=sample_traffic, name="traffic-sampler", daemon=True).start()
+    def monitor_runtime() -> None:
+        while not sampler_stop.is_set():
+            try:
+                dashboard.refresh_monitoring()
+            except Exception as error:  # cached HTTP responses remain available during an upstream fault
+                print(f"Runtime monitor failed: {error}")
+            sampler_stop.wait(15)
+
+    threading.Thread(target=monitor_runtime, name="runtime-monitor", daemon=True).start()
     print(f"CastoriceUI backend listening on {config.listen_host}:{config.listen_port}")
     try:
         server.serve_forever(poll_interval=0.5)

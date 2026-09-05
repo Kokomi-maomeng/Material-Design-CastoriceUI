@@ -24,7 +24,7 @@ from .collectors import (
     service_snapshots,
     singbox_snapshot,
 )
-from .config import AppConfig
+from .config import AppConfig, DEFAULT_INTEGRATIONS
 from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
@@ -43,6 +43,11 @@ def ordered_visible_panels(value: Any) -> list[str]:
 class DashboardService:
     def __init__(self, config: AppConfig, storage: Storage) -> None:
         self.config = config
+        merged_integrations = {key: dict(value) for key, value in DEFAULT_INTEGRATIONS.items()}
+        for key, value in config.integrations.items():
+            if key in merged_integrations and isinstance(value, dict):
+                merged_integrations[key].update(value)
+        config.integrations = merged_integrations
         self.storage = storage
         self.system_collector = SystemCollector(config, storage)
         self.lock = threading.RLock()
@@ -52,9 +57,17 @@ class DashboardService:
         self.subscription_probe_cache: tuple[str, float, dict[str, Any]] | None = None
         self.monthly_traffic_cache: tuple[int, str, str, list[dict[str, Any]]] | None = None
         self.connection_baseline: dict[str, tuple[float, int, int]] = {}
+        self.system_cache: dict[str, Any] | None = None
+        self.runtime_cache: dict[str, Any] = {
+            "hy2": {"available": False, "traffic": {}, "online": {}, "streams": []},
+            "singbox": {"available": False, "traffic": {}, "connections": [], "inventory": {}},
+            "network": [], "subscription": {"configured": False, "ready": False, "count": 0},
+            "services": [], "integrations": [], "alerts": [], "observedAt": None,
+        }
         saved_targets = storage.get_setting("network_targets", None)
-        if isinstance(saved_targets, list):
-            config.network_targets = saved_targets
+        has_saved_targets = isinstance(saved_targets, list) and bool(saved_targets)
+        if has_saved_targets:
+            config.network_targets = self._normalize_network_targets(saved_targets)
         overrides = storage.get_setting("integration_overrides", {})
         overrides = self._migrate_traffic_quota(overrides)
         sanitized_legacy_secrets = False
@@ -78,8 +91,10 @@ class DashboardService:
                             overrides[integration_id] = value
                             sanitized_legacy_secrets = True
                     config.integrations[integration_id].update(value)
-                    if isinstance(values, dict):
+                    if isinstance(values, dict) and not (integration_id == "network" and has_saved_targets):
                         self._apply_integration_values(integration_id, {key: str(item) for key, item in values.items()})
+                        if integration_id == "network" and self.config.network_targets:
+                            storage.set_setting("network_targets", self.config.network_targets)
         if sanitized_legacy_secrets:
             storage.set_setting("integration_overrides", overrides)
             storage.add_audit("清理旧版接入密钥", "配置", "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret")
@@ -287,10 +302,10 @@ class DashboardService:
                     continue
                 name, address = self._network_target_parts(line)
                 address, version = validate_probe_target(address)
-                targets.append({"id": f"custom-{index + 1}", "name": name or address, "provider": "Custom", "address": address, "ipVersion": version})
+                targets.append({"id": f"custom-{index + 1}", "name": name or address, "provider": "Custom", "address": address, "ipVersion": version, "order": index + 1})
             if not targets:
                 raise ValueError("At least one valid network target is required")
-            self.config.network_targets = targets
+            self.config.network_targets = self._normalize_network_targets(targets)
             self.cached_network = []
             self.network_at = 0.0
         elif integration_id == "alerts":
@@ -302,7 +317,7 @@ class DashboardService:
                         raise ValueError("Alert thresholds cannot be negative")
                     self.config.alert_thresholds[key] = value
 
-    def configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str = "127.0.0.1") -> dict[str, Any]:
+    def configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str = "127.0.0.1", actor: str = "system") -> dict[str, Any]:
         allowed_fields = {
             "hysteria2": {"endpoint", "identityMappings"},
             "anytls": {"endpoint", "inboundTags"},
@@ -380,11 +395,13 @@ class DashboardService:
             persisted_values = {key: value for key, value in clean_values.items() if key == "interface"}
         state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": persisted_values}
         self._apply_integration_values(integration_id, clean_values)
+        if integration_id == "network":
+            self.storage.set_setting("network_targets", self.config.network_targets)
         overrides = self.storage.get_setting("integration_overrides", {})
         overrides[integration_id] = state
         self.storage.set_setting("integration_overrides", overrides)
         self.config.integrations[integration_id].update(state)
-        self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新", source_ip)
+        self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新", source_ip, actor=actor)
         return next(item for item in self.config.public_integrations() if item["id"] == integration_id)
 
     def _validate_integration(self, integration_id: str, values: dict[str, str]) -> None:
@@ -550,16 +567,23 @@ class DashboardService:
         if not force and self.subscription_probe_cache and self.subscription_probe_cache[0] == fingerprint and self.subscription_probe_cache[1] > time.monotonic():
             return dict(self.subscription_probe_cache[2])
         if not urls:
-            result = {"configured": False, "ready": False, "count": 0}
+            result = {"configured": False, "ready": False, "count": 0, "reachable": 0, "parseable": 0, "formats": [], "validationLevel": "not-configured"}
         else:
-            ready = True
-            for url in urls[:50]:
+            outcomes: list[dict[str, Any] | None] = []
+            def inspect(url: str) -> dict[str, Any] | None:
                 try:
-                    probe_subscription_url(url)
+                    batches = max(1, (len(urls[:50]) + 11) // 12)
+                    return probe_subscription_url(url, timeout=max(0.5, min(3, 7 / batches)))
                 except ValueError:
-                    ready = False
-                    break
-            result = {"configured": True, "ready": ready, "count": len(protected_urls)}
+                    return None
+            limited_urls = urls[:50]
+            with ThreadPoolExecutor(max_workers=min(12, len(limited_urls)), thread_name_prefix="subscription") as pool:
+                outcomes = list(pool.map(inspect, limited_urls))
+            parsed = [item for item in outcomes if item]
+            result = {"configured": True, "ready": len(parsed) == len(limited_urls), "count": len(protected_urls) or len(limited_urls),
+                      "reachable": len(parsed), "parseable": len(parsed),
+                      "formats": sorted({str(item["format"]) for item in parsed}),
+                      "validationLevel": "reachability-and-format-only"}
         self.subscription_probe_cache = (fingerprint, time.monotonic() + 60, dict(result))
         if force and result["configured"] and not result["ready"]:
             raise ValueError("Subscription publisher validation failed")
@@ -573,6 +597,17 @@ class DashboardService:
             return self.cached_network
 
     def update_network_targets(self, payload: Any, source_ip: str, actor: str) -> list[dict[str, Any]]:
+        targets = self._normalize_network_targets(payload)
+        with self.lock:
+            self.config.network_targets = targets
+            self.cached_network = []
+            self.network_at = 0.0
+            self.storage.set_setting("network_targets", targets)
+        self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
+        return targets
+
+    @staticmethod
+    def _normalize_network_targets(payload: Any) -> list[dict[str, Any]]:
         if not isinstance(payload, list) or not 1 <= len(payload) <= 12:
             raise ValueError("Configure between 1 and 12 network targets")
         targets: list[dict[str, Any]] = []
@@ -603,12 +638,6 @@ class DashboardService:
         for index, item in enumerate(targets, 1):
             item["id"] = f"custom-{index}"
             item["order"] = index
-        with self.lock:
-            self.config.network_targets = targets
-            self.cached_network = []
-            self.network_at = 0.0
-            self.storage.set_setting("network_targets", targets)
-        self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
         return targets
 
     def traffic_series(self) -> dict[str, Any]:
@@ -626,8 +655,8 @@ class DashboardService:
                 if previous is not None and sample["captured_at"] >= start:
                     bucket = (sample["captured_at"] // interval) * interval
                     item = buckets.setdefault(bucket, {"upload": 0, "download": 0})
-                    item["upload"] += max(0, sample["tx_bytes"] - previous["tx_bytes"])
-                    item["download"] += max(0, sample["rx_bytes"] - previous["rx_bytes"])
+                    item["upload"] += sample["tx_bytes"] if sample["tx_bytes"] < previous["tx_bytes"] else sample["tx_bytes"] - previous["tx_bytes"]
+                    item["download"] += sample["rx_bytes"] if sample["rx_bytes"] < previous["rx_bytes"] else sample["rx_bytes"] - previous["rx_bytes"]
                 previous_by_source[source] = sample
             result = []
             ordered_buckets = sorted(buckets.items())
@@ -677,6 +706,7 @@ class DashboardService:
                 "startDate": start.date().isoformat(),
                 "endDate": (end.date() - timedelta(days=1)).isoformat(),
                 "bytes": int(usage["usedBytes"]),
+                "coverage": usage["coverage"],
             })
         self.monthly_traffic_cache = (*cache_key, copy.deepcopy(result))
         return result
@@ -710,18 +740,37 @@ class DashboardService:
             assigned.update(matches)
             mappings.append(matches)
         public_accounts: list[dict[str, Any]] = []
-        unified_owner = len(accounts) == 1 and bool(mappings[0] if mappings else []) and assigned == identities
         for account, mapped_identities in zip(accounts, mappings):
             core_used = sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in mapped_identities)
+            configured_status = str(account.get("status", "")).strip().lower()
+            if configured_status not in {"active", "disabled"}:
+                configured_status = "unknown"
+            expires_at = str(account.get("expiresAt", ""))[:80]
+            expiry_status = "notConfigured"
+            if expires_at:
+                try:
+                    expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                    if expiry.tzinfo is None:
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+                    remaining = (expiry.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds()
+                    expiry_status = "expired" if remaining <= 0 else "expiring" if remaining <= 30 * 86400 else "valid"
+                except ValueError:
+                    expiry_status = "unknown"
+            core_available = bool(hy2.get("available") or traffic or online)
+            core_evidence = "observed" if mapped_identities else "notObserved" if candidates and core_available else "unavailable" if candidates else "unknown"
+            status = "disabled" if configured_status == "disabled" else "expired" if expiry_status == "expired" else "expiring" if expiry_status == "expiring" else "registered" if configured_status == "active" else "unknown"
             public_accounts.append({
                 "id": str(account.get("id", ""))[:160],
                 "name": str(account.get("name", "account"))[:160],
                 "email": str(account.get("email", ""))[:254],
-                "status": account.get("status", "active") if account.get("status") in {"active", "disabled", "expiring"} else "active",
+                "status": status,
+                "configuredStatus": configured_status,
+                "expiryStatus": expiry_status,
+                "coreEvidence": core_evidence,
                 "protocols": [str(value)[:80] for value in account.get("protocols", [])[:20]] if isinstance(account.get("protocols", []), list) else [],
-                "expiresAt": str(account.get("expiresAt", ""))[:80],
-                "usedBytes": max(0, int(_total_bytes)) if unified_owner else core_used,
-                "usageSource": "durableLedger" if unified_owner else "protocolCounter" if mapped_identities else "unmapped",
+                "expiresAt": expires_at,
+                "usedBytes": core_used,
+                "usageSource": "protocolCounter" if mapped_identities else "unmapped",
                 "onlineDevices": sum(int(online.get(identity, 0)) for identity in mapped_identities),
                 "quotaBytes": int(self.traffic_quota_state()["bytes"]),
             })
@@ -770,10 +819,21 @@ class DashboardService:
         if usage >= traffic_threshold:
             alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "titleEn": f"Traffic usage reached {usage:.0f}%", "titleZh": f"流量使用已达到 {usage:.0f}%", "description": "Review the remaining quota for the configured billing cycle.", "descriptionEn": "Review the remaining quota for the configured billing cycle.", "descriptionZh": "请检查当前自定义计费周期的剩余额度。", "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Traffic quota", "sourceEn": "Traffic quota", "sourceZh": "流量额度"})
         for service in services:
+            if service.get("id") == "certificate" and service.get("certificateState") in {"expired", "expiring", "unreadable"}:
+                state = str(service["certificateState"])
+                alerts.append({"id": f"certificate-{state}", "severity": "critical" if state == "expired" else "warning", "title": f"TLS certificate is {state}", "titleEn": f"TLS certificate is {state}", "titleZh": "TLS 证书已过期" if state == "expired" else "TLS 证书需要检查", "description": service["detail"], "descriptionEn": service["detail"], "descriptionZh": service.get("detailZh", service["detail"]), "time": "latest check", "timeEn": "latest check", "timeZh": "最近检查", "acknowledged": False, "source": "Certificate monitor", "sourceEn": "Certificate monitor", "sourceZh": "证书监控"})
+                continue
+            if service.get("id") == "certificate" and service.get("status") == "warning":
+                alerts.append({"id": "certificate-evidence", "severity": "warning", "title": "TLS certificate evidence requires attention", "titleEn": "TLS certificate evidence requires attention", "titleZh": "TLS 证书证据需要检查", "description": f"Endpoint: {service.get('endpointEvidence', 'unknown')} · renewal: {service.get('renewalEvidence', 'unknown')}", "descriptionEn": f"Endpoint: {service.get('endpointEvidence', 'unknown')} · renewal: {service.get('renewalEvidence', 'unknown')}", "descriptionZh": f"站点证据：{service.get('endpointEvidence', 'unknown')} · 续期证据：{service.get('renewalEvidence', 'unknown')}", "time": "latest check", "timeEn": "latest check", "timeZh": "最近检查", "acknowledged": False, "source": "Certificate monitor", "sourceEn": "Certificate monitor", "sourceZh": "证书监控"})
+                continue
             if service["status"] == "stopped":
                 alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "titleEn": f"{service.get('nameEn', service['name'])} is offline", "titleZh": f"{service.get('nameZh', service['name'])} 已离线", "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Service monitor", "sourceEn": "Service monitor", "sourceZh": "服务监控"})
         for target in network:
-            if target["status"] == "down" or target["latency"] >= latency_threshold or target["loss"] >= loss_threshold:
+            latency = target.get("latency")
+            loss = target.get("loss")
+            if target.get("status") == "unavailable":
+                alerts.append({"id": f"network-probe-{target['id']}", "severity": "warning", "title": f"{target['name']} probe is unavailable", "titleEn": f"{target['name']} probe is unavailable", "titleZh": f"{target['name']} 探测不可用", "description": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionEn": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionZh": f"探测原因：{target.get('probeReason', 'unknown')}", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测"})
+            elif target["status"] == "down" or (latency is not None and latency >= latency_threshold) or (loss is not None and loss >= loss_threshold):
                 alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "titleEn": f"{target['name']} network quality degraded", "titleZh": f"{target['name']} 网络质量下降", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionEn": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionZh": f"延迟 {target['latency']} ms · 丢包 {target['loss']}%", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测"})
         for integration in integrations or []:
             if integration.get("configured") and integration.get("status") == "error":
@@ -791,7 +851,7 @@ class DashboardService:
                 summary_en = str(integration.get("summaryEn") or integration.get("summary") or "Runtime validation failed")
                 summary_zh = str(integration.get("summaryZh") or "运行验证失败")
                 alerts.append({"id": f"integration-{integration_id}", "severity": "warning", "title": f"{name_en} requires attention", "titleEn": f"{name_en} requires attention", "titleZh": f"{name_zh}需要检查", "description": summary_en, "descriptionEn": summary_en, "descriptionZh": summary_zh, "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Integration validation", "sourceEn": "Integration validation", "sourceZh": "数据接入验证"})
-        episodes = self.storage.reconcile_alerts([str(alert["id"]) for alert in alerts])
+        episodes = self.storage.reconcile_alerts(alerts)
         for alert in alerts:
             episode = episodes[str(alert["id"])]
             alert.update(episode)
@@ -874,6 +934,7 @@ class DashboardService:
             state["summary"] = summary
             state["summaryEn"] = summary
             state["summaryZh"] = summary_zh
+            state["observedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
         hy2_configured = bool(str(self.config.hysteria_api.get("url", "")).strip())
         sb_configured = bool(str(self.config.singbox_api.get("url", "")).strip())
@@ -929,8 +990,8 @@ class DashboardService:
         subscriptions_configured = bool(subscription_state.get("configured"))
         subscriptions_ready = bool(subscription_state.get("ready"))
         if subscriptions_ready:
-            subscription_summary = f"{subscription_count} protected subscription record(s) passed a live HTTPS response probe"
-            subscription_summary_zh = f"{subscription_count} 条受保护订阅记录已通过 HTTPS 实际响应验证"
+            subscription_summary = f"{subscription_count} protected subscription record(s) were reachable and parseable; client import and proxy connectivity were not verified"
+            subscription_summary_zh = f"{subscription_count} 条受保护订阅记录可达且格式可解析；未验证客户端导入及代理连通性"
         elif subscriptions_configured:
             subscription_summary = "The subscription publisher did not pass the live HTTPS response probe"
             subscription_summary_zh = "订阅发布器未通过 HTTPS 实际响应验证"
@@ -938,7 +999,7 @@ class DashboardService:
             subscription_summary = "No protected subscription records are configured"
             subscription_summary_zh = "尚未配置受保护订阅记录"
         update("subscriptions", configured=subscriptions_configured, ready=subscriptions_ready, summary=subscription_summary, summary_zh=subscription_summary_zh)
-        network_ready = bool(network and any(item.get("status") != "down" for item in network))
+        network_ready = bool(network and any(item.get("status") in {"healthy", "degraded"} for item in network))
         update("network", configured=bool(self.config.network_targets), ready=network_ready, summary="At least one network target is reachable" if network_ready else "No configured network target is currently reachable", summary_zh="至少一个网络目标可达" if network_ready else "当前没有已配置的网络目标可达")
         update("alerts", ready=system_ready, summary="Alert evaluation is active" if system_ready else "Alert evaluation is unavailable without host metrics", summary_zh="告警计算正在运行" if system_ready else "缺少主机指标，告警计算不可用")
         update("audit", ready=storage_ready, summary="Audit storage is writable" if storage_ready else "Audit storage is unavailable or read-only", summary_zh="审计存储可写" if storage_ready else "审计存储不可用或只读")
@@ -951,27 +1012,61 @@ class DashboardService:
                 return value or None
         return None
 
-    def snapshot(self) -> dict[str, Any]:
-        # SystemCollector keeps previous counter samples, so concurrent requests
-        # must not race while updating those baselines.
+    def collect_system_snapshot(self) -> dict[str, Any]:
+        """Sample only local host state and publish it atomically."""
         with self.snapshot_lock:
-            return self._snapshot()
+            system = self.system_collector.snapshot()
+        with self.lock:
+            self.system_cache = system
+        return system
+
+    def evaluate_monitoring(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]], integrations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        active = self.alerts(system, services, network, integrations)
+        history = self.storage.alert_history()
+        by_episode = {str(item.get("episodeId")): item for item in history}
+        for item in active:
+            by_episode[str(item.get("episodeId"))] = {**item, "status": "active", "resolvedAt": None}
+        return list(by_episode.values())
+
+    def refresh_monitoring(self) -> dict[str, Any]:
+        """Refresh bounded external/runtime evidence for the HTTP cache."""
+        system = self.system_cache or self.collect_system_snapshot()
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="runtime-monitor") as pool:
+            hy2_future = pool.submit(hysteria_snapshot, self.config)
+            singbox_future = pool.submit(singbox_snapshot, self.config)
+            network_future = pool.submit(network_snapshots, self.config)
+            subscription_future = pool.submit(self.subscription_probe, self.config.subscription_base_url, force=False)
+            hy2, singbox = hy2_future.result(), singbox_future.result()
+            network, subscription = network_future.result(), subscription_future.result()
+        services = service_snapshots(self.config, system, hy2, singbox)
+        integrations = self.runtime_integrations(hy2, singbox, network, system, subscription)
+        alerts = self.evaluate_monitoring(system, services, network, integrations)
+        state = {"hy2": hy2, "singbox": singbox, "network": network, "subscription": subscription,
+                 "services": services, "integrations": integrations, "alerts": alerts,
+                 "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        with self.lock:
+            self.cached_network = network
+            self.network_at = time.monotonic()
+            self.runtime_cache = state
+        return state
+
+    def snapshot(self) -> dict[str, Any]:
+        return self._snapshot()
 
     def _snapshot(self) -> dict[str, Any]:
-        with ThreadPoolExecutor(max_workers=5, thread_name_prefix="dashboard") as pool:
-            system_future = pool.submit(self.system_collector.snapshot)
-            hysteria_future = pool.submit(hysteria_snapshot, self.config)
-            singbox_future = pool.submit(singbox_snapshot, self.config)
-            network_future = pool.submit(self.network)
-            subscription_future = pool.submit(self.subscription_probe, self.config.subscription_base_url)
-            system = system_future.result()
-            hy2 = hysteria_future.result()
-            singbox = singbox_future.result()
-            network = network_future.result()
-            subscription_state = subscription_future.result()
-        services = service_snapshots(self.config, system, hy2, singbox)
-        connections = self.aggregate_connections(connection_snapshots(hy2, singbox, self.config.protocol_adapters))
-        integrations = self.runtime_integrations(hy2, singbox, network, system, subscription_state)
+        with self.lock:
+            system = copy.deepcopy(self.system_cache)
+            runtime = copy.deepcopy(self.runtime_cache)
+        if system is None:
+            system = self.collect_system_snapshot()
+        hy2 = runtime["hy2"]
+        singbox = runtime["singbox"]
+        network = runtime["network"]
+        services = runtime["services"]
+        integrations = runtime["integrations"] or self.config.public_integrations()
+        raw_connections = connection_snapshots(hy2, singbox, self.config.protocol_adapters)
+        with self.lock:
+            connections = self.aggregate_connections(raw_connections)
         if self.config.redact_live_data:
             for connection in connections:
                 for detail in connection.get("details", []):
@@ -1015,12 +1110,14 @@ class DashboardService:
                 "accountTotalBytes": sum(int(item["value"]) for item in account_breakdown),
                 "protocol": protocol,
                 "account": account_breakdown,
+                "coverage": system.get("trafficCoverage"),
             },
             "subscriptions": self.public_subscriptions(),
             "networkTargets": network,
             "services": services,
-            "alerts": self.alerts(system, services, network, integrations),
+            "alerts": runtime["alerts"],
             "integrations": integrations,
+            "runtimeObservedAt": runtime["observedAt"],
             "uiSettings": {
                 "showSetup": True,
                 "visiblePanels": list(VISIBLE_PANEL_ORDER),

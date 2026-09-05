@@ -314,7 +314,8 @@ describe("v3.3 runtime behavior", () => {
     renderEnglish(<SetupWizard selected="subscriptions" drafts={{ subscriptions: { baseUrl: "https://example.test/subscription" } }} onDraft={vi.fn()} onClose={vi.fn()} onSave={onSave} />);
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     fireEvent.click(screen.getByRole("button", { name: "Save and validate" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("failed the server-side live probe"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("failed server-side reachability and node-format validation"));
+    expect(screen.getByRole("alert").textContent).toContain("does not prove client import or proxy connectivity");
     expect(screen.queryByText("Configuration saved and live-verified")).toBeNull();
   });
 });

@@ -144,6 +144,7 @@ with sync_playwright() as playwright:
     errors: list[str] = []
     results: list[dict[str, object]] = []
     quota_writes: list[dict[str, object]] = []
+    route_state = {"logoutFails": False}
 
     def route_api(route) -> None:
         request_path = route.request.url.split("/api/v2/", 1)[1].split("?", 1)[0]
@@ -153,6 +154,9 @@ with sync_playwright() as playwright:
             data = {"username": "QA operator", "csrfToken": "synthetic-csrf", "expiresAt": int(time.time()) + 3600, "setupComplete": True}
         elif request_path == "dashboard":
             data = dashboard
+        elif request_path == "auth/logout" and route_state["logoutFails"]:
+            route.fulfill(status=503, content_type="application/json", body=json.dumps({"error": "upstream_unavailable"}))
+            return
         elif request_path == "settings/traffic-limit":
             payload = route.request.post_data_json
             quota_writes.append(payload)
@@ -172,7 +176,13 @@ with sync_playwright() as playwright:
         context.add_init_script("localStorage.setItem('castorice-language','en');localStorage.setItem('castorice-theme-mode','dark');")
         page = context.new_page()
         page.on("pageerror", lambda error, name=engine: errors.append(f"{name}: pageerror: {error}"))
-        page.on("console", lambda message, name=engine: errors.append(f"{name}: console: {message.text}") if message.type == "error" else None)
+        page.on(
+            "console",
+            lambda message, name=engine: errors.append(f"{name}: console: {message.text}")
+            if message.type == "error"
+            and message.text != "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+            else None,
+        )
         page.goto(BASE_URL, wait_until="networkidle")
         page.locator(".traffic-hero").wait_for()
 
@@ -188,6 +198,34 @@ with sync_playwright() as playwright:
         page.locator(".settings-dialog").wait_for()
         assert "Material-Design-CastoriceUI" in page.locator(".settings-about-section").inner_text()
         page.get_by_role("button", name="Close", exact=True).click()
+
+        # F06: a real browser keeps the chart alive across 24 -> 1 -> 0 -> 24
+        # refreshes and supports both pointer and keyboard inspection.
+        original_ranges = dict(dashboard["traffic"]["ranges"])
+        original_hourly = list(dashboard["traffic"]["hourly"])
+        range_points = list(original_ranges.get("24h", original_hourly))
+        open_page(page, "traffic")
+        chart = page.locator(".chart--traffic svg")
+        chart.focus()
+        chart.press("End")
+        chart.dispatch_event("pointermove", {"clientX": 120, "clientY": 120})
+        for count in (1, 0, 24):
+            dashboard["traffic"]["ranges"] = {key: range_points[:count] for key in original_ranges}
+            dashboard["traffic"]["hourly"] = range_points[:count]
+            page.reload(wait_until="networkidle")
+            open_page(page, "traffic")
+            selector = ".chart--traffic" if count else ".chart-empty"
+            page.locator(selector).wait_for()
+        dashboard["traffic"]["ranges"] = original_ranges
+        dashboard["traffic"]["hourly"] = original_hourly
+
+        # F09: an unconfirmed server logout must preserve the authenticated UI.
+        route_state["logoutFails"] = True
+        page.locator(".user-menu").click()
+        page.get_by_role("menuitem", name="Sign out").click()
+        page.get_by_text("The server did not confirm sign-out", exact=False).wait_for()
+        assert page.locator("#main-content").is_visible()
+        route_state["logoutFails"] = False
 
         for language in ("en", "zh"):
             page.evaluate("language => localStorage.setItem('castorice-language', language)", language)

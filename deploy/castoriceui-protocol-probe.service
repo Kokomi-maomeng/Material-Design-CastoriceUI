@@ -4,6 +4,7 @@ After=sing-box.service
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/etc/castoriceui/protocol-probe.env
 ExecStart=/usr/bin/python3 /opt/castoriceui/backend/castoriceui/protocol_probe.py
 RuntimeDirectory=castoriceui
 RuntimeDirectoryMode=0755
@@ -19,4 +20,3 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_UNIX
 TimeoutStartSec=15s
-

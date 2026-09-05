@@ -7,6 +7,7 @@ import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
+import { ApiError } from "../../lib/api";
 
 export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave }: { selected: IntegrationId | null; status?: IntegrationStatus; drafts: Record<string, Record<string, string>>; onDraft: (id: IntegrationId, field: string, value: string) => void; onClose: () => void; onSave: (id: IntegrationId, values: Record<string, string>) => Promise<IntegrationStatus> }) {
   const { language, t } = useI18n();
@@ -30,12 +31,14 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
       const verified = await onSave(selected, resolvedValues);
       setResult(verified);
       setStep(2);
-    } catch {
-      setValidationError(selected === "subscriptions"
-        ? t("订阅发布器未通过服务器实际访问验证，配置未保存。请检查 TLS、地址、受保护订阅记录和外部可达性。", "The publisher failed the server-side live probe, so nothing was saved. Check TLS, the address, protected subscription records, and external reachability.")
+    } catch (caught) {
+      const code = caught instanceof ApiError ? caught.code : "";
+      const fieldMessage = code === "invalid_username" ? t("用户名格式无效。", "The username format is invalid.") : code === "weak_password" ? t("密码强度不足。", "The password is too weak.") : "";
+      setValidationError(fieldMessage || (selected === "subscriptions"
+        ? t("订阅发布器未通过服务器可达性与节点格式验证，配置未保存。请检查 TLS、地址、受保护订阅记录和返回内容。此验证不代表客户端导入或代理连通性。", "The publisher failed server-side reachability and node-format validation, so nothing was saved. Check TLS, the address, protected subscription records, and response content. This does not prove client import or proxy connectivity.")
         : isProtocol
           ? t("协议验证失败，新参数未应用。未完成的首次接入会保留异常状态；请检查必填项、API、入站标签和运行服务。", "Protocol validation failed; new values were not applied. Incomplete first-time setup remains visible as abnormal. Check required fields, the API, inbound tags, and running service.")
-          : t("后端实际验证失败，配置未保存。请检查填写内容、运行服务和后端日志。", "Backend validation failed, so nothing was saved. Check the values, running service, and backend log."));
+          : t("后端实际验证失败，配置未保存。请检查填写内容、运行服务和后端日志。", "Backend validation failed, so nothing was saved. Check the values, running service, and backend log.")));
     } finally {
       setSaving(false);
     }

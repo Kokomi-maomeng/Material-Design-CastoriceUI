@@ -30,12 +30,14 @@ export function FirstRunConfiguration({ metrics, integrations, onConfigure, onSa
   const [quotaGb, setQuotaGb] = useState(String(Math.max(1, Math.round(metrics.trafficLimitBytes / 1_000_000_000))));
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const save = async () => {
     setBusy(true);
-    try { await onSaveBasics(nodeName.trim(), quotaGb); setSaved(true); } finally { setBusy(false); }
+    setError("");
+    try { await onSaveBasics(nodeName.trim(), quotaGb); setSaved(true); } catch { setError(t("基础设置未保存；请检查字段值与服务器状态后重试。", "Basics were not saved. Check the field values and server status, then retry.")); } finally { setBusy(false); }
   };
-  const complete = async () => { setBusy(true); try { await onComplete(); } finally { setBusy(false); } };
+  const complete = async () => { setBusy(true); setError(""); try { await onComplete(); } catch { setError(t("服务器未确认初始化完成；当前页面会保留，请重试。", "The server did not confirm setup completion. This page is preserved; try again.")); } finally { setBusy(false); } };
   const status = (id: IntegrationId) => integrations.find((item) => item.id === id);
   const sortedProtocols = [...OPTIONAL_PROTOCOLS].sort((left, right) => {
     const score = (id: IntegrationId) => status(id)?.status === "ready" ? 0 : status(id)?.configured ? 1 : 2;
@@ -55,6 +57,7 @@ export function FirstRunConfiguration({ metrics, integrations, onConfigure, onSa
       </Card>
       <Card variant="outlined"><CardHeader title={t("其他数据源", "Other data sources")} description={t("网络质量、订阅和告警可以现在配置，也可以稍后在独立初始化向导中完成。", "Network quality, subscriptions, and alerts can be configured now or later from Setup.")} /><div className="first-run-links">{(["network", "subscriptions", "alerts"] as IntegrationId[]).map((id) => <Button key={id} variant="tonal" onClick={() => onConfigure(id)}>{id === "network" ? t("网络质量", "Network quality") : id === "subscriptions" ? t("订阅记录", "Subscriptions") : t("告警阈值", "Alert thresholds")}</Button>)}</div></Card>
       <div className="first-run-complete"><div><strong>{t("不会写入示例数据", "No sample data is written")}</strong><span>{t("进入总览后，所有数值只来自已验证后端或明确标记的停止更新快照。", "After setup, every value comes from the verified backend or a clearly marked stale snapshot.")}</span></div><Button trailingIcon="arrow_forward" disabled={!saved || busy} onClick={() => void complete()}>{t("完成并进入总览", "Finish and open dashboard")}</Button></div>
+      {error ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{error}</span></div> : null}
     </section>
   </main>;
 }

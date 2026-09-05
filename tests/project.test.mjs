@@ -210,7 +210,8 @@ test("subscription hints are removed and traffic quota remains one shared value"
   assert.doesNotMatch(subscriptions, /FeatureIntro|独立入口|快速导入/);
   assert.doesNotMatch(subscriptions, /tokenHint|updatedAt|lastFetchedAt|订阅安全提示|Subscription security/);
   assert.match(overview, /流量使用趋势/);
-  assert.match(accounts, /统一累计账本/);
+  assert.match(accounts, /映射协议累计流量/);
+  assert.doesNotMatch(accounts, /统一累计账本|Unified cumulative/);
   assert.match(dashboard, /"quotaBytes": int\(self\.traffic_quota_state\(\)\["bytes"\]\)/);
   assert.match(quotaDialog, /quota-input-stable/);
 });
@@ -227,7 +228,8 @@ test("v3.1 quota schedules, stable live layouts, and requested removals stay wir
   assert.match(collector, /nextReset/);
   assert.match(connections, /const columns = 8/);
   assert.doesNotMatch(traffic, /容量预测|Capacity forecast/);
-  assert.doesNotMatch(`${overview}\n${dashboard}\n${styles}`, /coverageComplete|trafficCoverage|forecast-card/);
+  assert.match(`${overview}\n${dashboard}`, /trafficCoverage/);
+  assert.doesNotMatch(`${overview}\n${dashboard}\n${styles}`, /coverageComplete|forecast-card/);
   assert.doesNotMatch(`${network}\n${overview}\n${dashboard}`, /探测说明|最近缓存探测|5 minutes old|最多缓存 5 分钟|cached for five minutes/);
   assert.doesNotMatch(services, /"id": "updates"/);
   assert.doesNotMatch(audit, /审计保留策略|Audit retention/);
@@ -290,8 +292,9 @@ test("v3.1 scopes alert acknowledgement and audit history on the server", async 
 test("backend examples remain loopback-only and secret-free", async () => {
   const config = JSON.parse(await read("server/config.example.json"));
   assert.equal(config.listen_host, "127.0.0.1");
-  assert.match(config.hysteria_api.url, /^http:\/\/127\.0\.0\.1:/);
-  assert.match(config.singbox_api.url, /^http:\/\/127\.0\.0\.1:/);
+  assert.equal(config.hysteria_api.url, "");
+  assert.equal(config.singbox_api.url, "");
+  assert.equal(config.subscription_base_url, "");
   assert.equal(config.secure_cookies, true);
   assert.equal(config.redact_live_data, true);
   assert.deepEqual(config.external_background_hosts, []);
@@ -363,13 +366,15 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
     read("server/castoriceui/traffic_quota.py"), read("server/castoriceui/security.py"),
   ]);
   assert.match(wizard, /配置已保存，但运行验证未通过/);
-  assert.match(wizard, /订阅发布器未通过服务器实际访问验证/);
+  assert.match(wizard, /订阅发布器未通过服务器可达性与节点格式验证/);
+  assert.match(wizard, /不代表客户端导入或代理连通性/);
   assert.match(wizard, /订阅验证地址通过当前 HTTPS 管理会话提交/);
   assert.match(definitions, /identityMappings/);
   assert.match(security, /def probe_subscription_url/);
   assert.match(dashboard, /probe_subscription_url/);
   assert.match(dashboard, /integration-\{integration_id\}/);
-  assert.match(dashboard, /usageSource.*durableLedger/);
+  assert.match(dashboard, /usageSource.*protocolCounter/);
+  assert.doesNotMatch(dashboard, /usageSource.*durableLedger/);
   assert.match(traffic, /\.sort\(\(left, right\) => right\.value - left\.value/);
   assert.doesNotMatch(traffic, /趋势采样|Trend samples|时间桶|time buckets/);
   assert.match(accounts, /管理账号/);
@@ -414,4 +419,20 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   const codeqlPins = [...codeql.matchAll(/github\/codeql-action\/(?:init|analyze)@([0-9a-f]{40})/g)].map((match) => match[1]);
   assert.equal(codeqlPins.length, 2);
   assert.equal(new Set(codeqlPins).size, 1);
+});
+
+test("P2 release checks cover read-only preflight, history blobs, cache monitoring, and browser recovery", async () => {
+  const [preflight, deployment, scan, browser, run, storage] = await Promise.all([
+    read("server/preflight.py"), read("docs/DEPLOYMENT.md"), read("scripts/sensitive-scan.mjs"),
+    read("scripts/browser-matrix.py"), read("server/run.py"), read("server/castoriceui/storage.py"),
+  ]);
+  assert.match(preflight, /mutationFree/);
+  assert.doesNotMatch(preflight, /systemctl.*(?:restart|reload|enable|stop)|apt-get.*install/);
+  for (const pathName of ["Minimal panel", "Existing proxy host", "Upgrade"]) assert.match(deployment, new RegExp(pathName));
+  assert.match(scan, /git.*cat-file/si);
+  assert.doesNotMatch(scan, /"dist"|"package-lock\.json"/);
+  assert.match(browser, /24 -> 1 -> 0 -> 24/);
+  assert.match(browser, /server did not confirm sign-out/);
+  assert.match(run, /runtime-monitor/);
+  assert.match(storage, /CREATE TABLE IF NOT EXISTS alert_history/);
 });
