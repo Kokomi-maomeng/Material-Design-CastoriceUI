@@ -312,6 +312,11 @@ test("v3.1 scopes alert acknowledgement and audit history on the server", async 
   assert.match(packageJson, /"release:package"/);
   assert.match(packager, /Duplicate logical frontend asset/);
   assert.match(packager, /SHA256SUMS\.txt/);
+  assert.match(packager, /SOURCE_DATE_EPOCH/);
+  assert.match(packager, /archive-manifest\.txt/);
+  assert.match(packager, /--no-recursion/);
+  assert.match(packager, /await utimes/);
+  assert.match(packager, /gzipSync/);
 });
 
 test("backend examples remain loopback-only and secret-free", async () => {

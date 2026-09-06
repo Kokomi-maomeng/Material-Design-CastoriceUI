@@ -13,6 +13,7 @@ This release closes all P1, P2, and P3 findings from the v4.1.0 audit. It keeps 
 
 - Management and subscription probes are bounded by size and total time, never follow redirects, and never forward authorization to another origin. Subscription checks distinguish HTTPS reachability from successful parsing and require valid node structure.
 - Deployment now includes a read-only conflict preflight, explicit new-install/existing-host/upgrade paths, secret-free examples, an environment file for the protocol probe, and Debian 12/13-compatible Nginx templates.
+- Release archives use a sorted manifest and normalized timestamps so repeated builds from the same source produce the same SHA-256 checksum.
 - Certificate status distinguishes unconfigured, unreadable, expiring, expired, and valid states. Endpoint-certificate and renewal-unit evidence are reported separately and are not presented as successful renewal history.
 
 ## Interface and compatibility

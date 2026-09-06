@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
@@ -51,12 +52,14 @@ await writeFile(
   "utf8",
 );
 
-async function collectFiles(directory) {
+async function collectEntries(directory) {
   const result = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
+  for (const entry of entries) {
     const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) result.push(...await collectFiles(target));
-    else result.push(target);
+    result.push(target);
+    if (entry.isDirectory()) result.push(...await collectEntries(target));
   }
   return result;
 }
@@ -87,11 +90,34 @@ for (const asset of assets) {
 
 await removePythonCaches(stageDirectory);
 
-for (const file of await collectFiles(stageDirectory)) {
-  if ((await lstat(file)).isSymbolicLink()) throw new Error(`Release staging must not contain symlinks: ${file}`);
+const stagedEntries = await collectEntries(stageDirectory);
+for (const entry of stagedEntries) {
+  if ((await lstat(entry)).isSymbolicLink()) throw new Error(`Release staging must not contain symlinks: ${entry}`);
 }
 
-execFileSync("tar", ["-czf", archivePath, "-C", releaseDirectory, path.basename(stageDirectory)], { stdio: "inherit" });
+const sourceDateEpochValue = process.env.SOURCE_DATE_EPOCH ?? "946684800";
+if (!/^\d+$/.test(sourceDateEpochValue)) throw new Error("SOURCE_DATE_EPOCH must be a non-negative integer");
+const sourceDateEpoch = Number(sourceDateEpochValue);
+if (!Number.isSafeInteger(sourceDateEpoch) || sourceDateEpoch > 253402300799) {
+  throw new Error("SOURCE_DATE_EPOCH is outside the supported range");
+}
+const normalizedTimestamp = new Date(sourceDateEpoch * 1000);
+for (const entry of [stageDirectory, ...stagedEntries].reverse()) {
+  await utimes(entry, normalizedTimestamp, normalizedTimestamp);
+}
+
+const archiveEntries = [stageDirectory, ...stagedEntries]
+  .map((entry) => path.relative(releaseDirectory, entry).split(path.sep).join("/"))
+  .sort((left, right) => left.localeCompare(right, "en"));
+const archiveManifest = path.join(buildDirectory, "archive-manifest.txt");
+await writeFile(archiveManifest, `${archiveEntries.join("\n")}\n`, "utf8");
+const uncompressedArchive = path.join(buildDirectory, "release.tar");
+execFileSync(
+  "tar",
+  ["--no-recursion", "-cf", uncompressedArchive, "-C", releaseDirectory, "-T", archiveManifest],
+  { env: { ...process.env, COPYFILE_DISABLE: "1", TZ: "UTC" }, stdio: "inherit" },
+);
+await writeFile(archivePath, gzipSync(await readFile(uncompressedArchive), { level: 9, mtime: 0 }));
 const digest = createHash("sha256").update(await readFile(archivePath)).digest("hex");
 await writeFile(path.join(releaseDirectory, "SHA256SUMS.txt"), `${digest}  ${archiveName}\n`, "utf8");
 await rm(stageDirectory, { recursive: true, force: true });
