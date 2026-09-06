@@ -446,9 +446,9 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
 });
 
 test("P2 release checks cover read-only preflight, history blobs, cache monitoring, and browser recovery", async () => {
-  const [preflight, deployment, scan, browser, run, storage] = await Promise.all([
+  const [preflight, deployment, scan, browser, run, storage, packager] = await Promise.all([
     read("server/preflight.py"), read("docs/DEPLOYMENT.md"), read("scripts/sensitive-scan.mjs"),
-    read("scripts/browser-matrix.py"), read("server/run.py"), read("server/castoriceui/storage.py"),
+    read("scripts/browser-matrix.py"), read("server/run.py"), read("server/castoriceui/storage.py"), read("scripts/package-release.mjs"),
   ]);
   assert.match(preflight, /mutationFree/);
   assert.doesNotMatch(preflight, /systemctl.*(?:restart|reload|enable|stop)|apt-get.*install/);
@@ -459,4 +459,5 @@ test("P2 release checks cover read-only preflight, history blobs, cache monitori
   assert.match(browser, /server did not confirm sign-out/);
   assert.match(run, /runtime-monitor/);
   assert.match(storage, /CREATE TABLE IF NOT EXISTS alert_history/);
+  assert.match(packager, /copy\("server\/preflight\.py", "server\/preflight\.py"\)/);
 });

@@ -32,6 +32,7 @@ await Promise.all([
   copy("server/castoriceui", "server/castoriceui"),
   copy("server/tests", "server/tests"),
   copy("server/run.py", "server/run.py"),
+  copy("server/preflight.py", "server/preflight.py"),
   copy("server/config.example.json", "server/config.example.json"),
   copy("deploy", "deploy"),
   copy("docs/DEPLOYMENT.md", "docs/DEPLOYMENT.md"),
