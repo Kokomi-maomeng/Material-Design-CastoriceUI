@@ -458,6 +458,8 @@ test("P2 release checks cover read-only preflight, history blobs, cache monitori
   assert.doesNotMatch(scan, /"dist"|"package-lock\.json"/);
   assert.match(browser, /24 -> 1 -> 0 -> 24/);
   assert.match(browser, /server did not confirm sign-out/);
+  assert.match(browser, /PAGES = \([^)]*"audit"/s);
+  assert.match(browser, /2408:8240:c10:4f00:58f2:d72c:68ff:83b2/);
   assert.match(run, /runtime-monitor/);
   assert.match(storage, /CREATE TABLE IF NOT EXISTS alert_history/);
   assert.match(packager, /copy\("server\/preflight\.py", "server\/preflight\.py"\)/);

@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
 VIEWPORTS = ((2560, 1440), (1440, 1000), (768, 1024), (390, 844), (320, 700))
-PAGES = ("overview", "services", "traffic", "network")
+PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "subscriptions", "alerts", "audit", "setup")
 
 
 def synthetic_dashboard(page) -> dict[str, object]:
@@ -164,7 +164,19 @@ with sync_playwright() as playwright:
         elif request_path == "settings/background-options":
             data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover", "position": "center"}, "configured": {"type": "default", "value": ""}}
         elif request_path == "audits":
-            data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1}
+            data = {
+                "items": [{
+                    "id": "audit-qa-ipv6",
+                    "action": "登录成功",
+                    "category": "认证",
+                    "actor": "QA operator",
+                    "ip": "2408:8240:c10:4f00:58f2:d72c:68ff:83b2",
+                    "time": "2026-01-15T04:00:00+00:00",
+                    "result": "成功",
+                    "detail": "Synthetic browser-matrix record",
+                }],
+                "total": 1, "page": 1, "pageSize": 30, "totalPages": 1,
+            }
         else:
             data = {}
         route.fulfill(status=200, content_type="application/json", body=json.dumps(data))
