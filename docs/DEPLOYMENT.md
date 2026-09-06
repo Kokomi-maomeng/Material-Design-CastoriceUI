@@ -1,4 +1,4 @@
-# CastoriceUI v4.1 deployment / 部署手册
+# CastoriceUI v4.2 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -61,8 +61,8 @@ GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校�
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-tar -xzf CastoriceUI-v4.1.0.tar.gz
-cd CastoriceUI-v4.1.0
+tar -xzf CastoriceUI-v4.2.0.tar.gz
+cd CastoriceUI-v4.2.0
 python3 -m compileall -q server
 python3 -m unittest discover -s server/tests -p 'test_*.py' -v
 ```
@@ -161,7 +161,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `4.1.0`.
+Expected version: `4.2.0`.
 
 For a new database, generate the first-admin token once:
 
@@ -176,7 +176,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v4.1.0
+release=v4.2.0
 frontend_source=dist       # source checkout / 源码检出
 # frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
 test -f "$frontend_source/index.html"
@@ -270,7 +270,7 @@ If this VPS also carries the operator's active proxy traffic, do not reboot the 
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `4.1.0`
+- loopback and HTTPS health report `4.2.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate

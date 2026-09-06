@@ -1,4 +1,4 @@
-# CastoriceUI v4.1 backend integration guide
+# CastoriceUI v4.2 backend integration guide
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
