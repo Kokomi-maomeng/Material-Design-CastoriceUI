@@ -145,11 +145,11 @@ test("network targets are editable and charts use real smooth sample paths", asy
 });
 
 test("P2 compatibility, deploy examples, and protocol probe unit stay regression guarded", async () => {
-  const [chart, configText, service, docs, accounts, overview, connections, preflight] = await Promise.all([
+  const [chart, configText, service, docs, accounts, overview, connections, preflight, styles] = await Promise.all([
     read("components/charts/TrafficChart.tsx"), read("server/config.example.json"),
     read("deploy/castoriceui-protocol-probe.service"), read("docs/DEPLOYMENT.md"),
     read("components/pages/AccountsPage.tsx"), read("components/pages/OverviewPage.tsx"),
-    read("components/pages/ConnectionsPage.tsx"), read("server/preflight.py"),
+    read("components/pages/ConnectionsPage.tsx"), read("server/preflight.py"), readStyles(),
   ]);
   assert.doesNotMatch(chart, /\.at\s*\(/);
   const config = JSON.parse(configText);
@@ -166,6 +166,7 @@ test("P2 compatibility, deploy examples, and protocol probe unit stay regression
   assert.match(accounts, /Different accounting scopes/);
   assert.match(connections, /rateCoverage/);
   assert.match(overview, /ratesPartial/);
+  assert.match(styles, /\.audit-table code \{[^}]*overflow-wrap: anywhere/);
 });
 
 test("v3.1 settings and floating surfaces follow the requested Material interactions", async () => {
