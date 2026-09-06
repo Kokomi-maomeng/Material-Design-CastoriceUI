@@ -402,6 +402,7 @@ def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: in
                     raise ValueError("Certificate file has no PEM certificate")
                 expected = ssl.PEM_cert_to_DER_cert(leaf.group(0))
                 context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 with socket.create_connection((host, port), timeout=3) as raw_socket:
                     with context.wrap_socket(raw_socket, server_hostname=host) as tls_socket:
                         endpoint_evidence = "verified" if tls_socket.getpeercert(binary_form=True) == expected else "different-certificate"

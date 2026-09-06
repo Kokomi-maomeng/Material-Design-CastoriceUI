@@ -424,6 +424,7 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(config, /assigned to both/);
   assert.match(collector, /interfaceFallback/);
   assert.match(collector, /\("singbox", "sing-box"/);
+  assert.match(collector, /minimum_version = ssl\.TLSVersion\.TLSv1_2/);
   assert.doesNotMatch(dashboard, /item\["value"\] \* total_bytes/);
   assert.match(dashboard, /protocolTotalBytes/);
   assert.match(api, /HTTPStatus\.SERVICE_UNAVAILABLE/);
@@ -433,6 +434,7 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(await read("components/ServiceCards.tsx"), /services\.filter\(isProtocolService\)/);
   assert.match(security, /class _PinnedHTTPSConnection/);
   assert.match(security, /server_hostname=self\.host/);
+  assert.match(security, /minimum_version = ssl\.TLSVersion\.TLSv1_2/);
   assert.doesNotMatch(security, /CastoriceUI\/2\.6/);
   assert.match(vite, /basicSsl\(\)/);
   assert.match(vite, /CASTORICEUI_DEV_API_TARGET/);

@@ -299,7 +299,9 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     """Use one pre-validated address while retaining Host and TLS SNI."""
 
     def __init__(self, host: str, port: int, address: str, timeout: float) -> None:
-        super().__init__(host, port=port, timeout=timeout, context=ssl.create_default_context())
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        super().__init__(host, port=port, timeout=timeout, context=context)
         self._pinned_address = address
 
     def connect(self) -> None:
