@@ -144,6 +144,30 @@ test("network targets are editable and charts use real smooth sample paths", asy
   assert.match(api, /settings\/network-targets/);
 });
 
+test("P2 compatibility, deploy examples, and protocol probe unit stay regression guarded", async () => {
+  const [chart, configText, service, docs, accounts, overview, connections, preflight] = await Promise.all([
+    read("components/charts/TrafficChart.tsx"), read("server/config.example.json"),
+    read("deploy/castoriceui-protocol-probe.service"), read("docs/DEPLOYMENT.md"),
+    read("components/pages/AccountsPage.tsx"), read("components/pages/OverviewPage.tsx"),
+    read("components/pages/ConnectionsPage.tsx"), read("server/preflight.py"),
+  ]);
+  assert.doesNotMatch(chart, /\.at\s*\(/);
+  const config = JSON.parse(configText);
+  for (const key of ["certificate_host", "certificate_port", "certificate_renewal_unit", "hysteria_unit", "singbox_unit", "nginx_unit", "hysteria_binary", "singbox_binary", "protocol_status_path"]) {
+    assert.ok(Object.hasOwn(config, key), `${key} must be present in config.example.json`);
+  }
+  assert.doesNotMatch(service, /^After=.*sing-box/m);
+  await read("deploy/protocol-probe.env.example");
+  assert.match(docs, /protocol-probe\.env\.example/);
+  assert.match(docs, /if \[ ! -e \/etc\/castoriceui\/protocol-probe\.env \]/);
+  assert.match(docs, /fresh Debian 12\/13.*not (?:run|executed)/i);
+  assert.match(preflight, /did not run independent fresh Debian 12\/13 acceptance/i);
+  assert.doesNotMatch(accounts, /<Progress/);
+  assert.match(accounts, /Different accounting scopes/);
+  assert.match(connections, /rateCoverage/);
+  assert.match(overview, /ratesPartial/);
+});
+
 test("v3.1 settings and floating surfaces follow the requested Material interactions", async () => {
   const [app, settings, styles, types, backend] = await Promise.all([
     read("components/CastoriceApp.tsx"), read("components/settings/SettingsDialog.tsx"), readStyles(), read("lib/types.ts"), read("server/castoriceui/api.py"),

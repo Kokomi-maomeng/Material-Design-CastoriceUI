@@ -30,7 +30,22 @@ def validation_error_payload(error: ValueError) -> dict[str, str]:
         return {"error": "invalid_username", "field": "username", "message": message}
     if message.startswith("Password must"):
         return {"error": "weak_password", "field": "password", "message": message}
-    return {"error": "invalid_request", "message": message}
+    lowered = message.casefold()
+    if "configure" in lowered and "secret" in lowered and "protected server config" in lowered:
+        return {"error": "missing_upstream_secret", "message": "Configure the required upstream secret in the protected server configuration"}
+    mappings = (
+        (("complete the required fields",), "missing_required_fields", "Complete all required fields before validating the integration"),
+        (("inbound tag missing", "provide 1-20 sing-box inbound tags"), "inbound_tag_not_found", "Check that each configured inbound tag exists uniquely in the running core"),
+        (("changed since startup", "config_not_loaded"), "protocol_probe_stale", "Reload the core through the operator's normal change procedure, then wait for a fresh protocol probe"),
+        (("inventory unavailable", "check the protocol probe", "listener is unavailable"), "protocol_probe_unavailable", "Check the protocol probe service and confirm that its runtime evidence is fresh"),
+        (("subscription",), "invalid_subscription", "Check the HTTPS publisher response and proxy-node format; client import and proxy connectivity remain unverified"),
+        (("integration endpoint validation failed", "statistics api unavailable"), "upstream_unavailable", "Check the loopback API service, endpoint, and authentication configuration"),
+        (("invalid response",), "upstream_invalid_response", "The upstream API responded, but its payload did not match the required format"),
+    )
+    for markers, code, safe_message in mappings:
+        if any(marker in lowered for marker in markers):
+            return {"error": code, "message": safe_message}
+    return {"error": "invalid_request", "message": "The request could not be validated"}
 
 
 def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple[str, str, int] | None:
@@ -419,7 +434,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self.session_token(),
                 )
             except (ValueError, json.JSONDecodeError) as error:
-                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
                 return
             if not changed:
                 self.app.storage.add_audit("修改密码失败", "认证", "旧密码验证失败", self.source_ip(), result="失败", actor=str(session["username"]))

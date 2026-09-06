@@ -57,7 +57,7 @@ export function OverviewPage({
   const connectionRatesAvailable =
     connections.length > 0 &&
     connections.every(
-      (item) => item.downloadBps !== null && item.uploadBps !== null,
+      (item) => item.downloadBps !== null && item.uploadBps !== null && !item.ratesPartial,
     );
   const totalDown = connectionRatesAvailable
     ? connections.reduce((sum, item) => sum + (item.downloadBps ?? 0), 0)

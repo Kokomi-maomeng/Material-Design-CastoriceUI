@@ -61,7 +61,104 @@ def normalize_subscription_url(value: str) -> str:
     return urlunsplit(("https", parsed.netloc, parsed.path or "/", parsed.query, ""))
 
 
-_SUBSCRIPTION_SCHEMES = {"ss", "shadowsocks", "vmess", "vless", "trojan", "hysteria2", "hy2", "tuic", "socks", "anytls"}
+_SUBSCRIPTION_SCHEMES = {"ss", "shadowsocks", "vmess", "vless", "trojan", "hysteria2", "hy2", "tuic", "socks", "socks5", "anytls"}
+
+
+class SubscriptionProbeError(ValueError):
+    """Safe staged result: HTTPS reachability is distinct from format parsing."""
+
+    def __init__(self, message: str, *, reachable: bool, parseable: bool = False) -> None:
+        super().__init__(message)
+        self.reachable = reachable
+        self.parseable = parseable
+
+
+def _valid_node_host(value: object) -> bool:
+    candidate = str(value or "").strip().rstrip(".")
+    if not candidate or len(candidate) > 253 or any(character.isspace() for character in candidate):
+        return False
+    try:
+        ipaddress.ip_address(candidate)
+        return True
+    except ValueError:
+        return all(_HOST_LABEL.fullmatch(label) for label in candidate.split("."))
+
+
+def _valid_node_port(value: object) -> bool:
+    try:
+        return not isinstance(value, bool) and 1 <= int(str(value)) <= 65535
+    except (TypeError, ValueError):
+        return False
+
+
+def _node_has_credentials(protocol: str, node: dict[str, object]) -> bool:
+    if protocol in {"vless", "vmess"}:
+        return bool(str(node.get("uuid") or node.get("id") or "").strip())
+    if protocol in {"trojan", "hysteria2", "hy2", "anytls"}:
+        return bool(str(node.get("password") or node.get("auth") or node.get("auth_str") or "").strip())
+    if protocol == "tuic":
+        return bool(str(node.get("uuid") or "").strip() and str(node.get("password") or "").strip())
+    if protocol in {"ss", "shadowsocks"}:
+        return bool(str(node.get("password") or "").strip() and str(node.get("cipher") or node.get("method") or "").strip())
+    if protocol in {"socks", "socks5"}:
+        return bool(str(node.get("username") or "").strip() and str(node.get("password") or "").strip())
+    return False
+
+
+def _valid_structured_node(node: object, *, singbox: bool = False) -> bool:
+    if not isinstance(node, dict):
+        return False
+    protocol = str(node.get("type", "")).casefold()
+    if protocol not in _SUBSCRIPTION_SCHEMES:
+        return False
+    port_key = "server_port" if singbox else "port"
+    return (
+        _valid_node_host(node.get("server"))
+        and _valid_node_port(node.get(port_key))
+        and _node_has_credentials(protocol, node)
+    )
+
+
+def _decode_base64_text(value: str) -> str:
+    return base64.b64decode(value + "=" * (-len(value) % 4), validate=True).decode("utf-8")
+
+
+def _valid_proxy_uri(candidate: str) -> bool:
+    scheme, separator, remainder = candidate.partition("://")
+    protocol = scheme.casefold()
+    if separator != "://" or protocol not in _SUBSCRIPTION_SCHEMES:
+        return False
+    if protocol == "vmess":
+        try:
+            raw = remainder.split("#", 1)[0].split("?", 1)[0]
+            node = json.loads(_decode_base64_text(raw))
+        except (binascii.Error, UnicodeError, json.JSONDecodeError, ValueError):
+            return False
+        return isinstance(node, dict) and _valid_node_host(node.get("add")) and _valid_node_port(node.get("port")) and bool(str(node.get("id", "")).strip()) and bool(str(node.get("net", "")).strip())
+    parsed = urlsplit(candidate)
+    if not _valid_node_host(parsed.hostname):
+        if protocol not in {"ss", "shadowsocks"}:
+            return False
+        try:
+            parsed = urlsplit(f"ss://{_decode_base64_text(remainder.split('#', 1)[0])}")
+        except (binascii.Error, UnicodeError, ValueError):
+            return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if not _valid_node_host(parsed.hostname) or not _valid_node_port(port) or not parsed.username:
+        return False
+    username = parsed.username
+    password = parsed.password
+    if protocol in {"ss", "shadowsocks"} and not password:
+        try:
+            username, password = _decode_base64_text(username).split(":", 1)
+        except (binascii.Error, UnicodeError, ValueError):
+            return False
+    if protocol in {"ss", "shadowsocks", "tuic", "socks", "socks5"}:
+        return bool(username and password)
+    return bool(username)
 
 
 def _parse_subscription(body: bytes, content_type: str, depth: int = 0) -> dict[str, int | str]:
@@ -77,25 +174,29 @@ def _parse_subscription(body: bytes, content_type: str, depth: int = 0) -> dict[
         payload = None
     if isinstance(payload, dict):
         if isinstance(payload.get("proxies"), list):
-            valid = [item for item in payload["proxies"] if isinstance(item, dict) and item.get("name") and item.get("server") and item.get("port")]
+            valid = [item for item in payload["proxies"] if isinstance(item, dict) and item.get("name") and _valid_structured_node(item)]
             if valid:
                 return {"format": "clash-json", "nodeCount": len(valid)}
         if isinstance(payload.get("outbounds"), list):
-            valid = [item for item in payload["outbounds"] if isinstance(item, dict) and item.get("type") in _SUBSCRIPTION_SCHEMES and item.get("server") and item.get("server_port")]
+            valid = [item for item in payload["outbounds"] if _valid_structured_node(item, singbox=True)]
             if valid:
                 return {"format": "sing-box-json", "nodeCount": len(valid)}
         raise ValueError("Subscription response contains no valid proxy node")
     uri_count = 0
     for line in text.splitlines():
         candidate = line.strip()
-        if "://" in candidate and candidate.split("://", 1)[0].casefold() in _SUBSCRIPTION_SCHEMES:
+        if _valid_proxy_uri(candidate):
             uri_count += 1
     if uri_count:
         return {"format": "uri-list", "nodeCount": uri_count}
     # Conservative Clash YAML recognition: require proxies plus per-node name/server/port fields.
     if re.search(r"(?m)^proxies\s*:\s*$", text):
         blocks = re.split(r"(?m)^\s*-\s+", text)[1:]
-        valid = [block for block in blocks if re.search(r"(?m)^\s*name\s*:", block) and re.search(r"(?m)^\s*server\s*:", block) and re.search(r"(?m)^\s*port\s*:", block)]
+        valid = []
+        for block in blocks:
+            fields = {match.group(1): match.group(2).strip().strip("'\"") for match in re.finditer(r"(?m)^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$", block)}
+            if fields.get("name") and _valid_structured_node(fields):
+                valid.append(fields)
         if valid:
             return {"format": "clash-yaml", "nodeCount": len(valid)}
     try:
@@ -122,9 +223,9 @@ def probe_subscription_url(value: str, max_bytes: int = 256 * 1024, timeout: flo
             max_bytes, timeout,
         )
     except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
-        raise ValueError("Subscription publisher is unreachable") from error
+        raise SubscriptionProbeError("Subscription publisher is unreachable", reachable=False) from error
     if not 200 <= status < 300:
-        raise ValueError(f"Subscription publisher returned HTTP {status}")
+        raise SubscriptionProbeError("Subscription publisher returned an unsuccessful HTTPS response", reachable=True)
     declared = headers.get("Content-Length")
     if declared:
         try:
@@ -132,12 +233,15 @@ def probe_subscription_url(value: str, max_bytes: int = 256 * 1024, timeout: flo
         except (TypeError, ValueError):
             declared_length = 0
         if declared_length > max_bytes:
-            raise ValueError("Subscription response exceeds 256 KiB")
+            raise SubscriptionProbeError("Subscription response exceeds 256 KiB", reachable=True)
     if not body:
-        raise ValueError("Subscription publisher returned an empty response")
+        raise SubscriptionProbeError("Subscription publisher returned an empty response", reachable=True)
     if len(body) > max_bytes:
-        raise ValueError("Subscription response exceeds 256 KiB")
-    return _parse_subscription(body, headers.get_content_type().lower())
+        raise SubscriptionProbeError("Subscription response exceeds 256 KiB", reachable=True)
+    try:
+        return _parse_subscription(body, headers.get_content_type().lower())
+    except ValueError as error:
+        raise SubscriptionProbeError(str(error), reachable=True) from error
 
 
 def validate_probe_target(value: str) -> tuple[str, int]:

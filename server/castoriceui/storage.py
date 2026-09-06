@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -16,6 +16,8 @@ from .auth import dummy_password_check, hash_password, token_hash, validate_pass
 RAW_SAMPLE_RETENTION_SECONDS = 8 * 86400
 DELTA_RETENTION_SECONDS = 400 * 86400
 TRAFFIC_BUCKET_SECONDS = 3600
+MAX_CONTINUOUS_SAMPLE_GAP_SECONDS = 300
+TRAFFIC_LEDGER_SCHEMA = "4"
 
 
 def utc_now() -> str:
@@ -136,7 +138,7 @@ class Storage:
     @staticmethod
     def _initialize_traffic_ledger(connection: sqlite3.Connection) -> None:
         migrated = connection.execute("SELECT value FROM settings WHERE key='traffic_ledger_schema'").fetchone()
-        if migrated is None or str(migrated[0]) != "3":
+        if migrated is None or str(migrated[0]) != TRAFFIC_LEDGER_SCHEMA:
             connection.execute("DELETE FROM traffic_deltas")
             connection.execute("DELETE FROM traffic_hourly")
             connection.execute(
@@ -159,9 +161,11 @@ class Storage:
                     CASE WHEN previous_tx IS NULL THEN 0 WHEN tx_bytes >= previous_tx THEN tx_bytes - previous_tx ELSE tx_bytes END,
                     CASE WHEN previous_rx IS NULL THEN 'source_start'
                          WHEN rx_bytes < previous_rx OR tx_bytes < previous_tx THEN 'counter_reset'
+                         WHEN captured_at - previous_at > ? THEN 'sampling_gap'
                          ELSE 'continuous' END
                 FROM ordered
-                """
+                """,
+                (MAX_CONTINUOUS_SAMPLE_GAP_SECONDS,),
             )
             connection.execute(
                 """
@@ -176,9 +180,9 @@ class Storage:
                 (TRAFFIC_BUCKET_SECONDS, TRAFFIC_BUCKET_SECONDS, TRAFFIC_BUCKET_SECONDS),
             )
             connection.execute(
-                "INSERT INTO settings(key,value,updated_at) VALUES('traffic_ledger_schema','3',?) "
-                "ON CONFLICT(key) DO UPDATE SET value='3',updated_at=excluded.updated_at",
-                (utc_now(),),
+                "INSERT INTO settings(key,value,updated_at) VALUES('traffic_ledger_schema',?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                (TRAFFIC_LEDGER_SCHEMA, utc_now()),
             )
         newest = connection.execute("SELECT MAX(captured_at) FROM samples").fetchone()[0]
         if newest is not None:
@@ -219,10 +223,16 @@ class Storage:
         previous_at: int | None = None
         if previous is not None:
             previous_at = int(previous["captured_at"])
-            reset = int(sample["rx_bytes"]) < int(previous["rx_bytes"]) or int(sample["tx_bytes"]) < int(previous["tx_bytes"])
-            received = int(sample["rx_bytes"]) if reset else int(sample["rx_bytes"]) - int(previous["rx_bytes"])
-            transmitted = int(sample["tx_bytes"]) if reset else int(sample["tx_bytes"]) - int(previous["tx_bytes"])
-            coverage_state = "counter_reset" if reset else "continuous"
+            rx_reset = int(sample["rx_bytes"]) < int(previous["rx_bytes"])
+            tx_reset = int(sample["tx_bytes"]) < int(previous["tx_bytes"])
+            received = int(sample["rx_bytes"]) if rx_reset else int(sample["rx_bytes"]) - int(previous["rx_bytes"])
+            transmitted = int(sample["tx_bytes"]) if tx_reset else int(sample["tx_bytes"]) - int(previous["tx_bytes"])
+            if rx_reset or tx_reset:
+                coverage_state = "counter_reset"
+            elif captured_at - previous_at > MAX_CONTINUOUS_SAMPLE_GAP_SECONDS:
+                coverage_state = "sampling_gap"
+            else:
+                coverage_state = "continuous"
         connection.execute(
             """
             INSERT INTO traffic_deltas(captured_at,previous_at,received_bytes,transmitted_bytes,coverage_state) VALUES(?,?,?,?,?)
@@ -357,24 +367,34 @@ class Storage:
                 """
                 SELECT COUNT(*) AS samples,
                        SUM(CASE WHEN coverage_state='counter_reset' THEN 1 ELSE 0 END) AS resets,
-                       SUM(CASE WHEN coverage_state='source_start' AND captured_at>? THEN 1 ELSE 0 END) AS gaps,
+                       SUM(CASE WHEN (coverage_state='source_start' AND captured_at>?) OR coverage_state='sampling_gap' THEN 1 ELSE 0 END) AS gaps,
                        MIN(captured_at) AS first_at, MAX(captured_at) AS last_at
                 FROM traffic_deltas WHERE captured_at>=? AND captured_at<?
                 """,
                 (int(start_timestamp), int(start_timestamp), int(end_timestamp)),
             ).fetchone()
+            crossing_count = int(connection.execute(
+                """
+                SELECT COUNT(*) FROM traffic_deltas
+                WHERE captured_at>=? AND captured_at<? AND previous_at<? AND coverage_state='continuous'
+                """,
+                (int(start_timestamp), int(end_timestamp), int(start_timestamp)),
+            ).fetchone()[0])
         received = int(boundary["received"]) + int(hourly[0]) + int(tail[0]) - int(crossing[0])
         transmitted = int(boundary["transmitted"]) + int(hourly[1]) + int(tail[1]) - int(crossing[1])
         used = max(received, transmitted) if count_mode == "max" else received + transmitted
+        samples = int(coverage_row["samples"] or 0)
+        resets = int(coverage_row["resets"] or 0)
+        gaps = int(coverage_row["gaps"] or 0) + crossing_count + (1 if samples == 0 else 0)
         return {
             "usedBytes": used,
             "receivedBytes": received,
             "transmittedBytes": transmitted,
             "countMode": count_mode,
             "coverage": {
-                "complete": int(coverage_row["resets"] or 0) == 0 and int(coverage_row["gaps"] or 0) == 0,
-                "gapCount": int(coverage_row["gaps"] or 0) + int(coverage_row["resets"] or 0),
-                "resetCount": int(coverage_row["resets"] or 0),
+                "complete": samples > 0 and resets == 0 and gaps == 0,
+                "gapCount": gaps + resets,
+                "resetCount": resets,
                 "firstSampleAt": int(coverage_row["first_at"]) if coverage_row["first_at"] is not None else None,
                 "lastSampleAt": int(coverage_row["last_at"]) if coverage_row["last_at"] is not None else None,
             },
@@ -463,6 +483,8 @@ class Storage:
                    (SELECT episode_id FROM alert_state WHERE active=0)""",
                 (now,),
             )
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.audit_retention_days)).isoformat(timespec="seconds")
+            connection.execute("DELETE FROM alert_history WHERE resolved_at IS NOT NULL AND resolved_at < ?", (cutoff,))
             for alert_id in current_ids:
                 row = connection.execute(
                     "SELECT active FROM alert_state WHERE alert_id=?", (alert_id,)
@@ -513,20 +535,22 @@ class Storage:
                 "episodeId": str(row["episode_id"]),
                 "startedAt": str(row["started_at"]),
                 "acknowledged": row["acknowledged_at"] is not None,
+                "acknowledgedAt": row["acknowledged_at"],
             }
             for row in rows
         }
 
     def acknowledge(self, alert_id: str) -> bool:
+        acknowledged_at = utc_now()
         with self.lock, self.connect() as connection:
             cursor = connection.execute(
                 "UPDATE alert_state SET acknowledged_at=? WHERE alert_id=? AND active=1",
-                (utc_now(), alert_id),
+                (acknowledged_at, alert_id),
             )
             if cursor.rowcount == 1:
                 connection.execute(
                     "UPDATE alert_history SET acknowledged_at=? WHERE episode_id=(SELECT episode_id FROM alert_state WHERE alert_id=?)",
-                    (utc_now(), alert_id),
+                    (acknowledged_at, alert_id),
                 )
         return cursor.rowcount == 1
 
@@ -542,6 +566,7 @@ class Storage:
                 "alertId": str(row["alert_id"]), "episodeId": str(row["episode_id"]),
                 "startedAt": str(row["started_at"]), "resolvedAt": row["resolved_at"],
                 "acknowledged": row["acknowledged_at"] is not None,
+                "acknowledgedAt": row["acknowledged_at"],
                 "status": "resolved" if row["resolved_at"] else "active",
             })
             result.append(payload)

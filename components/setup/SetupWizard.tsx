@@ -33,7 +33,19 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
       setStep(2);
     } catch (caught) {
       const code = caught instanceof ApiError ? caught.code : "";
-      const fieldMessage = code === "invalid_username" ? t("用户名格式无效。", "The username format is invalid.") : code === "weak_password" ? t("密码强度不足。", "The password is too weak.") : "";
+      const fieldMessages: Record<string, string> = {
+        missing_upstream_secret: t("请先在服务器受保护配置中填写该上游 Secret。", "Configure the upstream secret in the protected server configuration first."),
+        missing_required_fields: t("请填写所有必填参数后再验证。", "Complete all required fields before validating."),
+        inbound_tag_not_found: t("请确认入站标签在当前运行核心中存在且只映射一次。", "Confirm that every inbound tag exists uniquely in the running core."),
+        protocol_probe_unavailable: t("协议状态采集不可用；请检查探针服务与状态文件。", "Protocol evidence is unavailable. Check the probe service and status file."),
+        protocol_probe_stale: t("协议状态证据已过期；按既有变更流程重载核心并等待新探针结果。", "Protocol evidence is stale. Reload the core through the normal change procedure and wait for a fresh probe."),
+        invalid_subscription: t("订阅 HTTPS 响应或节点格式无效；尚未验证客户端导入与代理连通性。", "The subscription HTTPS response or node format is invalid; client import and proxy connectivity remain unverified."),
+        upstream_unavailable: t("无法连接本机上游 API；请检查服务、回环地址和认证配置。", "The loopback upstream API is unavailable. Check the service, endpoint, and authentication."),
+        upstream_invalid_response: t("上游 API 已响应，但返回格式不符合要求。", "The upstream API responded with an unsupported payload."),
+        network_unavailable: t("浏览器无法连接后端，请检查网络。", "The browser cannot reach the backend. Check the network."),
+        request_timeout: t("验证请求超时，服务器未确认保存。", "The validation request timed out; the save was not confirmed."),
+      };
+      const fieldMessage = fieldMessages[code] ?? "";
       setValidationError(fieldMessage || (selected === "subscriptions"
         ? t("订阅发布器未通过服务器可达性与节点格式验证，配置未保存。请检查 TLS、地址、受保护订阅记录和返回内容。此验证不代表客户端导入或代理连通性。", "The publisher failed server-side reachability and node-format validation, so nothing was saved. Check TLS, the address, protected subscription records, and response content. This does not prove client import or proxy connectivity.")
         : isProtocol

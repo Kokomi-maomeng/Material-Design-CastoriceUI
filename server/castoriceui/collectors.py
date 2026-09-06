@@ -28,6 +28,31 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _read_response_before(response: Any, max_bytes: int, deadline: float) -> bytes:
+    """Read incrementally so a peer cannot extend a request forever by dripping bytes."""
+    chunks: list[bytes] = []
+    total = 0
+    reader = getattr(response, "read1", response.read)
+    raw_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+    while total <= max_bytes:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Integration response exceeded the total deadline")
+        if raw_socket is not None:
+            try:
+                raw_socket.settimeout(max(0.001, remaining))
+            except OSError:
+                # A small response may already have reached EOF and closed its
+                # transport before urllib exposes the buffered final bytes.
+                pass
+        chunk = reader(min(65_536, max_bytes + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
+
+
 def run(command: list[str], timeout: float = 2.5) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
@@ -214,11 +239,12 @@ def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float =
         # Management credentials must never cross a redirect boundary. Runtime
         # collection and setup validation deliberately use the same policy.
         opener = urllib.request.build_opener(_NoRedirect)
+        deadline = time.monotonic() + timeout
         with opener.open(request, timeout=timeout) as response:
             declared = response.headers.get("Content-Length")
             if declared and int(declared) > max_bytes:
                 raise ValueError("Integration response exceeds the size limit")
-            body = response.read(max_bytes + 1)
+            body = _read_response_before(response, max_bytes, deadline)
             if len(body) > max_bytes:
                 raise ValueError("Integration response exceeds the size limit")
             return json.loads(body)
@@ -355,9 +381,9 @@ def service_state(unit: str) -> tuple[str, int]:
 
 def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: int = 443) -> dict[str, Any]:
     if not path:
-        return {"status": "warning", "state": "unconfigured", "detail": "Certificate path is not configured", "days": None, "renewalEvidence": "unconfigured"}
+        return {"status": "warning", "state": "unconfigured", "detail": "Certificate path is not configured; endpoint and renewal evidence are unconfigured", "days": None, "renewalEvidence": "unconfigured", "endpointEvidence": "unconfigured"}
     if not Path(path).exists():
-        return {"status": "warning", "state": "unreadable", "detail": "Configured certificate file does not exist", "days": None, "renewalEvidence": "unknown"}
+        return {"status": "warning", "state": "unreadable", "detail": "Configured certificate file does not exist; endpoint and renewal evidence are unknown", "days": None, "renewalEvidence": "unknown", "endpointEvidence": "unknown"}
     try:
         decoded = ssl._ssl._test_decode_cert(path)  # type: ignore[attr-defined]
         expires = datetime.strptime(decoded["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
@@ -368,7 +394,13 @@ def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: in
         endpoint_evidence = "unconfigured"
         if host:
             try:
-                expected = ssl.PEM_cert_to_DER_cert(Path(path).read_text(encoding="ascii"))
+                pem_text = Path(path).read_text(encoding="ascii")
+                begin_marker = "-----BEGIN {}-----".format("CERTIFICATE")
+                end_marker = "-----END {}-----".format("CERTIFICATE")
+                leaf = re.search(re.escape(begin_marker) + r".*?" + re.escape(end_marker), pem_text, re.DOTALL)
+                if leaf is None:
+                    raise ValueError("Certificate file has no PEM certificate")
+                expected = ssl.PEM_cert_to_DER_cert(leaf.group(0))
                 context = ssl.create_default_context()
                 with socket.create_connection((host, port), timeout=3) as raw_socket:
                     with context.wrap_socket(raw_socket, server_hostname=host) as tls_socket:
@@ -376,11 +408,12 @@ def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: in
             except (OSError, ssl.SSLError, ValueError):
                 endpoint_evidence = "unavailable"
         evidence_ok = endpoint_evidence in {"verified", "unconfigured"} and renewal in {"active", "unconfigured"}
+        expiry_detail = "Certificate is expired" if state == "expired" else f"{days} days remaining"
         return {"status": "running" if state == "valid" and evidence_ok else "warning", "state": state,
-                "detail": "Certificate is expired" if state == "expired" else f"{days} days remaining",
+                "detail": f"{expiry_detail}; endpoint evidence {endpoint_evidence}; renewal evidence {renewal}",
                 "days": days, "renewalEvidence": renewal, "endpointEvidence": endpoint_evidence}
     except (OSError, ValueError, KeyError):
-        return {"status": "warning", "state": "unreadable", "detail": "Unable to read certificate", "days": None, "renewalEvidence": "unknown"}
+        return {"status": "warning", "state": "unreadable", "detail": "Unable to read certificate; endpoint and renewal evidence are unknown", "days": None, "renewalEvidence": "unknown", "endpointEvidence": "unknown"}
 
 
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
@@ -506,7 +539,7 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
         return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
                 "measurementStatus": "unavailable", "probeReason": "probeUnavailable", "history": []}
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=4, check=False)
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=4, check=False, env={**os.environ, "LC_ALL": "C", "LANG": "C"})
         output = "\n".join(value for value in (completed.stdout, completed.stderr) if value)
     except subprocess.TimeoutExpired:
         return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
@@ -518,14 +551,24 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
     loss_match = re.search(r"([0-9.]+)% packet loss", output)
     loss = float(loss_match.group(1)) if loss_match else None
     if not values:
-        reason = "noReply" if loss is not None else "dnsFailure" if "unknown host" in output.casefold() or "name or service" in output.casefold() else "probeFailed"
+        lowered = output.casefold()
+        local_reason = (
+            "dnsFailure" if any(marker in lowered for marker in ("unknown host", "name or service", "temporary failure in name resolution"))
+            else "permissionDenied" if any(marker in lowered for marker in ("operation not permitted", "permission denied"))
+            else "noRoute" if any(marker in lowered for marker in ("network is unreachable", "no route to host", "address family not supported"))
+            else None
+        )
+        if local_reason:
+            return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
+                    "measurementStatus": "unavailable", "probeReason": local_reason, "history": []}
+        reason = "noReply" if loss is not None else "probeFailed"
         return {**base, "latency": None, "jitter": None, "loss": loss, "status": "down" if loss is not None else "unavailable",
                 "measurementStatus": "measured" if loss is not None else "unavailable", "probeReason": reason, "history": []}
     latency = round(statistics.mean(values), 1)
     jitter = round(statistics.pstdev(values), 1) if len(values) > 1 else None
     status = "degraded" if (loss or 0) >= 5 or latency >= 150 else "healthy"
     return {**base, "latency": latency, "jitter": jitter, "loss": loss, "status": status,
-            "measurementStatus": "measured", "probeReason": "measured", "history": values}
+            "measurementStatus": "measured", "probeReason": "insufficientSamples" if len(values) == 1 else "measured", "history": values}
 
 
 def network_snapshots(config: AppConfig) -> list[dict[str, Any]]:

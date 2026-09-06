@@ -38,6 +38,8 @@ export interface Connection {
   connections: number;
   uploadBps: number | null;
   downloadBps: number | null;
+  ratesPartial?: boolean;
+  rateCoverage?: { known: number; total: number };
   connectedAt: string | null;
   uploadedBytes?: number;
   downloadedBytes?: number;
@@ -257,6 +259,7 @@ export interface AlertItem {
   episodeId: string;
   startedAt: string;
   resolvedAt?: string | null;
+  acknowledgedAt?: string | null;
   status?: "active" | "resolved";
   source: string;
   sourceZh?: string;

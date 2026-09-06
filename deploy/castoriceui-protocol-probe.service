@@ -1,6 +1,5 @@
 [Unit]
 Description=CastoriceUI read-only protocol inventory
-After=sing-box.service
 
 [Service]
 Type=oneshot

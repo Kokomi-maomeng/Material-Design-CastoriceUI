@@ -201,7 +201,7 @@ class BackendTests(unittest.TestCase):
             self.assertEqual([item["startDate"] for item in monthly], ["2023-10-01", "2023-11-01", "2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01"])
             self.assertEqual({key: monthly[3][key] for key in ("startDate", "endDate", "bytes")}, {"startDate": "2024-01-01", "endDate": "2024-01-31", "bytes": 130})
             self.assertEqual({key: monthly[4][key] for key in ("startDate", "endDate", "bytes")}, {"startDate": "2024-02-01", "endDate": "2024-02-29", "bytes": 250})
-            self.assertTrue(monthly[3]["coverage"]["complete"])
+            self.assertFalse(monthly[3]["coverage"]["complete"])
             self.assertEqual(monthly[5]["bytes"], 0)
 
     def test_traffic_usage_between_does_not_cross_calendar_or_source_boundaries(self) -> None:
@@ -304,7 +304,9 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(states["hysteria2"]["status"], "error")
             self.assertEqual(states["connections"]["status"], "error")
             self.assertEqual(states["subscriptions"]["status"], "error")
-            self.assertIn("did not pass", states["subscriptions"]["summary"])
+            self.assertIn("HTTPS reachable 0/1", states["subscriptions"]["summary"])
+            self.assertIn("node format parseable 0/1", states["subscriptions"]["summary"])
+            self.assertIn("client import unverified", states["subscriptions"]["summary"])
             self.assertEqual(states["system"]["status"], "error")
 
     def test_runtime_integration_values_reopen_with_effective_non_secret_configuration(self) -> None:
@@ -444,7 +446,7 @@ class BackendTests(unittest.TestCase):
             finally:
                 connection.close()
             storage = Storage(path)
-            self.assertEqual(storage.get_setting("traffic_ledger_schema", 0), 3)
+            self.assertEqual(storage.get_setting("traffic_ledger_schema", 0), 4)
             self.assertEqual(storage.traffic_usage_since(100)["usedBytes"], 90)
 
     def test_saved_traffic_baseline_keeps_its_original_cycle_on_restart(self) -> None:

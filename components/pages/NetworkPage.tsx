@@ -238,6 +238,7 @@ export function NetworkPage({
                 <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter === null ? "—" : `${target.jitter.toFixed(1)} ms`}</b></div>
                 <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={(target.loss ?? 0) > 1 ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
               </div>
+              {target.probeReason === "insufficientSamples" ? <small>{t("仅有一个成功样本；抖动需要至少两个样本。", "Only one successful sample; jitter requires at least two samples.")}</small> : null}
               <div className="network-target-card__chart">
                 <div className="network-target-card__chart-title"><span>{t("延迟趋势", "Latency trend")}</span><b>{target.latency === null ? t("无有效样本", "No valid sample") : `${target.latency.toFixed(1)} ms`}</b></div>
                 <div className="sparkline" aria-label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)}>

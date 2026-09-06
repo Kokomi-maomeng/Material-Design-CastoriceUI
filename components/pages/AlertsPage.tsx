@@ -29,6 +29,7 @@ export function AlertsPage({
     [alerts, filter],
   );
   const unacknowledged = alerts.filter((item) => item.status !== "resolved" && !item.acknowledged).length;
+  const eventTime = (value: string) => new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(value));
   return (
     <div className="page-content page-enter">
       <PageHeader
@@ -151,11 +152,9 @@ export function AlertsPage({
                       : alert.descriptionEn || alert.description,
                   )}
                 </p>
-                <span>
-                  {language === "zh"
-                    ? alert.timeZh || alert.time
-                    : alert.timeEn || alert.time}
-                </span>
+                <span>{t("开始", "Started")}: {eventTime(alert.startedAt)}</span>
+                {alert.resolvedAt ? <span>{t("恢复", "Recovered")}: {eventTime(alert.resolvedAt)}</span> : null}
+                {alert.acknowledgedAt ? <span>{t("确认", "Acknowledged")}: {eventTime(alert.acknowledgedAt)}</span> : null}
               </div>
               <div className="alert-row__actions">
                 {alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : !alert.acknowledged ? (

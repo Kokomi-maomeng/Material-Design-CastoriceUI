@@ -35,6 +35,9 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
         invalid_username: t("用户名需为 3–64 位，并仅包含字母、数字、点、连字符或下划线。", "Use 3–64 letters, numbers, dots, hyphens, and underscores for the username."),
         weak_password: t("密码需为 12–512 位，并包含大小写字母、数字、符号中的至少三类。", "Use 12–512 characters and at least three of uppercase, lowercase, numbers, and symbols."),
         request_timeout: t("登录请求超时；服务器未确认操作，请重试。", "The sign-in request timed out and was not confirmed. Try again."),
+        network_unavailable: t("无法连接登录服务；请检查网络或服务器状态。", "Cannot reach the sign-in service. Check the network or server."),
+        service_unavailable: t("登录服务当前不可用，请稍后重试。", "The sign-in service is temporarily unavailable. Try again later."),
+        upstream_unavailable: t("上游网关无法连接登录服务，请稍后重试。", "The gateway cannot reach the sign-in service. Try again later."),
       };
       setError(messages[code] ?? t("无法连接登录服务，请稍后重试。", "The sign-in service is unavailable. Try again later."));
     } finally {

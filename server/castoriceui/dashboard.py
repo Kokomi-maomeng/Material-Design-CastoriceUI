@@ -98,6 +98,8 @@ class DashboardService:
         if sanitized_legacy_secrets:
             storage.set_setting("integration_overrides", overrides)
             storage.add_audit("清理旧版接入密钥", "配置", "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret")
+        if has_saved_targets:
+            self._persist_network_targets(config.network_targets)
 
     def _apply_quota_state_to_config(self, state: dict[str, Any]) -> None:
         self.config.traffic_limit_bytes = int(state["bytes"])
@@ -393,14 +395,16 @@ class DashboardService:
         persisted_values = {} if integration_id == "subscriptions" else clean_values
         if integration_id == "traffic":
             persisted_values = {key: value for key, value in clean_values.items() if key == "interface"}
-        state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": persisted_values}
         self._apply_integration_values(integration_id, clean_values)
         if integration_id == "network":
-            self.storage.set_setting("network_targets", self.config.network_targets)
+            persisted_values = {"targets": self._network_targets_text(self.config.network_targets)}
+        state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": persisted_values}
         overrides = self.storage.get_setting("integration_overrides", {})
         overrides[integration_id] = state
         self.storage.set_setting("integration_overrides", overrides)
         self.config.integrations[integration_id].update(state)
+        if integration_id == "network":
+            self._persist_network_targets(self.config.network_targets, state)
         self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新", source_ip, actor=actor)
         return next(item for item in self.config.public_integrations() if item["id"] == integration_id)
 
@@ -569,19 +573,21 @@ class DashboardService:
         if not urls:
             result = {"configured": False, "ready": False, "count": 0, "reachable": 0, "parseable": 0, "formats": [], "validationLevel": "not-configured"}
         else:
-            outcomes: list[dict[str, Any] | None] = []
-            def inspect(url: str) -> dict[str, Any] | None:
+            outcomes: list[dict[str, Any]] = []
+            def inspect(url: str) -> dict[str, Any]:
                 try:
                     batches = max(1, (len(urls[:50]) + 11) // 12)
-                    return probe_subscription_url(url, timeout=max(0.5, min(3, 7 / batches)))
-                except ValueError:
-                    return None
+                    parsed = probe_subscription_url(url, timeout=max(0.5, min(3, 7 / batches)))
+                    evidence = dict(parsed) if isinstance(parsed, dict) else {"format": "unknown", "nodeCount": 0}
+                    return {**evidence, "reachable": True, "parseable": True}
+                except ValueError as error:
+                    return {"reachable": bool(getattr(error, "reachable", False)), "parseable": False}
             limited_urls = urls[:50]
             with ThreadPoolExecutor(max_workers=min(12, len(limited_urls)), thread_name_prefix="subscription") as pool:
                 outcomes = list(pool.map(inspect, limited_urls))
-            parsed = [item for item in outcomes if item]
+            parsed = [item for item in outcomes if item["parseable"]]
             result = {"configured": True, "ready": len(parsed) == len(limited_urls), "count": len(protected_urls) or len(limited_urls),
-                      "reachable": len(parsed), "parseable": len(parsed),
+                      "reachable": sum(1 for item in outcomes if item["reachable"]), "parseable": len(parsed),
                       "formats": sorted({str(item["format"]) for item in parsed}),
                       "validationLevel": "reachability-and-format-only"}
         self.subscription_probe_cache = (fingerprint, time.monotonic() + 60, dict(result))
@@ -602,7 +608,7 @@ class DashboardService:
             self.config.network_targets = targets
             self.cached_network = []
             self.network_at = 0.0
-            self.storage.set_setting("network_targets", targets)
+            self._persist_network_targets(targets)
         self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
         return targets
 
@@ -627,7 +633,7 @@ class DashboardService:
             except (TypeError, ValueError) as error:
                 raise ValueError("Network target order must be an integer") from error
             targets.append({
-                "id": f"custom-{index + 1}",
+                "id": "custom-" + hashlib.sha256(address.encode("utf-8")).hexdigest()[:16],
                 "name": name,
                 "provider": "Custom",
                 "address": address,
@@ -636,9 +642,31 @@ class DashboardService:
             })
         targets.sort(key=lambda item: (item["order"], item["name"].casefold()))
         for index, item in enumerate(targets, 1):
-            item["id"] = f"custom-{index}"
             item["order"] = index
         return targets
+
+    @staticmethod
+    def _network_targets_text(targets: list[dict[str, Any]]) -> str:
+        return "\n".join(f"{item['name']},{item['address']}" for item in targets)
+
+    def _persist_network_targets(self, targets: list[dict[str, Any]], state: dict[str, Any] | None = None) -> None:
+        """Keep the editor, wizard and runtime configuration on one canonical value."""
+        self.storage.set_setting("network_targets", targets)
+        overrides = self.storage.get_setting("integration_overrides", {})
+        if not isinstance(overrides, dict):
+            overrides = {}
+        current = dict(overrides.get("network", {})) if isinstance(overrides.get("network"), dict) else {}
+        current.update(state or {})
+        current.update({
+            "enabled": bool(current.get("enabled", True)),
+            "configured": bool(targets),
+            "status": "ready" if targets else "pending",
+            "summary": "Probe targets saved; runtime reachability is reported separately" if targets else "Complete the required fields",
+            "values": {"targets": self._network_targets_text(targets)},
+        })
+        overrides["network"] = current
+        self.storage.set_setting("integration_overrides", overrides)
+        self.config.integrations.setdefault("network", {}).update(current)
 
     def traffic_series(self) -> dict[str, Any]:
         now = int(time.time())
@@ -793,21 +821,24 @@ class DashboardService:
             detail = {**item, "uploadBps": upload_rate, "downloadBps": download_rate}
             key = (str(item["protocol"]), str(item["account"]), str(item["sourceIp"]))
             if key not in groups:
-                groups[key] = {"id": "group-" + str(len(groups) + 1), "protocol": key[0], "account": key[1], "sourceIp": key[2], "ipVersion": item.get("ipVersion"), "connections": 0, "uploadBps": 0, "downloadBps": 0, "connectedAt": item.get("connectedAt"), "uploadedBytes": 0, "downloadedBytes": 0, "details": [], "ratesAvailable": True}
+                groups[key] = {"id": "group-" + str(len(groups) + 1), "protocol": key[0], "account": key[1], "sourceIp": key[2], "ipVersion": item.get("ipVersion"), "connections": 0, "uploadBps": 0, "downloadBps": 0, "connectedAt": item.get("connectedAt"), "uploadedBytes": 0, "downloadedBytes": 0, "details": [], "knownRates": 0}
             group = groups[key]
             group["connections"] += 1
             group["uploadedBytes"] += uploaded; group["downloadedBytes"] += downloaded
             group["details"].append(detail)
             if item.get("connectedAt") and (not group["connectedAt"] or str(item["connectedAt"]) < str(group["connectedAt"])):
                 group["connectedAt"] = item["connectedAt"]
-            if upload_rate is None or download_rate is None:
-                group["ratesAvailable"] = False
-            else:
+            if upload_rate is not None and download_rate is not None:
+                group["knownRates"] += 1
                 group["uploadBps"] += upload_rate; group["downloadBps"] += download_rate
         self.connection_baseline = current
         for group in groups.values():
-            if not group.pop("ratesAvailable"):
+            known_rates = int(group.pop("knownRates"))
+            total_rates = int(group["connections"])
+            if known_rates == 0:
                 group["uploadBps"] = None; group["downloadBps"] = None
+            group["ratesPartial"] = 0 < known_rates < total_rates
+            group["rateCoverage"] = {"known": known_rates, "total": total_rates}
         return list(groups.values())
 
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]], integrations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -989,12 +1020,11 @@ class DashboardService:
         subscription_count = int(subscription_state.get("count", 0))
         subscriptions_configured = bool(subscription_state.get("configured"))
         subscriptions_ready = bool(subscription_state.get("ready"))
-        if subscriptions_ready:
-            subscription_summary = f"{subscription_count} protected subscription record(s) were reachable and parseable; client import and proxy connectivity were not verified"
-            subscription_summary_zh = f"{subscription_count} 条受保护订阅记录可达且格式可解析；未验证客户端导入及代理连通性"
-        elif subscriptions_configured:
-            subscription_summary = "The subscription publisher did not pass the live HTTPS response probe"
-            subscription_summary_zh = "订阅发布器未通过 HTTPS 实际响应验证"
+        subscription_reachable = int(subscription_state.get("reachable", 0))
+        subscription_parseable = int(subscription_state.get("parseable", 0))
+        if subscriptions_configured:
+            subscription_summary = f"Configured {subscription_count}; HTTPS reachable {subscription_reachable}/{subscription_count}; node format parseable {subscription_parseable}/{subscription_count}; client import unverified; proxy connectivity unverified"
+            subscription_summary_zh = f"已配置 {subscription_count} 条；HTTPS 可达 {subscription_reachable}/{subscription_count}；节点格式可解析 {subscription_parseable}/{subscription_count}；客户端导入未验证；代理连通性未验证"
         else:
             subscription_summary = "No protected subscription records are configured"
             subscription_summary_zh = "尚未配置受保护订阅记录"

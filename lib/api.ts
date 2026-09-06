@@ -19,6 +19,10 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
   const timeoutMs = path.includes("/dashboard") ? 10_000 : 8_000;
   const timeout = window.setTimeout(() => controller.abort("request_timeout"), timeoutMs);
   const externalSignal = init?.signal;
+  if (externalSignal?.aborted) {
+    window.clearTimeout(timeout);
+    throw new ApiError(499, "request_aborted");
+  }
   const abortFromCaller = () => controller.abort(externalSignal?.reason);
   externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
   let response: Response;
@@ -26,7 +30,9 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
     response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted && !externalSignal?.aborted) throw new ApiError(408, "request_timeout");
-    throw error;
+    if (externalSignal?.aborted) throw new ApiError(499, "request_aborted");
+    if (error instanceof TypeError) throw new ApiError(0, "network_unavailable");
+    throw new ApiError(0, "request_failed");
   } finally {
     window.clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abortFromCaller);
@@ -34,7 +40,9 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
   let body: unknown = null;
   try { body = await response.json(); } catch { /* A proxy error may not be JSON. */ }
   if (!response.ok) {
-    const error = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "request_failed";
+    const fallbackCodes: Record<number, string> = { 401: "session_expired", 403: "forbidden", 408: "request_timeout", 502: "upstream_unavailable", 503: "service_unavailable", 504: "upstream_timeout" };
+    const serverError = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "";
+    const error = response.status === 401 && serverError === "authentication_required" ? "session_expired" : serverError || fallbackCodes[response.status] || "request_failed";
     const message = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : undefined;
     const field = body && typeof body === "object" && "field" in body ? String((body as { field: unknown }).field) : undefined;
     throw new ApiError(response.status, error, message, field);

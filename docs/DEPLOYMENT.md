@@ -33,13 +33,15 @@ sudo apt-get install --no-install-recommends python3 nginx ca-certificates
 
 Before installation or upgrade, run the shipped read-only preflight from the staged release:
 
+Fresh Debian 12/13 independent acceptance was not run in this repository-only review; execute this preflight and the target-host checks below before deployment.
+
 ```bash
 sudo python3 server/preflight.py --config /etc/castoriceui/config.json | tee /tmp/castoriceui-preflight.json
 ```
 
 For a first install without a config, first copy `server/config.example.json` to a temporary root-only file, edit only intended values, and pass that temporary path to preflight. The preflight reads OS metadata, paths, listeners, systemd state, the protected configuration and `nginx -t`; it does not install, write, reload, enable, stop or restart anything. A `fail` blocks deployment. A `warning` requires an operator decision and written rollback point.
 
-If existing units or binaries have non-default names, set `hysteria_unit`, `singbox_unit`, `nginx_unit`, `hysteria_binary`, `singbox_binary`, and `protocol_status_path` in the protected config. For the root protocol probe, place matching `SING_BOX_UNIT` and `CASTORICEUI_PROTOCOL_STATUS` values in `/etc/castoriceui/protocol-probe.env`; do not edit the upstream proxy configuration merely to fit defaults.
+If existing units or binaries have non-default names, set `hysteria_unit`, `singbox_unit`, `nginx_unit`, `hysteria_binary`, `singbox_binary`, and `protocol_status_path` in the protected config. For the root protocol probe, copy [`../deploy/protocol-probe.env.example`](../deploy/protocol-probe.env.example) to `/etc/castoriceui/protocol-probe.env` and set matching `SING_BOX_UNIT` and `CASTORICEUI_PROTOCOL_STATUS` values; do not edit the upstream proxy configuration merely to fit defaults.
 
 ## 2. Choose an artifact and inspect it / 选择交付物并检查
 
@@ -129,10 +131,13 @@ Validate each core with its own binary, restart one service at a time, then test
 
 ### Read-only protocol health probe (v4.1+)
 
-Install the probe on both new installations and upgrades, after the backend release path is in place:
+Install the probe on both new installations and upgrades, after the backend release path is in place. Preserve an existing environment file on upgrades so custom unit and status-path values are not reset:
 
 ```bash
 sudo install -m 0644 deploy/castoriceui-protocol-probe.service deploy/castoriceui-protocol-probe.timer /etc/systemd/system/
+if [ ! -e /etc/castoriceui/protocol-probe.env ]; then
+  sudo install -m 0644 deploy/protocol-probe.env.example /etc/castoriceui/protocol-probe.env
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable --now castoriceui-protocol-probe.timer
 sudo systemctl start castoriceui-protocol-probe.service

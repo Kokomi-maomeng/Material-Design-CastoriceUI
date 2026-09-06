@@ -49,6 +49,7 @@ def inspect(config_path: str) -> dict[str, Any]:
     os_id = os_release.get("ID", "").strip('"')
     os_version = os_release.get("VERSION_ID", "").strip('"')
     add("operating-system", "pass" if os_id == "debian" and os_version in {"12", "13"} else "warning", f"{os_id or 'unknown'} {os_version or 'unknown'}")
+    add("independent-fresh-host-acceptance", "info", "Repository tests did not run independent fresh Debian 12/13 acceptance; this host-local preflight is only one required deployment check")
 
     for executable in ("python3", "nginx", "systemctl"):
         resolved = shutil.which(executable)

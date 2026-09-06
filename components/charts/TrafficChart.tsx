@@ -34,7 +34,8 @@ function sampleKeys(data: TrafficPoint[]): string[] {
 
 export function TrafficChart({ data }: { data: TrafficPoint[] }) {
   const { t } = useI18n();
-  const resetKey = `${data.length}:${data[0]?.capturedAt ?? data[0]?.label ?? "empty"}:${data.at(-1)?.capturedAt ?? data.at(-1)?.label ?? "empty"}`;
+  const last = data[data.length - 1];
+  const resetKey = `${data.length}:${data[0]?.capturedAt ?? data[0]?.label ?? "empty"}:${last?.capturedAt ?? last?.label ?? "empty"}`;
   return <TrafficChartBoundary key={resetKey} fallback={<div className="chart-empty" role="alert">{t("流量图暂时无法显示；其他页面仍可使用", "The traffic chart is temporarily unavailable; other pages remain usable")}</div>}>
     <TrafficChartPlot data={data} />
   </TrafficChartBoundary>;
@@ -101,7 +102,7 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
   const labelStep = Math.max(1, Math.ceil(data.length / 7));
   const showAxisLabel = (index: number) => index === 0 || index === data.length - 1 || index % labelStep === 0;
 
-  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend; use the pointer or arrow keys to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActiveKey(null)} onFocus={() => setActiveKey((value) => value && keys.includes(value) ? value : keys.at(-1) ?? null)} onBlur={() => setActiveKey(null)} onKeyDown={moveSelection}>
+  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend; use the pointer or arrow keys to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActiveKey(null)} onFocus={() => setActiveKey((value) => value && keys.includes(value) ? value : keys[keys.length - 1] ?? null)} onBlur={() => setActiveKey(null)} onKeyDown={moveSelection}>
     <defs><linearGradient id="nativeDownloadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-primary)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--chart-primary)" stopOpacity=".02" /></linearGradient><linearGradient id="nativeUploadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-secondary)" stopOpacity=".22" /><stop offset="100%" stopColor="var(--chart-secondary)" stopOpacity=".01" /></linearGradient></defs>
     {[0, .25, .5, .75, 1].map((ratio) => { const y = plot.y + plot.height - ratio * plot.height; return <g key={ratio}><line className="chart-grid-line" x1={plot.x} x2={plot.x + plot.width} y1={y} y2={y} /><text className="chart-axis-label" x={plot.x - 8} y={y + 4} textAnchor="end">{Math.round(max * ratio)} GB</text></g>; })}
     {data.map((item, index) => showAxisLabel(index) ? <text className="chart-axis-label" key={`${item.label}-${index}`} x={point(0, index).x} y={HEIGHT - 8} textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}>{displayLabel(item)}</text> : null)}
