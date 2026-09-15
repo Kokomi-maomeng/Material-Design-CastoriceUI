@@ -24,6 +24,6 @@ CastoriceUI v4.3.0 is a focused interaction, correctness, security, and release-
 - Adds a versioned, staged `deploy/install-or-upgrade.sh` flow with safe archive validation, online SQLite backup, atomic frontend/backend link switching, panel-only restart, versioned health verification, and failure rollback.
 - Updates locked dependencies, including the fixed `js-yaml` and Vitest releases, with zero known npm audit findings at release qualification.
 - Aligns the documented and compiled Apple browser floor at Safari/iOS 16.4. Playwright WebKit remains supporting automation; no claim is made that this release was physically tested on a fixed Safari or iOS device.
-- Refreshes repository artwork without a version badge or simulated Dynamic Island; the phone view uses Overview and the desktop composition retains the diagonal light/dark presentation.
+- Refreshes repository artwork without a version badge or simulated Dynamic Island. The phone Overview and diagonal light/dark desktop presentation are browser captures of the actual v4.3 interface using a privacy-safe sample API payload; no product UI is generated or redrawn.
 
 Frontend and backend versions are `4.3.0`. Follow [DEPLOYMENT.md](DEPLOYMENT.md) and keep the printed backup directory until post-deployment checks pass. The installer never restarts Hysteria2 or sing-box.
