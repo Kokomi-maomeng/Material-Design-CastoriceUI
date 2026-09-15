@@ -30,8 +30,8 @@ export default defineConfig({
     },
   },
   build: {
-    target: ["chrome111", "edge111", "firefox113", "safari16.2"],
-    cssTarget: "safari16.2",
+    target: ["chrome111", "edge111", "firefox113", "safari16.4"],
+    cssTarget: "safari16.4",
     sourcemap: false,
   },
 });

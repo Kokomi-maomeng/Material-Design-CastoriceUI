@@ -26,6 +26,7 @@ from castoriceui.api import ApiHandler, ApiServer, normalized_origin  # noqa: E4
 from castoriceui.security import _public_https_get, fetch_https_image_api, normalize_https_base_url, normalize_https_image_url, normalize_loopback_endpoint, probe_subscription_url, safe_background_image, validate_probe_target  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
 from castoriceui.traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period  # noqa: E402
+from preflight import inspect as preflight_inspect  # noqa: E402
 
 
 class BackendTests(unittest.TestCase):
@@ -954,6 +955,52 @@ class BackendTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     AppConfig.load(path)
 
+    def test_alert_thresholds_are_finite_bounded_and_normalized_at_load(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid = root / "valid.json"
+            valid.write_text(json.dumps({"database_path": str(root / "valid.db"), "alert_thresholds": {"latencyMs": 0}}), encoding="utf-8")
+            self.assertEqual(AppConfig.load(valid).alert_thresholds, {"trafficPercent": 80.0, "latencyMs": 0.0, "lossPercent": 5.0})
+            for index, thresholds in enumerate((
+                {"trafficPercent": "80"},
+                {"trafficPercent": True},
+                {"trafficPercent": float("inf")},
+                {"latencyMs": -1},
+                {"lossPercent": 101},
+                {"unknown": 1},
+            )):
+                path = root / f"invalid-alert-{index}.json"
+                path.write_text(json.dumps({"database_path": str(root / f"invalid-{index}.db"), "alert_thresholds": thresholds}), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    AppConfig.load(path)
+
+    def test_wizard_rejects_overlong_values_extra_network_lines_and_nonfinite_alerts_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = AppConfig(database_path=str(Path(directory) / "state.db"))
+            storage = Storage(config.database_path)
+            dashboard = DashboardService(config, storage)
+            original_name = config.node_name
+            with self.assertRaisesRegex(ValueError, "at most 80"):
+                dashboard.configure_integration("system", {"values": {"nodeName": "n" * 81}})
+            self.assertEqual(config.node_name, original_name)
+            targets = "\n".join(f"target-{index},192.0.2.{index}" for index in range(1, 14))
+            with self.assertRaisesRegex(ValueError, "at most 12"):
+                dashboard.configure_integration("network", {"values": {"targets": targets}})
+            self.assertEqual(config.network_targets, [])
+            self.assertIsNone(storage.get_setting("network_targets", None))
+            with self.assertRaisesRegex(ValueError, "finite number"):
+                dashboard.configure_integration("alerts", {"values": {"latencyMs": "nan"}})
+            self.assertEqual(config.alert_thresholds["latencyMs"], 150.0)
+
+    def test_preflight_requires_network_runtime_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = self._config_file(directory, str(Path(directory) / "state.db"))
+            with patch("preflight.shutil.which", side_effect=lambda name: None if name in {"ping", "ip"} else f"/usr/bin/{name}"), patch("preflight.command", return_value=(True, "ok")), patch("preflight.listening_ports", return_value={"tcp": set(), "udp": set()}):
+                report = preflight_inspect(config_path)
+            failures = {item["name"] for item in report["checks"] if item["status"] == "fail"}
+            self.assertEqual(failures, {"command-ping", "command-ip"})
+            self.assertFalse(report["ok"])
+
     def test_login_failures_persist_across_storage_instances(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "state.db")
@@ -963,6 +1010,13 @@ class BackendTests(unittest.TestCase):
             self.assertFalse(Storage(path).login_allowed("203.0.113.10"))
             Storage(path).clear_login_failures("203.0.113.10")
             self.assertTrue(Storage(path).login_allowed("203.0.113.10"))
+
+    def test_login_global_budget_cannot_be_evaded_by_rotating_forwarded_addresses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            for index in range(30):
+                storage.record_login_failure(f"198.51.100.{index + 1}")
+            self.assertFalse(storage.login_allowed("203.0.113.200"))
 
     @staticmethod
     def _config_file(directory: str, database: str) -> str:

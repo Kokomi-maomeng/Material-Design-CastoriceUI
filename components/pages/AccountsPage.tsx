@@ -26,7 +26,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
     <Card variant="outlined" className="table-panel">
       <div className="table-toolbar">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("搜索账号或邮箱", "Search account or email")} aria-label={t("搜索账号", "Search accounts")} />{search ? <button onClick={() => setSearch("")} aria-label={t("清空搜索", "Clear search")}><Icon name="close" size={18} /></button> : null}</label>
-        <div className="filter-chips" aria-label={t("账号状态筛选", "Account status filter")}><Chip selected={filter === "all"} onClick={() => setFilter("all")}>{t("全部", "All")} {accounts.length}</Chip><Chip selected={filter === "active"} onClick={() => setFilter("active")}>{t("登记启用", "Registered enabled")}</Chip><Chip selected={filter === "disabled"} onClick={() => setFilter("disabled")}>{t("登记禁用", "Registered disabled")}</Chip></div>
+        <div className="filter-chips" aria-label={t("账号状态筛选", "Account status filter")}><Chip selected={filter === "all"} onClick={() => setFilter("all")}>{t("全部", "All")} {accounts.length}</Chip><Chip selected={filter === "active"} onClick={() => setFilter("active")}>{t("账号启用", "Account enabled")}</Chip><Chip selected={filter === "disabled"} onClick={() => setFilter("disabled")}>{t("账号禁用", "Account disabled")}</Chip></div>
       </div>
       <div className="responsive-table accounts-table"><table>
         <thead><tr><th>{t("管理账号", "Managed account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("映射协议累计流量", "Mapped protocol usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
@@ -35,7 +35,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
             <td data-label={t("管理账号", "Managed account")}><div className="account-cell"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><div><strong>{account.name}</strong><span>{account.email}</span></div></div></td>
             <td data-label={t("状态", "Status")}><StatusChips account={account} /></td>
             <td data-label={t("协议", "Protocols")}><div className="protocol-list">{account.protocols.map((protocol) => <Chip staticChip key={protocol}>{protocol}</Chip>)}</div></td>
-            <td data-label={t("映射协议累计流量", "Mapped protocol usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span><small>{account.usageSource === "protocolCounter" ? t(`协议核心生命周期累计；面板计费周期额度为 ${formatDecimalBytes(account.quotaBytes)}。统计范围不同，不显示百分比。`, `Protocol-core lifetime cumulative; panel billing-cycle quota is ${formatDecimalBytes(account.quotaBytes)}. Different accounting scopes; no percentage shown.`) : t("尚未映射协议身份", "No protocol identity mapping")}</small></div></div></td>
+            <td data-label={t("映射协议累计流量", "Mapped protocol usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span>{account.usageSource !== "protocolCounter" ? <small>{t("尚未映射协议身份", "No protocol identity mapping")}</small> : null}</div></div></td>
             <td data-label={t("到期时间", "Expires")}><span className={account.expiryStatus === "expiring" || account.expiryStatus === "expired" ? "text-warning" : ""}>{account.expiresAt ? formatDate(account.expiresAt) : t("未登记", "Not registered")}</span></td>
           </tr>;
         })}</tbody>
@@ -48,7 +48,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
 function StatusChips({ account }: { account: Account }) {
   const { t } = useI18n();
   return <div className="protocol-list">
-    <Chip staticChip tone={account.configuredStatus === "disabled" ? "default" : account.configuredStatus === "active" ? "info" : "warning"} icon={account.configuredStatus === "disabled" ? "pause_circle" : "settings"}>{account.configuredStatus === "disabled" ? t("登记为禁用", "Registered disabled") : account.configuredStatus === "active" ? t("登记为启用", "Registered enabled") : t("登记状态未知", "Registration unknown")}</Chip>
+    <Chip staticChip tone={account.configuredStatus === "disabled" ? "default" : account.configuredStatus === "active" ? "info" : "warning"} icon={account.configuredStatus === "disabled" ? "pause_circle" : "settings"}>{account.configuredStatus === "disabled" ? t("账号禁用", "Account disabled") : account.configuredStatus === "active" ? t("账号启用", "Account enabled") : t("账号状态未知", "Account status unknown")}</Chip>
     {account.expiryStatus === "expired" ? <Chip staticChip tone="danger" icon="event_busy">{t("登记日期已过期", "Recorded date expired")}</Chip> : account.expiryStatus === "expiring" ? <Chip staticChip tone="warning" icon="schedule">{t("登记日期临期", "Recorded date expiring")}</Chip> : null}
     <Chip staticChip tone={account.coreEvidence === "observed" ? "success" : "default"} icon={account.coreEvidence === "observed" ? "visibility" : "help"}>{account.coreEvidence === "observed" ? t(`核心观测到身份 · 在线数 ${account.onlineDevices}`, `Identity observed by core · online ${account.onlineDevices}`) : account.coreEvidence === "notObserved" ? t("核心当前未观测到身份", "Identity not currently observed") : account.coreEvidence === "unavailable" ? t("核心证据不可用", "Core evidence unavailable") : t("未配置身份映射", "No identity mapping")}</Chip>
   </div>;

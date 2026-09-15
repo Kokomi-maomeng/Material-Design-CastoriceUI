@@ -1,4 +1,4 @@
-# CastoriceUI v4.2 deployment / 部署手册
+# CastoriceUI v4.3 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -28,7 +28,7 @@ On Debian 12/13 the minimal package step is:
 
 ```bash
 sudo apt-get update
-sudo apt-get install --no-install-recommends python3 nginx ca-certificates
+sudo apt-get install --no-install-recommends python3 nginx ca-certificates iproute2 iputils-ping
 ```
 
 Before installation or upgrade, run the shipped read-only preflight from the staged release:
@@ -61,20 +61,37 @@ GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校�
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-tar -xzf CastoriceUI-v4.2.0.tar.gz
-cd CastoriceUI-v4.2.0
+tar -xzf CastoriceUI-v4.3.0.tar.gz
+cd CastoriceUI-v4.3.0
 python3 -m compileall -q server
 python3 -m unittest discover -s server/tests -p 'test_*.py' -v
 ```
 
 Do not deploy when any applicable check fails. Review the produced `dist/` or bundled `frontend/`, the staged backend, and the sensitive-content results before copying files.
 
+The recommended live install/upgrade entrypoint is the shipped [`../deploy/install-or-upgrade.sh`](../deploy/install-or-upgrade.sh). It validates archive members before extraction, runs backend tests and the read-only host preflight in a staging directory, makes an online SQLite backup, records both current release targets, installs backend and frontend into matching versioned directories, atomically switches both `current` symlinks, restarts only `castoriceui-backend`, validates `nginx -t`, and checks that loopback health reports the requested version. Its failure trap restores the recorded panel links, unit and backed-up database; it never restarts Hysteria2 or sing-box.
+
+推荐使用随包提供的 `deploy/install-or-upgrade.sh`。脚本会在解包前校验归档成员，在暂存目录运行后端测试和只读主机预检，在线备份 SQLite，记录前后端当前版本指针，将前后端安装到配对的版本目录并原子切换两个 `current` 软链接；随后只重启 `castoriceui-backend`，执行 `nginx -t` 并核对回环健康接口版本。任何失败都会恢复已记录的面板链接、服务单元和已备份数据库，脚本绝不会重启 Hysteria2 或 sing-box。
+
+From a verified archive in a source checkout:
+
+```bash
+sudo sh deploy/install-or-upgrade.sh --archive "$PWD/release/CastoriceUI-v4.3.0.tar.gz"
+```
+
+When only the release assets are available, extract just the installer first, then point it at the still-verified archive:
+
+```bash
+tar -xzf CastoriceUI-v4.3.0.tar.gz CastoriceUI-v4.3.0/deploy/install-or-upgrade.sh
+sudo sh CastoriceUI-v4.3.0/deploy/install-or-upgrade.sh --archive "$PWD/CastoriceUI-v4.3.0.tar.gz"
+```
+
 ## 3. Back up before install or upgrade / 先备份
 
 Record the current symlink targets and back up, when present:
 
 - `/var/www/castorice-ui/current` and its release directory;
-- `/opt/castoriceui/backend`;
+- `/opt/castoriceui/current` and its versioned release directory;
 - `/etc/castoriceui/config.json`;
 - `/var/lib/castoriceui/state.db`, `state.db-wal`, and `state.db-shm`;
 - the systemd unit and active Nginx site.
@@ -87,11 +104,10 @@ For a live SQLite database, stop `castoriceui-backend` briefly before copying th
 getent group proxycert >/dev/null || sudo groupadd --system proxycert
 getent passwd castoriceui >/dev/null || sudo useradd --system --home-dir /var/lib/castoriceui --create-home --shell /usr/sbin/nologin castoriceui
 sudo usermod -aG proxycert castoriceui
-sudo install -d -m 0755 /opt/castoriceui/backend
+sudo install -d -m 0755 /opt/castoriceui/releases
 sudo install -d -m 0750 -o root -g castoriceui /etc/castoriceui
 sudo install -d -m 0750 -o castoriceui -g castoriceui /var/lib/castoriceui
 sudo install -d -m 0700 -o castoriceui -g castoriceui /var/lib/castoriceui/login-backgrounds
-sudo cp -a server/. /opt/castoriceui/backend/
 ```
 
 First installation only:
@@ -161,12 +177,12 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `4.2.0`.
+Expected version: `4.3.0`.
 
 For a new database, generate the first-admin token once:
 
 ```bash
-sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/backend/run.py \
+sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/current/server/run.py \
   --config /etc/castoriceui/config.json --generate-bootstrap
 sudo stat -c '%a %U:%G %n' /var/lib/castoriceui/bootstrap-token
 ```
@@ -176,7 +192,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v4.2.0
+release=v4.3.0
 frontend_source=dist       # source checkout / 源码检出
 # frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
 test -f "$frontend_source/index.html"
@@ -244,19 +260,19 @@ Server images must be PNG, JPEG, or WebP, no larger than 5 MB, and stored direct
 
 ## 11. Upgrade and rollback / 升级与回滚
 
-Upgrade sequence:
+The automated script above is the supported upgrade sequence. Its backup directory is printed on success and retained for rollback review. Manual equivalents, only when the script cannot be used, are:
 
 1. Back up the protected config, database/WAL, current frontend target, backend, service unit, and Nginx site.
-2. Stage and test the new backend in a separate directory.
-3. Stop the backend only for the final database-safe replacement window.
-4. Install the new backend and unit; preserve private config and state.
-5. Start the backend, verify loopback health, then switch the frontend symlink atomically.
+2. Stage and test the complete new release in a separate directory.
+3. Use SQLite's online backup API; do not copy a live WAL database as one file.
+4. Install the backend under `/opt/castoriceui/releases/vX.Y.Z` and frontend under `/var/www/castorice-ui/releases/vX.Y.Z`; preserve private config and state.
+5. Atomically switch `/opt/castoriceui/current` and `/var/www/castorice-ui/current`, restart only the panel backend, and verify loopback health reports the new version.
 6. Verify TLS, login/session/CSRF, dashboard truthfulness, protocol status, and logs.
 7. Keep the prior release and backup until post-restart validation passes.
 
 Rollback:
 
-1. Restore the previous frontend symlink and backend directory.
+1. Restore both recorded `current` symlinks to the previous frontend and backend release directories.
 2. Restore the matching database/config backup if the previous backend cannot read the upgraded state.
 3. Restore the previous unit/Nginx file when changed.
 4. Run `systemd-analyze verify` and `nginx -t`.
@@ -270,7 +286,7 @@ If this VPS also carries the operator's active proxy traffic, do not reboot the 
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `4.2.0`
+- loopback and HTTPS health report `4.3.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate

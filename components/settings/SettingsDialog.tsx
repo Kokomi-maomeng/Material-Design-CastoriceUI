@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, changePassword, fetchBackgroundOptions, updateLoginBackground } from "../../lib/api";
 import { formatDecimalBytes } from "../../lib/format";
 import { useI18n, type LanguagePreference } from "../../lib/i18n";
@@ -58,6 +58,15 @@ export function SettingsDialog({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setDraftNodeName(nodeName);
+      setDraftPanelTitle(uiSettings.panelTitle);
+      setDraftUiSettings(uiSettings);
+    }
+    wasOpen.current = open;
+  }, [nodeName, open, uiSettings]);
   useEffect(() => {
     if (!open) return;
     void fetchBackgroundOptions()
@@ -144,10 +153,9 @@ export function SettingsDialog({
     { id: "coral", zh: "珊瑚橙", en: "Coral", value: "#9b442a" },
     { id: "slate", zh: "岩灰蓝", en: "Slate", value: "#52606f" },
   ];
-  if (!open) return null;
   return (
     <Dialog className="settings-dialog"
-      open
+      open={open}
       onClose={closeSettings}
       title={t("设置", "Settings")}
       actions={<Button onClick={closeSettings}>{t("完成", "Done")}</Button>}

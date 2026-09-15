@@ -163,7 +163,7 @@ test("P2 compatibility, deploy examples, and protocol probe unit stay regression
   assert.match(docs, /fresh Debian 12\/13.*not (?:run|executed)/i);
   assert.match(preflight, /did not run independent fresh Debian 12\/13 acceptance/i);
   assert.doesNotMatch(accounts, /<Progress/);
-  assert.match(accounts, /Different accounting scopes/);
+  assert.doesNotMatch(accounts, /Different accounting scopes|统计范围不同|协议核心生命周期累计|计费周期额度/);
   assert.match(connections, /rateCoverage/);
   assert.match(overview, /ratesPartial/);
   assert.match(styles, /\.audit-table code \{[^}]*overflow-wrap: anywhere/);
@@ -251,7 +251,9 @@ test("v3.1 quota schedules, stable live layouts, and requested removals stay wir
   for (const unit of ["day", "week", "month", "year"]) assert.match(`${quotaDialog}\n${api}\n${collector}\n${quotaModel}`, new RegExp(`"${unit}"`));
   assert.match(api, /traffic_quota/);
   assert.match(collector, /nextReset/);
-  assert.match(connections, /const columns = 8/);
+  assert.match(connections, /const columns = 7/);
+  assert.match(connections, /connection-row-indicator/);
+  assert.match(connections, /onClick=.*toggle/);
   assert.doesNotMatch(traffic, /容量预测|Capacity forecast/);
   assert.match(`${overview}\n${dashboard}`, /trafficCoverage/);
   assert.doesNotMatch(`${overview}\n${dashboard}\n${styles}`, /coverageComplete|forecast-card/);
@@ -286,7 +288,8 @@ test("v3.1 detail interactions avoid native or stale UI artifacts", async () => 
   assert.doesNotMatch(styles, /notification-button span:last-child/);
   assert.match(app, /toastSequence/);
   assert.match(app, /const dismissToast = useCallback/);
-  assert.match(app, /key={`setup-\${selectedSetup \?\? "closed"}`}/);
+  assert.doesNotMatch(app, /key={`setup-\${selectedSetup \?\? "closed"}`}/);
+  assert.match(app, /<SetupWizard\s+selected=/);
   assert.match(app, /key={`toast-\${toast\?\.id \?\? "closed"}`}/);
   assert.doesNotMatch(app, /onDismiss=\{\(\) => setToast\(null\)\}/);
   assert.match(app, /snapshot-date/);
@@ -369,7 +372,7 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.match(dashboard, /"actor": row\["actor"\]/);
   assert.match(dashboard, /"ip": row\["source_ip"\]/);
   assert.match(connections, /<colgroup>/);
-  assert.match(styles, /\.connections-table table \{ min-width: 1240px; table-layout: fixed; \}/);
+  assert.match(styles, /\.connections-table table \{ min-width: 1184px; table-layout: fixed; \}/);
   assert.match(network, /preserveAspectRatio="xMinYMin meet"/);
   assert.match(network, /ResizeObserver/);
   assert.match(network, /viewWidth/);
@@ -470,4 +473,36 @@ test("P2 release checks cover read-only preflight, history blobs, cache monitori
   assert.match(run, /runtime-monitor/);
   assert.match(storage, /CREATE TABLE IF NOT EXISTS alert_history/);
   assert.match(packager, /copy\("server\/preflight\.py", "server\/preflight\.py"\)/);
+});
+
+test("v4.3 closes the audit findings across validation, deployment, security, and browser contracts", async () => {
+  const [config, dashboard, preflight, deployment, installer, nginx, backendUnit, probeUnit, health, packageJson, vite] = await Promise.all([
+    read("server/castoriceui/config.py"), read("server/castoriceui/dashboard.py"), read("server/preflight.py"),
+    read("docs/DEPLOYMENT.md"), read("deploy/install-or-upgrade.sh"), read("deploy/nginx.conf.example"),
+    read("deploy/castoriceui-backend.service"), read("deploy/castoriceui-protocol-probe.service"),
+    read("lib/service-health.ts"), read("package.json"), read("vite.config.ts"),
+  ]);
+  assert.match(dashboard, /read_protocol_inventory\(candidate\)/);
+  assert.match(dashboard, /INTEGRATION_FIELD_LIMITS/);
+  assert.doesNotMatch(dashboard, /\[:2048\]|splitlines\(\)\[:12\]/);
+  assert.match(config, /math\.isfinite/);
+  assert.match(config, /ALERT_THRESHOLD_LIMITS/);
+  for (const command of ["python3", "nginx", "systemctl", "ping", "ip"]) assert.match(preflight, new RegExp(`for executable in \\([^]*${command}`));
+  assert.match(deployment, /iproute2/);
+  assert.match(deployment, /iputils-ping/);
+  assert.match(installer, /releases\/v\$version/);
+  assert.match(installer, /mv -Tf/);
+  assert.match(installer, /sqlite3/);
+  assert.match(installer, /last\.get\("status"\) == "ok"/);
+  assert.match(installer, /rglob\("__pycache__"\)/);
+  assert.doesNotMatch(installer, /systemctl (?:restart|stop|try-restart) (?:hysteria|hysteria-server|sing-box)/);
+  assert.match(backendUnit, /\/opt\/castoriceui\/current\/server/);
+  assert.match(probeUnit, /\/opt\/castoriceui\/current\/server\/castoriceui\/protocol_probe\.py/);
+  assert.ok((nginx.match(/Strict-Transport-Security/g) ?? []).length >= 4);
+  const storageFunction = health.match(/export function storageIsHealthy[^]*?\n}/)?.[0] ?? "";
+  assert.match(storageFunction, /databaseWritable[^]*diskTotalBytes > 0[^]*diskPercent < 90/);
+  assert.doesNotMatch(storageFunction, /service/i);
+  assert.match(packageJson, /"Safari >= 16\.4"/);
+  assert.match(packageJson, /"iOS >= 16\.4"/);
+  assert.match(vite, /safari16\.4/);
 });

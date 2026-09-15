@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "./Icon";
+import { usePresence } from "./usePresence";
 
 export interface MaterialSelectOption {
   value: string;
@@ -31,11 +32,12 @@ export function MaterialSelect({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [position, setPosition] = useState({ left: 0, top: 0, width: 240, maxHeight: 320 });
+  const [position, setPosition] = useState({ left: 0, top: 0, width: 240, maxHeight: 320, placement: "bottom" as "top" | "bottom", ready: false });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
+  const present = usePresence(open, 180);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -45,20 +47,25 @@ export function MaterialSelect({
   }, [options, query]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !present) return;
     const place = () => {
       const rect = buttonRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      const popup = popupRef.current;
+      if (!rect || !popup) return;
       const gap = 6;
-      const roomBelow = window.innerHeight - rect.bottom - gap - 12;
-      const roomAbove = rect.top - gap - 12;
-      const maxHeight = Math.max(180, Math.min(420, Math.max(roomBelow, roomAbove)));
-      const top = roomBelow >= Math.min(320, maxHeight)
-        ? rect.bottom + gap
-        : Math.max(12, rect.top - Math.min(maxHeight, 420) - gap);
-      const width = Math.max(rect.width, Math.min(420, window.innerWidth - 24));
-      const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
-      setPosition({ left, top, width, maxHeight });
+      const edge = 12;
+      const roomBelow = Math.max(0, window.innerHeight - rect.bottom - gap - edge);
+      const roomAbove = Math.max(0, rect.top - gap - edge);
+      const width = Math.max(1, Math.min(Math.max(rect.width, 240), window.innerWidth - 24));
+      const desiredHeight = Math.min(420, Math.max(46, popup.scrollHeight));
+      const placement = roomBelow >= desiredHeight || roomBelow >= roomAbove ? "bottom" : "top";
+      const available = placement === "bottom" ? roomBelow : roomAbove;
+      const maxHeight = Math.max(1, Math.min(420, available));
+      const height = Math.min(desiredHeight, maxHeight);
+      const unclampedTop = placement === "bottom" ? rect.bottom + gap : rect.top - gap - height;
+      const top = Math.min(Math.max(edge, unclampedTop), Math.max(edge, window.innerHeight - height - edge));
+      const left = Math.min(Math.max(edge, rect.left), Math.max(edge, window.innerWidth - width - edge));
+      setPosition({ left, top, width, maxHeight, placement, ready: true });
     };
     const closeOnOutside = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -71,7 +78,7 @@ export function MaterialSelect({
       setOpen(false);
       buttonRef.current?.focus();
     };
-    place();
+    const placementFrame = window.requestAnimationFrame(place);
     document.addEventListener("pointerdown", closeOnOutside, true);
     document.addEventListener("keydown", closeOnEscape, true);
     window.addEventListener("resize", place);
@@ -82,12 +89,13 @@ export function MaterialSelect({
     });
     return () => {
       window.clearTimeout(focusTimer);
+      window.cancelAnimationFrame(placementFrame);
       document.removeEventListener("pointerdown", closeOnOutside, true);
       document.removeEventListener("keydown", closeOnEscape, true);
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, searchable]);
+  }, [open, present, searchable]);
 
   return (
     <>
@@ -102,17 +110,22 @@ export function MaterialSelect({
         disabled={disabled}
         onClick={() => {
           setQuery("");
-          setOpen((current) => !current);
+          setOpen((current) => {
+            if (!current) setPosition((value) => ({ ...value, ready: false }));
+            return !current;
+          });
         }}
       >
         <span className={!selected ? "is-placeholder" : undefined}>{selected?.label ?? placeholder ?? t("请选择", "Select")}</span>
         <Icon name="arrow_drop_down" />
       </button>
-      {open ? createPortal(
+      {present ? createPortal(
         <div
           ref={popupRef}
-          className="md-select-menu"
-          style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight }}
+          className={`md-select-menu md-floating-panel ${open ? "is-open" : "is-closing"}`}
+          data-placement={position.placement}
+          aria-hidden={!open}
+          style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}
         >
           {searchable ? (
             <label className="md-select-search">

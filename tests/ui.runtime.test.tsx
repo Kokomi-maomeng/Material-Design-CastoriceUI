@@ -104,6 +104,31 @@ describe("v4.1 navigation and protocol inspection", () => {
     fireEvent.blur(screen.getByRole("button", { name: /Hysteria2/ }));
     expect(container.querySelector('.donut-center')?.textContent).toContain("Distribution total");
   });
+  it("uses a responsive protocol overflow surface and an anchored coverage detail", async () => {
+    const names = ["Hysteria2", "AnyTLS", "VLESS", "SOCKS5", "Shadowsocks", "Unattributed"];
+    const traffic = {
+      ...emptyDashboard.traffic,
+      totalBytes: 21e9,
+      protocolTotalBytes: 21e9,
+      coverage: { complete: false, gapCount: 2, resetCount: 1, sampleCount: 8, firstSampleAt: 1, lastSampleAt: 2 },
+      protocol: names.map((name, index) => ({ name, value: (index + 1) * 1e9 })),
+    };
+    const { container } = renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);
+    expect(container.querySelector(".content-grid--traffic-main > .traffic-trend-panel")).toBeTruthy();
+    expect(container.querySelector(".content-grid--traffic-secondary > .monthly-traffic-panel")).toBeTruthy();
+    expect(container.querySelector(".content-grid--traffic-secondary > .protocol-panel")).toBeTruthy();
+    const more = screen.getByRole("button", { name: /More protocols/ });
+    expect(more.textContent).toContain("+2");
+    fireEvent.click(more);
+    const protocolPopover = await screen.findByRole("dialog", { name: "More protocol traffic" });
+    expect(protocolPopover.textContent).toContain("Shadowsocks");
+    fireEvent.focus(screen.getByRole("button", { name: /Unattributed/ }));
+    expect(container.querySelector(".donut-center")?.textContent).toContain("Unattributed");
+    const coverage = screen.getByRole("button", { name: "Measurement coverage is incomplete" });
+    fireEvent.click(coverage);
+    expect((await screen.findByRole("dialog", { name: "Measurement coverage is incomplete" })).textContent).toContain("2 collection gap(s)");
+    expect(screen.queryByText("Measurement coverage is incomplete", { selector: ".preview-mode-banner strong" })).toBeNull();
+  });
   it("shows host memory and counts every protocol without counting the core twice", () => {
     const services: ServiceStatus[] = [
       { id: "singbox", kind: "core", name: "sing-box", status: "running", detail: "active", version: "1.13.19", icon: "dns" },
@@ -132,12 +157,17 @@ describe("v4.0 service health and dialog layers", () => {
     expect(screen.queryByText("Healthy")).toBeNull();
     expect(screen.getByText("Abnormal").className).toContain("is-error");
   });
+  it("keeps storage health independent from an optional stopped protocol", () => {
+    renderEnglish(<ServiceCards services={[{ ...service, status: "stopped", kind: "protocol" }]} metrics={metrics} compact />);
+    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getByText("Abnormal")).toBeTruthy();
+  });
   it("includes storage failure in the service-page health summary", () => {
     renderEnglish(<ServicesPage services={[service]} metrics={{ ...metrics, diskPercent: 95 }} onRefresh={vi.fn()} />);
     expect(screen.queryByText("System is healthy")).toBeNull();
     expect(screen.getByText("Some components need attention")).toBeTruthy();
   });
-  it("closes only the top dialog and restores parent focus and scroll locking", () => {
+  it("closes only the top dialog and restores parent focus and scroll locking after exit motion", async () => {
     function Layers() {
       const [settings, setSettings] = useState(true);
       const [quota, setQuota] = useState(false);
@@ -148,16 +178,16 @@ describe("v4.0 service health and dialog layers", () => {
     trigger.focus();
     fireEvent.click(trigger);
     const parent = screen.getByRole("dialog", { name: "Settings" });
-    expect(parent.inert).toBe(true);
+    await waitFor(() => expect(parent.inert).toBe(true));
     expect(document.body.style.overflow).toBe("hidden");
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Quota" })).toBeNull();
-    expect(parent.inert).toBe(false);
+    await waitFor(() => expect(parent.inert).toBe(false));
     expect(document.activeElement).toBe(trigger);
     expect(document.body.style.overflow).toBe("hidden");
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.body.style.overflow).toBe("");
+    await waitFor(() => expect(document.body.style.overflow).toBe(""));
   });
 });
 
@@ -225,6 +255,7 @@ describe("v3.3 runtime behavior", () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
     renderEnglish(<TrafficQuotaDialog
+      open
       trafficLimitBytes={2_000_000_000_000}
       quota={{ bytes: 2_000_000_000_000, autoReset: true, periodUnit: "week", periodCount: 2, resetAnchor: "2026-08-17", resetTime: "03:30", timezone: "UTC", cycleStart: "2026-08-31T03:30:00Z", nextReset: "2026-09-14T03:30:00Z" }}
       onClose={onClose}
@@ -247,11 +278,11 @@ describe("v3.3 runtime behavior", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
-  it("opens a year layer before selecting a month and day", () => {
+  it("opens a year layer before selecting a month and day", async () => {
     const onChange = vi.fn();
     renderEnglish(<MaterialDatePicker value="2026-08-22" onChange={onChange} ariaLabel="Reset anchor date" />);
     fireEvent.click(screen.getByRole("button", { name: "Reset anchor date" }));
-    fireEvent.click(screen.getByRole("button", { name: "Choose year and month" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Choose year and month" }));
     expect(screen.getAllByRole("option")).toHaveLength(20);
     fireEvent.click(screen.getByRole("option", { name: "2025" }));
     expect(screen.getByRole("button", { name: "Aug" })).toBeTruthy();
@@ -303,9 +334,9 @@ describe("v3.3 runtime behavior", () => {
     const meters = Array.from(document.querySelectorAll<HTMLElement>(".monthly-traffic-track"));
     expect(meters).toHaveLength(6);
     expect(meters[2].firstElementChild?.getAttribute("style")).toContain("width: 100%");
-    expect(document.querySelectorAll("details.traffic-disclosure[open]")).toHaveLength(2);
+    expect(document.querySelectorAll(".traffic-disclosure.is-expanded")).toHaveLength(2);
     fireEvent.click(screen.getByText("Managed-account usage ranking"));
-    expect(document.querySelectorAll("details.traffic-disclosure[open]")).toHaveLength(1);
+    expect(document.querySelectorAll(".traffic-disclosure.is-expanded")).toHaveLength(1);
     expect(screen.queryByText("Trend samples")).toBeNull();
   });
 

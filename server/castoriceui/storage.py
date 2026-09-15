@@ -661,15 +661,21 @@ class Storage:
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
 
-    def login_allowed(self, source_ip: str, limit: int = 5, window_seconds: int = 600) -> bool:
+    def login_allowed(self, source_ip: str, limit: int = 5, window_seconds: int = 600, global_limit: int = 30) -> bool:
         cutoff = int(time.time()) - window_seconds
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM login_failures WHERE failed_at<?", (cutoff,))
-            count = int(connection.execute(
+            source_count = int(connection.execute(
                 "SELECT COUNT(*) FROM login_failures WHERE source_ip=? AND failed_at>=?",
                 (source_ip, cutoff),
             ).fetchone()[0])
-        return count < limit
+            global_count = int(connection.execute(
+                "SELECT COUNT(*) FROM login_failures WHERE failed_at>=?",
+                (cutoff,),
+            ).fetchone()[0])
+        # The global budget prevents a loopback reverse-proxy peer from evading
+        # the per-client budget by rotating a spoofed forwarding header.
+        return source_count < limit and global_count < global_limit
 
     def record_login_failure(self, source_ip: str) -> None:
         with self.lock, self.connect() as connection:

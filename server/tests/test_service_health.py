@@ -117,6 +117,22 @@ class ProtocolHealthTests(unittest.TestCase):
             self.assertTrue(all(s["status"] == "running" for s in self.services(cfg) if s.get("kind") == "protocol"))
             self.assertNotIn("test-only", json.dumps(store.get_setting("integration_overrides", {})))
 
+    def test_setup_inventory_is_read_against_the_candidate_protocol_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = config()
+            cfg.database_path = str(Path(directory) / "state.db")
+            cfg.protocol_adapters = {}
+            dashboard = DashboardService(cfg, Storage(cfg.database_path))
+            observed = []
+
+            def candidate_inventory(candidate):
+                observed.append(copy.deepcopy(candidate.protocol_adapters))
+                return inventory()
+
+            with patch("castoriceui.dashboard.http_json", return_value=API), patch("castoriceui.dashboard.read_protocol_inventory", side_effect=candidate_inventory):
+                dashboard.configure_integration("socks5", {"values": {"endpoint": cfg.singbox_api["url"], "inboundTags": "socks5-in"}})
+            self.assertEqual(observed, [{"socks5": {"inboundTags": ["socks5-in"]}}])
+
     def test_empty_and_malformed_api_responses_are_not_healthy(self):
         self.assertTrue(valid_singbox_payload(API))
         for response in ({}, None, {**API, "connections": None}, {**API, "connections": [None]}, {**API, "uploadTotal": "wrong"}, {**API, "uploadTotal": float("inf")}):

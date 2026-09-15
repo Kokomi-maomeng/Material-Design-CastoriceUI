@@ -486,7 +486,6 @@ export function CastoriceApp() {
           }}
         />
         <SetupWizard
-          key={`setup-${selectedSetup ?? "closed"}`}
           selected={selectedSetup}
           status={selectedSetup ? integrationFor(selectedSetup) : undefined}
           drafts={setupDrafts}
@@ -650,13 +649,13 @@ export function CastoriceApp() {
           </button>
         </div>
       </aside>
-      {drawerOpen ? (
-        <button
-          className="drawer-scrim"
+      <button
+          className={`drawer-scrim ${drawerOpen ? "is-open" : ""}`}
           onClick={() => setDrawerOpen(false)}
           aria-label={t("关闭导航", "Close navigation")}
+          aria-hidden={!drawerOpen}
+          tabIndex={drawerOpen ? 0 : -1}
         />
-      ) : null}
       <div className="app-main">
         <header className="top-app-bar">
           <div className="top-app-bar__start">
@@ -719,10 +718,7 @@ export function CastoriceApp() {
                   <strong>{session.username}</strong>
                   <small>{t("已登录", "Signed in")}</small>
                 </div>
-                <Icon
-                  name={userMenuOpen ? "expand_less" : "expand_more"}
-                  size={18}
-                />
+                <Icon name="expand_more" size={18} className="user-menu__indicator" />
               </button>
                 <div className={`user-popover floating-surface ${userMenuOpen ? "is-open" : ""}`} role="menu" aria-hidden={!userMenuOpen}>
                   <button role="menuitem" disabled={signingOut} onClick={() => void signOut()}>
@@ -756,9 +752,8 @@ export function CastoriceApp() {
           <Suspense fallback={<PageLoading />}>{content}</Suspense>
         </main>
       </div>
-      {settingsOpen ? (
-        <SettingsDialog
-          open
+      <SettingsDialog
+          open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           mode={themeMode}
           color={themeColor}
@@ -783,9 +778,7 @@ export function CastoriceApp() {
           }}
           onToast={showToast}
         />
-      ) : null}
       <SetupWizard
-        key={`setup-${selectedSetup ?? "closed"}`}
         selected={selectedSetup}
         status={selectedSetup ? integrationFor(selectedSetup) : undefined}
         drafts={setupDrafts}
@@ -798,13 +791,14 @@ export function CastoriceApp() {
         onClose={() => setSelectedSetup(null)}
         onSave={saveIntegration}
       />
-      {quotaOpen ? <TrafficQuotaDialog
+      <TrafficQuotaDialog
+        open={quotaOpen}
         trafficLimitBytes={dashboard.overview.trafficLimitBytes}
         quota={dashboard.overview.trafficQuota}
         onClose={() => setQuotaOpen(false)}
         onSave={saveQuota}
         onToast={showToast}
-      /> : null}
+      />
       <Toast key={`toast-${toast?.id ?? "closed"}`} message={toast?.message ?? null} onDismiss={dismissToast} />
     </div>
   );

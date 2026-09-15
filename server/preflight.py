@@ -51,7 +51,7 @@ def inspect(config_path: str) -> dict[str, Any]:
     add("operating-system", "pass" if os_id == "debian" and os_version in {"12", "13"} else "warning", f"{os_id or 'unknown'} {os_version or 'unknown'}")
     add("independent-fresh-host-acceptance", "info", "Repository tests did not run independent fresh Debian 12/13 acceptance; this host-local preflight is only one required deployment check")
 
-    for executable in ("python3", "nginx", "systemctl"):
+    for executable in ("python3", "nginx", "systemctl", "ping", "ip"):
         resolved = shutil.which(executable)
         add(f"command-{executable}", "pass" if resolved else "fail", resolved or "not found")
     try:

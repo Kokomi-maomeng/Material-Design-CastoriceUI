@@ -39,18 +39,22 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .chart-legend > button > span { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 
 .connections-table tr.is-expanded > td { background: color-mix(in srgb, var(--primary-container) 18%, transparent); }
-.connections-table table { min-width: 1240px; table-layout: fixed; }
-.connection-col--protocol { width: 120px; }
+.connection-summary-row.is-expandable { cursor: pointer; }
+.connection-summary-row.is-expandable:hover .connection-row-indicator { background: var(--secondary-container); color: var(--on-secondary-container); }
+.connection-summary-row.is-expandable:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 42%, transparent); outline-offset: -3px; }
+.connections-table table { min-width: 1184px; table-layout: fixed; }
+.connection-col--protocol { width: 154px; }
 .connection-col--account { width: 180px; }
 .connection-col--ip { width: 245px; }
 .connection-col--entries { width: 105px; }
 .connection-col--rate { width: 150px; }
 .connection-col--duration { width: 210px; }
-.connection-col--expand { width: 56px; }
 .connections-table th, .connections-table td { overflow: hidden; }
 .connections-table .account-inline, .connections-table .ip-cell, .connections-table .rate, .connections-table .mono-time { max-width: 100%; }
 .connections-table .account-inline strong, .connections-table .ip-cell code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.connection-detail-row td { padding: 0 18px 12px; }
+.connection-detail-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--motion-exit-duration) var(--motion-exit), opacity 150ms var(--motion-exit), visibility 0s linear var(--motion-exit-duration); }
+.connection-detail-row.is-expanded .connection-detail-collapse { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows var(--motion-enter-duration) var(--motion-standard), opacity 220ms var(--motion-standard); }
+.connection-detail-collapse__inner { min-height: 0; overflow: hidden; }
 .connection-detail-grid { display: grid; grid-template-columns: 34px minmax(180px, 1.5fr) minmax(110px, .7fr) minmax(120px, .7fr) minmax(120px, .7fr); gap: 10px; align-items: center; padding: 11px 13px; border: 1px solid var(--outline-variant); border-radius: 14px; background: var(--surface-container-lowest); }
 .connection-detail-grid > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .connection-detail-grid small { color: var(--on-surface-variant); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }

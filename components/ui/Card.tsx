@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { HTMLAttributes, ReactNode } from "react";
+import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
@@ -7,15 +7,16 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
   interactive?: boolean;
 }
 
-export function Card({
+export const Card = forwardRef<HTMLDivElement, CardProps>(function Card({
   children,
   variant = "filled",
   interactive,
   className,
   ...props
-}: CardProps) {
+}, ref) {
   return (
     <div
+      ref={ref}
       className={clsx(
         "md-card",
         `md-card--${variant}`,
@@ -27,14 +28,14 @@ export function Card({
       {children}
     </div>
   );
-}
+});
 
 export function CardHeader({
   title,
   description,
   action,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   action?: ReactNode;
 }) {
