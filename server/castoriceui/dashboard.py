@@ -24,13 +24,31 @@ from .collectors import (
     service_snapshots,
     singbox_snapshot,
 )
-from .config import AppConfig, DEFAULT_INTEGRATIONS
+from .config import AppConfig, DEFAULT_INTEGRATIONS, normalize_alert_thresholds
 from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
 
 
 VISIBLE_PANEL_ORDER = ("alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit")
+INTEGRATION_FIELD_LIMITS = {
+    "endpoint": 2048,
+    "identityMappings": 8192,
+    "inboundTags": 2048,
+    "securityProfile": 64,
+    "interface": 128,
+    "quotaGb": 64,
+    "billingDay": 16,
+    "billingTimezone": 128,
+    "initialUsedGb": 64,
+    "countMode": 16,
+    "baseUrl": 4096,
+    "targets": 8192,
+    "trafficPercent": 64,
+    "latencyMs": 64,
+    "lossPercent": 64,
+    "nodeName": 80,
+}
 
 
 def ordered_visible_panels(value: Any) -> list[str]:
@@ -299,9 +317,7 @@ class DashboardService:
             pass
         elif integration_id == "network" and values.get("targets", "").strip():
             targets: list[dict[str, Any]] = []
-            for index, line in enumerate(values["targets"].splitlines()[:12]):
-                if not line.strip():
-                    continue
+            for index, line in enumerate(self._network_target_lines(values["targets"])):
                 name, address = self._network_target_parts(line)
                 address, version = validate_probe_target(address)
                 targets.append({"id": f"custom-{index + 1}", "name": name or address, "provider": "Custom", "address": address, "ipVersion": version, "order": index + 1})
@@ -311,13 +327,7 @@ class DashboardService:
             self.cached_network = []
             self.network_at = 0.0
         elif integration_id == "alerts":
-            for key in ("trafficPercent", "latencyMs", "lossPercent"):
-                raw = values.get(key, "").strip()
-                if raw:
-                    value = float(raw)
-                    if value < 0:
-                        raise ValueError("Alert thresholds cannot be negative")
-                    self.config.alert_thresholds[key] = value
+            self.config.alert_thresholds = self._alert_thresholds_from_values(values)
 
     def configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str = "127.0.0.1", actor: str = "system") -> dict[str, Any]:
         allowed_fields = {
@@ -342,7 +352,17 @@ class DashboardService:
         values = payload.get("values", {})
         if not isinstance(values, dict):
             raise ValueError("Integration values must be an object")
-        clean_values = {key: str(value)[:2048] for key, value in values.items() if key in allowed_fields[integration_id]}
+        clean_values: dict[str, str] = {}
+        for key, value in values.items():
+            if key not in allowed_fields[integration_id]:
+                continue
+            if isinstance(value, (dict, list, tuple, set)) or value is None:
+                raise ValueError(f"{key} must be a scalar value")
+            text = str(value)
+            limit = INTEGRATION_FIELD_LIMITS[key]
+            if len(text) > limit:
+                raise ValueError(f"{key} must be at most {limit} characters")
+            clean_values[key] = text
         enabled = bool(payload.get("enabled", True))
         required = {
             "hysteria2": {"endpoint"},
@@ -447,8 +467,11 @@ class DashboardService:
                 raise ValueError("Protocols sharing sing-box must use the same API endpoint")
             candidate = copy.deepcopy(self.config)
             candidate.singbox_api["url"] = endpoint
-            candidate.protocol_adapters[integration_id] = {"inboundTags": tags, "securityProfile": values.get("securityProfile", "standard")}
-            ready, reason, _reason_zh = protocol_readiness(candidate, integration_id, {"available": True, "inventory": read_protocol_inventory()})
+            candidate_adapter: dict[str, Any] = {"inboundTags": tags}
+            if integration_id == "vless":
+                candidate_adapter["securityProfile"] = values.get("securityProfile", "standard")
+            candidate.protocol_adapters[integration_id] = candidate_adapter
+            ready, reason, _reason_zh = protocol_readiness(candidate, integration_id, {"available": True, "inventory": read_protocol_inventory(candidate)})
             if not ready:
                 raise ValueError(reason)
         elif integration_id == "subscriptions":
@@ -457,10 +480,9 @@ class DashboardService:
                 probe_subscription_url(normalize_subscription_url(candidate))
             self.subscription_probe(self.config.subscription_base_url, force=True)
         elif integration_id == "network" and values.get("targets", "").strip():
-            for line in values["targets"].splitlines()[:12]:
-                if line.strip():
-                    _name, address = self._network_target_parts(line)
-                    validate_probe_target(address)
+            for line in self._network_target_lines(values["targets"]):
+                _name, address = self._network_target_parts(line)
+                validate_probe_target(address)
         elif integration_id == "traffic":
             if values.get("interface", "").strip():
                 values["interface"] = validate_interface_name(values["interface"])
@@ -489,12 +511,7 @@ class DashboardService:
             if not self.storage.is_writable():
                 raise ValueError("Traffic sampling storage is unavailable or read-only")
         elif integration_id == "alerts":
-            limits = {"trafficPercent": (0, 100), "lossPercent": (0, 100), "latencyMs": (0, 60_000)}
-            for key, (minimum, maximum) in limits.items():
-                if values.get(key, "").strip():
-                    number = float(values[key])
-                    if not minimum <= number <= maximum:
-                        raise ValueError(f"{key} must be between {minimum} and {maximum}")
+            self._alert_thresholds_from_values(values)
             if not self.storage.is_writable():
                 raise ValueError("Alert storage is unavailable or read-only")
         elif integration_id in {"system", "audit"}:
@@ -504,6 +521,25 @@ class DashboardService:
                 snapshot = self.system_collector.snapshot()
                 if not snapshot.get("kernel") or not snapshot.get("memoryTotalBytes"):
                     raise ValueError("Host metrics are unavailable")
+
+    @staticmethod
+    def _network_target_lines(value: str) -> list[str]:
+        lines = [line for line in value.splitlines() if line.strip()]
+        if len(lines) > 12:
+            raise ValueError("Network targets must contain at most 12 non-empty lines")
+        return lines
+
+    def _alert_thresholds_from_values(self, values: dict[str, str]) -> dict[str, float]:
+        candidate = dict(self.config.alert_thresholds)
+        for key in ("trafficPercent", "latencyMs", "lossPercent"):
+            raw = values.get(key, "").strip()
+            if not raw:
+                continue
+            try:
+                candidate[key] = float(raw)
+            except ValueError as error:
+                raise ValueError(f"{key} must be a finite number") from error
+        return normalize_alert_thresholds(candidate)
 
     @staticmethod
     def _network_target_parts(line: str) -> tuple[str, str]:

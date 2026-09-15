@@ -4,7 +4,7 @@ Description=CastoriceUI read-only protocol inventory
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/castoriceui/protocol-probe.env
-ExecStart=/usr/bin/python3 /opt/castoriceui/backend/castoriceui/protocol_probe.py
+ExecStart=/usr/bin/python3 /opt/castoriceui/current/server/castoriceui/protocol_probe.py
 RuntimeDirectory=castoriceui
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes

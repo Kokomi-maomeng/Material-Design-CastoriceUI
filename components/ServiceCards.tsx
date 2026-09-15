@@ -14,7 +14,7 @@ export function ServiceCards({ services, metrics, compact = false }: {
   const { language, t } = useI18n();
   const adapters = services.filter(isProtocolService);
   const runningAdapters = adapters.filter((item) => item.status === "running").length;
-  const storageHealthy = storageIsHealthy(metrics, services);
+  const storageHealthy = storageIsHealthy(metrics);
   const storageCard = <Card variant="outlined" className={`service-card service-card--storage ${compact ? "service-card--compact" : ""}`} key="storage">
     <div className="service-card__top">
       <span className={`service-icon service-icon--${storageHealthy ? "running" : "stopped"}`}><Icon name="storage" size={25} /></span>

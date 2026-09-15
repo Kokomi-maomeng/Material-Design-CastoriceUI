@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -45,6 +46,29 @@ PUBLIC_INTEGRATION_VALUES = {
     "alerts": {"trafficPercent", "latencyMs", "lossPercent"},
 }
 
+DEFAULT_ALERT_THRESHOLDS = {"trafficPercent": 80.0, "latencyMs": 150.0, "lossPercent": 5.0}
+ALERT_THRESHOLD_LIMITS = {"trafficPercent": (0.0, 100.0), "latencyMs": (0.0, 60_000.0), "lossPercent": (0.0, 100.0)}
+
+
+def normalize_alert_thresholds(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        raise ValueError("alert_thresholds must be an object")
+    unknown = sorted(set(value) - set(ALERT_THRESHOLD_LIMITS))
+    if unknown:
+        raise ValueError(f"alert_thresholds contains unknown field(s): {', '.join(unknown)}")
+    normalized = dict(DEFAULT_ALERT_THRESHOLDS)
+    for key, raw in value.items():
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise ValueError(f"alert_thresholds.{key} must be a finite number")
+        number = float(raw)
+        if not math.isfinite(number):
+            raise ValueError(f"alert_thresholds.{key} must be a finite number")
+        minimum, maximum = ALERT_THRESHOLD_LIMITS[key]
+        if not minimum <= number <= maximum:
+            raise ValueError(f"alert_thresholds.{key} must be between {minimum:g} and {maximum:g}")
+        normalized[key] = number
+    return normalized
+
 
 @dataclass(slots=True)
 class AppConfig:
@@ -66,7 +90,7 @@ class AppConfig:
     managed_accounts: list[dict[str, Any]] = field(default_factory=list)
     subscriptions: list[dict[str, Any]] = field(default_factory=list)
     redact_live_data: bool = True
-    alert_thresholds: dict[str, float] = field(default_factory=lambda: {"trafficPercent": 80.0, "latencyMs": 150.0, "lossPercent": 5.0})
+    alert_thresholds: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_ALERT_THRESHOLDS))
     protocol_adapters: dict[str, dict[str, Any]] = field(default_factory=dict)
     bootstrap_token_path: str = "/var/lib/castoriceui/bootstrap-token"
     login_background_directory: str = "/var/lib/castoriceui/login-backgrounds"
@@ -171,9 +195,10 @@ class AppConfig:
                 endpoint["url"] = normalize_loopback_endpoint(str(endpoint["url"]))
         if self.subscription_base_url:
             self.subscription_base_url = normalize_https_base_url(self.subscription_base_url)
-        for field_name in ("integrations", "protocol_adapters", "alert_thresholds"):
+        for field_name in ("integrations", "protocol_adapters"):
             if not isinstance(getattr(self, field_name), dict):
                 raise ValueError(f"{field_name} must be an object")
+        self.alert_thresholds = normalize_alert_thresholds(self.alert_thresholds)
         unknown_integrations = sorted(set(self.integrations) - set(DEFAULT_INTEGRATIONS))
         if unknown_integrations:
             raise ValueError(f"integrations contains unknown id(s): {', '.join(unknown_integrations)}")

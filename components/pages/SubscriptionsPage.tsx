@@ -13,6 +13,7 @@ import { PageHeader } from "../ui/Page";
 export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: Subscription[]; onToast: (message: string) => void }) {
   const { t } = useI18n();
   const [qrSubscription, setQrSubscription] = useState<Subscription | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
 
   const copy = async (subscription: Subscription) => {
@@ -30,14 +31,14 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
       const value = subscription.url ?? (await fetchSubscriptionUrl(subscription.id)).url;
       setQrUrl(value);
       setQrSubscription(subscription);
+      setQrOpen(true);
     } catch {
       onToast(t("无法读取订阅地址，请检查后端连接", "Unable to read the subscription URL. Check the backend connection."));
     }
   };
 
   const closeQr = () => {
-    setQrSubscription(null);
-    setQrUrl("");
+    setQrOpen(false);
   };
 
   return (
@@ -74,7 +75,7 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
         ))}
       </section>
       <Dialog
-        open={Boolean(qrSubscription)}
+        open={qrOpen}
         onClose={closeQr}
         title={t(`${qrSubscription?.account ?? ""} 的订阅二维码`, `${qrSubscription?.account ?? ""} subscription QR code`)}
         size="small"

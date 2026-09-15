@@ -39,6 +39,7 @@ await Promise.all([
   copy("docs/DEPLOYMENT.md", "docs/DEPLOYMENT.md"),
   copy("docs/BROWSER_SUPPORT.md", "docs/BROWSER_SUPPORT.md"),
   copy("docs/INTEGRATION.md", "docs/INTEGRATION.md"),
+  copy("docs/V4.3_FIX_SUMMARY.md", "docs/V4.3_FIX_SUMMARY.md"),
   cp(releaseNotes, path.join(stageDirectory, "docs", `RELEASE_NOTES_v${version}.md`)),
   copy("public/og.png", "public/og.png"),
   copy("README.md", "README.md"),

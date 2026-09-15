@@ -83,6 +83,24 @@ describe("P2 truthfulness and interaction regressions", () => {
     expect(screen.getAllByText(/0 B\/s \(partial, 1\/2\)/).length).toBeGreaterThanOrEqual(2);
   });
 
+  it("toggles connection details from the whole row and keeps the animated indicator at the leading edge", () => {
+    const connection: Connection = {
+      id: "expandable", protocol: "Hysteria2", account: "alice", sourceIp: "203.0.113.8", ipVersion: 4,
+      connections: 1, uploadBps: 5, downloadBps: 8, connectedAt: null,
+      details: [{ id: "detail", destination: "example.test:443", uploadBps: 5, downloadBps: 8, connectedAt: null }],
+    };
+    const { container } = renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    const row = container.querySelector<HTMLElement>(".connection-summary-row")!;
+    expect(row.querySelector("td:first-child .connection-row-indicator")).toBeTruthy();
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".connection-detail-row")?.className).toContain("is-expanded");
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".connection-expand")).toBeNull();
+  });
+
   it("does not compare lifetime protocol counters with a billing-cycle quota", () => {
     const account: Account = {
       id: "a", name: "Alice", email: "", status: "registered", configuredStatus: "active",
@@ -90,9 +108,9 @@ describe("P2 truthfulness and interaction regressions", () => {
       usedBytes: 90, quotaBytes: 100, expiresAt: "", onlineDevices: 1, usageSource: "protocolCounter",
     };
     renderEnglish(<AccountsPage accounts={[account]} onConfigure={vi.fn()} />);
-    expect(screen.getAllByText("Registered enabled").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByRole("button", { name: "Registered enabled" })).toBeTruthy();
-    expect(screen.getByText(/Different accounting scopes; no percentage shown/)).toBeTruthy();
+    expect(screen.getAllByText("Account enabled").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("button", { name: "Account enabled" })).toBeTruthy();
+    expect(screen.queryByText(/Different accounting scopes; no percentage shown/)).toBeNull();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 

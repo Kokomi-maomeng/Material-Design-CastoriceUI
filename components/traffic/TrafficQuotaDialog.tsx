@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import type { TrafficQuotaSettings } from "../../lib/types";
@@ -22,12 +22,14 @@ const RESET_HOURS = Array.from({ length: 24 }, (_, value) => String(value).padSt
 const RESET_MINUTES = Array.from({ length: 60 }, (_, value) => String(value).padStart(2, "0"));
 
 export function TrafficQuotaDialog({
+  open,
   trafficLimitBytes,
   quota,
   onClose,
   onSave,
   onToast,
 }: {
+  open: boolean;
   trafficLimitBytes: number;
   quota?: TrafficQuotaSettings;
   onClose: () => void;
@@ -44,6 +46,20 @@ export function TrafficQuotaDialog({
   const [resetTime, setResetTime] = useState(quota?.resetTime ?? "00:00");
   const [timezone, setTimezone] = useState(quota?.timezone ?? "UTC");
   const [error, setError] = useState("");
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setLimit(String(Math.max(1, Math.round(trafficLimitBytes / 1_000_000_000))));
+      setAutoReset(quota?.autoReset ?? false);
+      setPeriodUnit(quota?.periodUnit ?? "month");
+      setPeriodCount(String(quota?.periodCount ?? 1));
+      setResetAnchor(quota?.resetAnchor ?? new Date().toISOString().slice(0, 10));
+      setResetTime(quota?.resetTime ?? "00:00");
+      setTimezone(quota?.timezone ?? "UTC");
+      setError("");
+    }
+    wasOpen.current = open;
+  }, [open, quota, trafficLimitBytes]);
 
   const close = () => {
     if (!saving) onClose();
@@ -86,7 +102,7 @@ export function TrafficQuotaDialog({
 
   return (
     <Dialog
-      open
+      open={open}
       onClose={close}
       title={t("设置总流量额度", "Set total traffic quota")}
       className="quota-dialog"

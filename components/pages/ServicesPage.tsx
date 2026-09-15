@@ -16,7 +16,7 @@ export function ServicesPage({ services, metrics, onRefresh }: {
   onRefresh: () => void;
 }) {
   const { t } = useI18n();
-  const allHealthy = services.length > 0 && services.every((service) => service.status === "running") && storageIsHealthy(metrics, services);
+  const allHealthy = services.length > 0 && services.every((service) => service.status === "running") && storageIsHealthy(metrics);
   return <div className="page-content page-enter services-page">
       <PageHeader
         eyebrow={t("运行状态", "Runtime status")}

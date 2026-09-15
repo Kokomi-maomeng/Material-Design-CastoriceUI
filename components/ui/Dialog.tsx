@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button";
 import { useI18n } from "../../lib/i18n";
+import { usePresence } from "./usePresence";
 
 const dialogStack: HTMLDivElement[] = [];
 let bodyOverflow = "";
@@ -43,16 +44,21 @@ export function Dialog({
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const openRef = useRef(open);
+  const present = usePresence(open);
   const titleId = useId();
   const descriptionId = useId();
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (!open || !dialog) return;
+    if (!present || !dialog) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialogStack.length === 0) bodyOverflow = document.body.style.overflow;
     dialogStack.push(dialog);
@@ -64,7 +70,7 @@ export function Dialog({
     });
     (focusableElements()[0] ?? dialog).focus();
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (dialogStack[dialogStack.length - 1] !== dialog || event.defaultPrevented) return;
+      if (!openRef.current || dialogStack[dialogStack.length - 1] !== dialog || event.defaultPrevented) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -96,19 +102,19 @@ export function Dialog({
       if (dialogStack.length === 0) document.body.style.overflow = bodyOverflow;
       if (wasTop && previouslyFocused?.isConnected && !previouslyFocused.closest("[inert]")) previouslyFocused.focus();
     };
-  }, [open]);
+  }, [present]);
 
-  if (!open) return null;
+  if (!present) return null;
 
   return createPortal(
-    <div className="md-dialog-layer">
-      <button className="md-dialog-scrim" type="button" aria-label={t("关闭对话框", "Close dialog")} onClick={onClose} />
+    <div className={`md-dialog-layer ${open ? "is-open" : "is-closing"}`} aria-hidden={!open}>
+      <button className="md-dialog-scrim" type="button" aria-label={t("关闭对话框", "Close dialog")} onClick={onClose} disabled={!open} />
       <div
         ref={dialogRef}
         className={`md-dialog md-dialog--${size} ${className}`}
         role="dialog"
         tabIndex={-1}
-        aria-modal="true"
+        aria-modal={open ? "true" : "false"}
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
       >

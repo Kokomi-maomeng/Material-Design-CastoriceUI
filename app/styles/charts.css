@@ -35,6 +35,6 @@
 .setup-pending-heading h3 { margin: 0; font-size: .78rem; letter-spacing: .07em; text-transform: uppercase; color: var(--md-sys-color-on-surface-variant); }
 
 .toast { animation: toast-in-v24 .28s cubic-bezier(.2,0,0,1) both; }
-.toast.is-leaving { pointer-events: none; animation: toast-out-v24 .22s cubic-bezier(.4,0,1,1) both; }
+.toast.is-leaving { pointer-events: none; animation: toast-out-v24 var(--motion-exit-duration) var(--motion-exit) both; }
 @keyframes toast-in-v24 { from { opacity: 0; transform: translate(-50%, 18px) scale(.96); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
 @keyframes toast-out-v24 { from { opacity: 1; transform: translateX(-50%) scale(1); } to { opacity: 0; transform: translate(-50%, 12px) scale(.98); } }
