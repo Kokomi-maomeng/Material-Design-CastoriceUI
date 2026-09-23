@@ -27,12 +27,17 @@ def synthetic_dashboard(page) -> dict[str, object]:
         {
             "label": f"{hour:02d}:00",
             "capturedAt": (now - timedelta(hours=23 - hour)).isoformat().replace("+00:00", "Z"),
-            "download": float(62 if hour == 20 else (hour % 5) + 1),
-            "upload": float(18 if hour == 20 else (hour % 3) + 0.5),
+            "download": float(28 if hour == 20 else (hour % 4) + 0.5) * 1_000_000_000,
+            "upload": float(8 if hour == 20 else (hour % 3) * 0.4 + 0.2) * 1_000_000_000,
         }
         for hour in range(24)
     ]
     dashboard.update(mode="live", generatedAt=now.isoformat().replace("+00:00", "Z"))
+    resource_points = [
+        {"capturedAt": point["capturedAt"], "cpuPercent": float(8 + index % 9), "memoryPercent": float(42 + index % 5)}
+        for index, point in enumerate(points)
+    ]
+    dashboard["resourceHistory"] = {key: resource_points for key in ("1h", "6h", "24h")}
     dashboard["overview"].update(
         nodeName="QA node",
         cpuPercent=9,
@@ -115,7 +120,12 @@ def synthetic_dashboard(page) -> dict[str, object]:
             {"startDate": f"2025-{month:02d}-01", "endDate": f"2025-{month:02d}-28", "bytes": month * 10_000_000_000}
             for month in range(7, 13)
         ],
-        protocol=[{"name": "Hysteria2", "value": 2_000_000_000}, {"name": "AnyTLS", "value": 1_000_000_000}],
+        protocol=[{"name": name, "value": value} for name, value in (
+            ("Hysteria2", 1_500_000_000), ("AnyTLS", 800_000_000), ("VLESS", 300_000_000),
+            ("Trojan", 200_000_000), ("VMess", 100_000_000), ("TUIC", 50_000_000),
+            ("Unattributed", 50_000_000),
+        )],
+        coverage={"complete": False, "gapCount": 2},
         account=[{"name": "primary", "value": 165_100_000_000}],
     )
     dashboard["networkTargets"] = [
@@ -133,6 +143,7 @@ def open_page(page, section: str) -> None:
     page.evaluate("section => { location.hash = '/' + section; }", section)
     page.locator("#main-content .page-loading").wait_for(state="detached")
     page.locator("#main-content h1").wait_for()
+    page.evaluate("scrollTo(0, 0)")
 
 
 with sync_playwright() as playwright:
@@ -218,6 +229,13 @@ with sync_playwright() as playwright:
         range_points = list(original_ranges.get("24h", original_hourly))
         open_page(page, "traffic")
         chart = page.locator(".chart--traffic svg")
+        chart.hover(position={"x": 120, "y": 120})
+        chart.evaluate("element => element.dataset.qaStable = '1'")
+        dashboard["traffic"]["ranges"]["24h"] = range_points + [{**range_points[-1], "capturedAt": "2026-01-15T05:00:00Z"}]
+        page.wait_for_function("() => document.querySelectorAll('.chart-point--primary').length === 25", timeout=8500)
+        assert chart.get_attribute("data-qa-stable") == "1", (engine, "chart remounted on refresh")
+        assert page.locator(".chart-inspector").count() == 1, (engine, "chart pointer cleared on refresh")
+        dashboard["traffic"]["ranges"] = dict(original_ranges)
         chart.focus()
         chart.press("End")
         chart.dispatch_event("pointermove", {"clientX": 120, "clientY": 120})
@@ -250,8 +268,35 @@ with sync_playwright() as playwright:
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"), (engine, language, width, section, "document overflow")
                     if section == "traffic":
                         assert page.locator(".chart--traffic").evaluate("element => element.scrollWidth <= element.clientWidth + 2"), (engine, language, width, section, "chart clipping")
+                        if width >= 901:
+                            monthly = page.locator(".monthly-traffic-panel").bounding_box()
+                            protocol = page.locator(".protocol-panel").bounding_box()
+                            assert monthly and protocol and abs(monthly["height"] - protocol["height"]) <= 2, (engine, language, width, "secondary card heights")
+                        if engine == "chromium" and language == "en" and width in (1440, 390, 320):
+                            trigger = page.get_by_role("button", name="Measurement coverage is incomplete")
+                            trigger.hover()
+                            popup = page.get_by_role("dialog", name="Measurement coverage is incomplete")
+                            popup.wait_for(state="visible")
+                            anchor_box, popup_box = trigger.bounding_box(), popup.bounding_box()
+                            assert anchor_box and popup_box and popup_box["x"] >= 0 and popup_box["x"] + popup_box["width"] <= width + 2
+                            assert popup_box["x"] <= anchor_box["x"] + anchor_box["width"] + 12 and popup_box["x"] + popup_box["width"] >= anchor_box["x"] - 12, (width, "coverage popover detached")
+                            page.mouse.move(0, 0)
+                            more = page.get_by_role("button", name="More protocols")
+                            more.hover()
+                            more_popup = page.get_by_role("dialog", name="More protocol traffic")
+                            more_popup.wait_for(state="visible")
+                            more_box = more_popup.bounding_box()
+                            assert more_box and more_box["x"] >= 0 and more_box["x"] + more_box["width"] <= width + 2, (width, "protocol popover overflow")
+                            page.mouse.move(0, 0)
+                            page.wait_for_timeout(220)
                     if section == "network":
                         assert page.locator(".sparkline").first.evaluate("element => getComputedStyle(element).height") == "200px"
+                    if screenshot_root := os.environ.get("CASTORICEUI_BROWSER_SCREENSHOTS"):
+                        if engine == "chromium" and language == "en" and width in (1440, 390) and section in ("overview", "traffic", "services"):
+                            page.evaluate("scrollTo(0, 0)")
+                            target = Path(screenshot_root)
+                            target.mkdir(parents=True, exist_ok=True)
+                            page.screenshot(path=str(target / f"{section}-{width}.png"), full_page=True)
                 results.append({"engine": engine, "language": language, "width": width, "pages": len(PAGES)})
         browser.close()
 

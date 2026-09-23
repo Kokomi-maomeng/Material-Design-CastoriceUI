@@ -30,6 +30,28 @@
 .chart-legend > button { min-height: 38px; }
 .chart-legend > button b { min-width: 72px; font-variant-numeric: tabular-nums; text-align: right; }
 
+.content-grid--traffic-secondary { grid-template-columns: minmax(0, 1.8fr) minmax(280px, .7fr); align-items: stretch; }
+.content-grid--traffic-secondary > * { min-width: 0; min-height: 380px; }
+.content-grid--traffic-secondary .monthly-traffic-panel { display: flex; flex-direction: column; }
+.monthly-traffic-panel .traffic-disclosure__collapse { flex: 1; }
+.monthly-traffic-panel .traffic-disclosure__content { height: 100%; }
+.monthly-traffic-panel .monthly-traffic-list { height: 100%; align-content: space-evenly; }
+.content-grid--traffic-secondary .traffic-disclosure.is-collapsed { min-height: 0; }
+.protocol-panel .donut-wrap { min-height: 0; padding: 2px 18px 16px; }
+.protocol-panel .chart--donut { flex-basis: 172px; height: 172px; max-width: 205px; }
+.protocol-panel .donut-center strong, .protocol-panel .donut-center.is-inspecting strong { font-size: 18px; }
+.protocol-panel .chart-legend > button { min-height: 32px; padding-block: 5px; }
+.protocol-panel .chart-legend { gap: 2px; }
+.md-anchored-popover { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .content-grid--traffic-secondary { grid-template-columns: minmax(0, 1fr); }
+  .content-grid--traffic-secondary > * { min-height: 0; }
+}
+@media (max-width: 620px) {
+  .monthly-traffic-panel .monthly-traffic-list { align-content: initial; }
+  .protocol-panel .donut-wrap { padding-inline: 14px; }
+}
+
 .setup-completed--first { margin: 0 0 18px; padding: 0 0 18px; border-top: 0; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
 .setup-pending-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .setup-pending-heading h3 { margin: 0; font-size: .78rem; letter-spacing: .07em; text-transform: uppercase; color: var(--md-sys-color-on-surface-variant); }

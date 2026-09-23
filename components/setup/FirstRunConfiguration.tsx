@@ -52,6 +52,14 @@ export function FirstRunConfiguration({ metrics, integrations, onConfigure, onSa
       <Card variant="outlined"><CardHeader title={t("节点与流量额度", "Node and traffic quota")} />
         <div className="first-run-basics"><label className="field"><span>{t("节点显示名称", "Node display name")}</span><input maxLength={80} value={nodeName} onChange={(event) => { setNodeName(event.target.value); setSaved(false); }} placeholder={t("例如：东京边缘节点", "Example: Tokyo edge")} /></label><label className="field"><span>{t("总流量额度（GB）", "Total traffic quota (GB)")}</span><div className="quota-input-stable"><input type="number" min="1" max="1000000" inputMode="numeric" value={quotaGb} onChange={(event) => { setQuotaGb(event.target.value); setSaved(false); }} /><span>GB</span></div></label><Button icon="save" disabled={busy || !nodeName.trim() || Number(quotaGb) <= 0} onClick={() => void save()}>{saved ? t("已保存", "Saved") : t("保存基础设置", "Save basics")}</Button></div>
       </Card>
+      <Card variant="outlined" className="setup-prerequisites"><CardHeader title={t("服务器侧准备", "Server prerequisites")} description={t("网页向导不会安装代理核心或读取、保存上游密码。", "The web wizard does not install proxy cores or read and store upstream secrets.")} />
+        <ul>
+          <li>{t("部署前准备仅监听回环地址的后端、受保护配置文件和可写数据库目录。", "Before deployment, prepare a loopback-only backend, protected configuration file, and writable database directory.")}</li>
+          <li>{t("使用 Hysteria2 或 sing-box 时，先在受保护配置中填写 API Secret，并确认对应探针服务正常运行。", "For Hysteria2 or sing-box, set API secrets in the protected server configuration and confirm the protocol probe is running.")}</li>
+          <li>{t("账号状态和订阅管理依赖受保护配置中的管理账号、身份映射和订阅记录；网页验证不会创建这些记录。", "Account status and subscriptions require managed accounts, identity mappings, and subscription records in protected configuration; web validation does not create them.")}</li>
+          <li>{t("CPU、内存和流量历史会在安装后逐步积累，近 24 小时曲线需要实际采样时间。", "CPU, memory, and traffic history accumulate after installation; the 24-hour charts need actual sampling time.")}</li>
+        </ul>
+      </Card>
       <Card variant="filled"><CardHeader title={t("代理协议", "Proxy protocols")} description={t("只配置服务器实际使用的协议；面板不会为未接入协议生成数据。", "Configure only protocols actually running on the server. The panel never invents data for unconnected protocols.")} />
         <div className="protocol-setup-grid">{sortedProtocols.map((item) => { const state = status(item.id); const ready = state?.status === "ready"; return <button key={item.id} onClick={() => onConfigure(item.id)}><span><Icon name={item.icon} /></span><div><strong>{item.label}</strong><small>{ready ? t("已连接并验证", "Connected and verified") : state?.configured ? t("已配置但当前不可用", "Configured but unavailable") : t("未配置", "Not configured")}</small></div><Chip staticChip tone={ready ? "success" : state?.configured ? "warning" : "default"}>{ready ? t("可用", "Ready") : t("配置", "Configure")}</Chip></button>; })}</div>
       </Card>

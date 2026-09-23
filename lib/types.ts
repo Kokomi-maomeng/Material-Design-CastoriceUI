@@ -194,6 +194,7 @@ export interface DashboardPayload {
   mode: "loading" | "live" | "stale" | "error";
   generatedAt: string;
   overview: OverviewMetrics;
+  resourceHistory: Record<"1h" | "6h" | "24h", ResourceSample[]>;
   accounts: Account[];
   connections: Connection[];
   traffic: {
@@ -214,6 +215,12 @@ export interface DashboardPayload {
   alerts: AlertItem[];
   integrations: IntegrationStatus[];
   uiSettings: UiSettings;
+}
+
+export interface ResourceSample {
+  capturedAt: string;
+  cpuPercent: number;
+  memoryPercent: number;
 }
 
 export interface UiSettings {

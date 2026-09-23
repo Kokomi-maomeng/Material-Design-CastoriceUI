@@ -1,4 +1,4 @@
-# CastoriceUI v4.3 deployment / 部署手册
+# CastoriceUI v4.4 deployment / 部署手册
 
 This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
 
@@ -13,6 +13,8 @@ This guide uses versioned releases, a loopback backend, application sessions, TL
 - Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
 
 Do not deploy the backend directly on a public address. The application login cookie is Secure by default and therefore requires HTTPS in production.
+
+The first-run wizard configures node and quota settings and validates live integrations. It does not install Hysteria2 or sing-box, create upstream API secrets, or create managed-account and protected-subscription records. Prepare those in the root-only configuration before expecting their cards to populate. CPU, memory, and traffic history require actual sampling time after installation.
 
 ### Supported installation paths / 支持的安装路径
 
@@ -61,8 +63,8 @@ GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校�
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-tar -xzf CastoriceUI-v4.3.0.tar.gz
-cd CastoriceUI-v4.3.0
+tar -xzf CastoriceUI-v4.4.0.tar.gz
+cd CastoriceUI-v4.4.0
 python3 -m compileall -q server
 python3 -m unittest discover -s server/tests -p 'test_*.py' -v
 ```
@@ -76,14 +78,14 @@ The recommended live install/upgrade entrypoint is the shipped [`../deploy/insta
 From a verified archive in a source checkout:
 
 ```bash
-sudo sh deploy/install-or-upgrade.sh --archive "$PWD/release/CastoriceUI-v4.3.0.tar.gz"
+sudo sh deploy/install-or-upgrade.sh --archive "$PWD/release/CastoriceUI-v4.4.0.tar.gz"
 ```
 
 When only the release assets are available, extract just the installer first, then point it at the still-verified archive:
 
 ```bash
-tar -xzf CastoriceUI-v4.3.0.tar.gz CastoriceUI-v4.3.0/deploy/install-or-upgrade.sh
-sudo sh CastoriceUI-v4.3.0/deploy/install-or-upgrade.sh --archive "$PWD/CastoriceUI-v4.3.0.tar.gz"
+tar -xzf CastoriceUI-v4.4.0.tar.gz CastoriceUI-v4.4.0/deploy/install-or-upgrade.sh
+sudo sh CastoriceUI-v4.4.0/deploy/install-or-upgrade.sh --archive "$PWD/CastoriceUI-v4.4.0.tar.gz"
 ```
 
 ## 3. Back up before install or upgrade / 先备份
@@ -177,7 +179,7 @@ sudo systemctl status castoriceui-backend --no-pager
 curl -fsS http://127.0.0.1:18080/api/v2/health
 ```
 
-Expected version: `4.3.0`.
+Expected version: `4.4.0`.
 
 For a new database, generate the first-admin token once:
 
@@ -192,7 +194,7 @@ Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected adm
 ## 7. Frontend release / 前端版本目录
 
 ```bash
-release=v4.3.0
+release=v4.4.0
 frontend_source=dist       # source checkout / 源码检出
 # frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
 test -f "$frontend_source/index.html"
@@ -286,7 +288,7 @@ If this VPS also carries the operator's active proxy traffic, do not reboot the 
 
 - `systemctl is-enabled castoriceui-backend` returns `enabled`
 - `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `4.3.0`
+- loopback and HTTPS health report `4.4.0`
 - `/api/v2/dashboard` rejects an unauthenticated request
 - the application login works and logout invalidates the session
 - first-run setup is required only when appropriate

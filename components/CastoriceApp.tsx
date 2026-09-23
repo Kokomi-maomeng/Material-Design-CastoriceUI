@@ -559,6 +559,7 @@ export function CastoriceApp() {
           <ServicesPage
             services={dashboard.services}
             metrics={dashboard.overview}
+            resourceHistory={dashboard.resourceHistory}
             onRefresh={() => {
               void loadDashboard();
               showToast(t("正在重新读取服务状态", "Refreshing service status"));

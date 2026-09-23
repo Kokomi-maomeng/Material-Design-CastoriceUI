@@ -58,11 +58,14 @@ describe("v4.1 navigation and protocol inspection", () => {
   it("routes every overview shortcut and isolates the account destination", () => {
     const navigate = vi.fn();
     renderEnglish(overview(navigate));
-    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "connections"], ["View account status", "accounts"], ["View network quality", "network"], ["View services", "services"]]) {
+    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "connections"], ["View account status", "accounts"], ["View network quality", "network"]]) {
       navigate.mockClear();
       fireEvent.click(screen.getByRole("link", { name: label }));
       expect(navigate.mock.calls).toEqual([[page]]);
     }
+    navigate.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "View storage and backend details" }));
+    expect(navigate.mock.calls).toEqual([["services"]]);
     expect(screen.queryByText("View all")).toBeNull();
   });
   it("preserves quota editing, range controls, chart interaction and text selection", () => {

@@ -24,6 +24,13 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .auth-footer--language { justify-content: flex-end; }
 
 .native-chart--interactive { touch-action: none; outline: none; cursor: crosshair; }
+
+/* Material 3 state layer grows during a sustained press without delaying activation. */
+:is(.md-button, .navigation-rail nav button, .nav-footer button, .segmented-control button, .traffic-disclosure__summary, .overview-health-list button, .setup-panel button) { position: relative; }
+:is(.md-button, .navigation-rail nav button, .nav-footer button, .segmented-control button, .traffic-disclosure__summary, .overview-health-list button, .setup-panel button)::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(circle at center, currentColor 0%, transparent 70%); opacity: 0; transform: scale(.55); }
+:is(.md-button, .navigation-rail nav button, .nav-footer button, .segmented-control button, .traffic-disclosure__summary, .overview-health-list button, .setup-panel button):active:not(:disabled)::after { animation: md3-press-reveal 560ms var(--motion-standard) forwards; }
+@keyframes md3-press-reveal { 0% { opacity: 0; transform: scale(.55); } 75% { opacity: .07; } 100% { opacity: .11; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { :is(.md-button, .navigation-rail nav button, .nav-footer button, .segmented-control button, .traffic-disclosure__summary, .overview-health-list button, .setup-panel button):active::after { animation: none; opacity: .08; transform: none; } }
 .chart-hit-area { fill: transparent; pointer-events: all; }
 .chart-point.is-active { opacity: 1 !important; filter: drop-shadow(0 2px 4px rgb(var(--shadow-color) / .25)); }
 .chart-inspector line { stroke: var(--outline); stroke-width: 1; stroke-dasharray: 4 4; }

@@ -29,6 +29,10 @@ describe("P2 truthfulness and interaction regressions", () => {
     const chart = container.querySelector("svg") as SVGSVGElement;
     fireEvent.focus(chart);
     fireEvent.keyDown(chart, { key: "End" });
+    expect(container.querySelector(".chart-inspector")).toBeTruthy();
+    rerender(<I18nProvider><TrafficChart data={points(25)} /></I18nProvider>);
+    expect(container.querySelector("svg")).toBe(chart);
+    expect(container.querySelector(".chart-inspector")).toBeTruthy();
     rerender(<I18nProvider><TrafficChart data={points(1)} /></I18nProvider>);
     expect(container.querySelector(".chart--traffic")).toBeTruthy();
     rerender(<I18nProvider><TrafficChart data={[]} /></I18nProvider>);

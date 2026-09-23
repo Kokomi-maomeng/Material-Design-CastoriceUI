@@ -74,6 +74,7 @@ class DashboardService:
         self.network_at = 0.0
         self.subscription_probe_cache: tuple[str, float, dict[str, Any]] | None = None
         self.monthly_traffic_cache: tuple[int, str, str, list[dict[str, Any]]] | None = None
+        self.resource_history_cache: tuple[int, dict[str, list[dict[str, Any]]]] | None = None
         self.connection_baseline: dict[str, tuple[float, int, int]] = {}
         self.system_cache: dict[str, Any] | None = None
         self.runtime_cache: dict[str, Any] = {
@@ -1139,6 +1140,11 @@ class DashboardService:
                     if detail.get("destination"):
                         detail["destination"] = None
         traffic = self.traffic_series()
+        with self.lock:
+            sample_at = self.system_collector.last_persisted_at
+            if self.resource_history_cache is None or self.resource_history_cache[0] != sample_at:
+                self.resource_history_cache = (sample_at, self.storage.resource_history(int(time.time())))
+            resource_history = self.resource_history_cache[1]
         authoritative_total = int(system["trafficUsedBytes"])
         accounts = self.account_metrics(copy.deepcopy(self.config.managed_accounts), hy2, authoritative_total)
         singbox_label = "AnyTLS" if self.config.integrations.get("anytls", {}).get("configured") and not self.config.protocol_adapters else "sing-box combined"
@@ -1166,6 +1172,7 @@ class DashboardService:
             "mode": "live",
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "overview": system,
+            "resourceHistory": resource_history,
             "accounts": accounts,
             "connections": connections,
             "traffic": {

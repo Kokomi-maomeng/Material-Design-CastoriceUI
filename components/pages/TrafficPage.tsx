@@ -44,7 +44,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
 
   return <div className="page-content page-enter">
     <PageHeader eyebrow={t("用量", "Usage")} title={t("流量分析", "Traffic analytics")} />
-    <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="尚未配置流量采集。" descriptionEn="Traffic collection is not configured." onConfigure={onConfigure} />
+    <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="配置主网卡与流量额度后，才能统计真实用量。" descriptionEn="Configure the primary interface and traffic quota to measure real usage." onConfigure={onConfigure} />
     <section className="traffic-kpis">
       <Kpi label={t("近 24 小时用量", "Last 24 hours")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0) * 1_000_000_000)} icon="today" />
       <Kpi
@@ -144,6 +144,7 @@ function Kpi({ label, value, icon, coverage }: { label: string; value: string; i
     open={open}
     anchorRef={buttonRef}
     surfaceRef={cardRef}
+    placementPreference="vertical"
     onClose={close}
     ariaLabel={coverage.title}
     className="traffic-coverage-popover"

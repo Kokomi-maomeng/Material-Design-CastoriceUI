@@ -13,7 +13,7 @@ import type {
   ServiceStatus,
   TrafficRange,
 } from "../../lib/types";
-import { ServiceCards } from "../ServiceCards";
+import { storageIsHealthy } from "../../lib/service-health";
 import { TrafficChart } from "../charts/TrafficChart";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
@@ -50,7 +50,6 @@ export function OverviewPage({
   const connectionsLink = useNavigationSurface(() => onNavigate("connections"), t("查看在线连接", "View connections"));
   const accountsLink = useNavigationSurface(() => onNavigate("accounts"), t("查看账号状态", "View account status"));
   const networkLink = useNavigationSurface(() => onNavigate("network"), t("查看网络质量", "View network quality"));
-  const servicesLink = useNavigationSurface(() => onNavigate("services"), t("查看服务状态", "View services"));
   const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const stale = mode === "stale";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
@@ -332,12 +331,21 @@ export function OverviewPage({
         </Card>
       </section>
 
-      <div className="overview-service-health navigation-surface" {...servicesLink}>
-        <div className="service-health-heading">
-          <h2>{t("服务健康度", "Service health")}</h2>
+      <Card variant="filled" className="overview-service-health">
+        <CardHeader title={t("服务健康度", "Service health")} description={t("点击项目查看服务详情", "Select an item to view service details")} action={<Chip staticChip icon="dns">{t(`${services.length + 1} 项`, `${services.length + 1} items`)}</Chip>} />
+        <div className="overview-health-list">
+          {services.map((service) => <button type="button" key={service.id} onClick={() => onNavigate("services")} aria-label={t(`查看${service.nameZh || service.name}服务详情`, `View ${service.nameEn || service.name} service details`)}>
+            <Icon name={service.icon} size={21} />
+            <span>{language === "zh" ? service.nameZh || service.name : service.nameEn || service.name}</span>
+            <strong className={service.status === "running" ? "is-healthy" : "is-error"}>{service.status === "running" ? t("运行中", "Running") : t("需检查", "Check")}</strong>
+            <Icon name="chevron_right" size={18} />
+          </button>)}
+          <button type="button" onClick={() => onNavigate("services")} aria-label={t("查看存储与后端详情", "View storage and backend details")}>
+            <Icon name="storage" size={21} /><span>{t("存储与后端", "Storage and backend")}</span>
+            <strong className={storageIsHealthy(metrics) ? "is-healthy" : "is-error"}>{storageIsHealthy(metrics) ? t("健康", "Healthy") : t("需检查", "Check")}</strong><Icon name="chevron_right" size={18} />
+          </button>
         </div>
-        <ServiceCards services={services} metrics={metrics} compact />
-      </div>
+      </Card>
     </div>
   );
 }

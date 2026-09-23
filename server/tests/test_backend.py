@@ -30,6 +30,19 @@ from preflight import inspect as preflight_inspect  # noqa: E402
 
 
 class BackendTests(unittest.TestCase):
+    def test_resource_history_uses_bounded_real_samples_and_bucket_averages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / "state.db"))
+            now = 2_000_000_040  # Aligned to a minute boundary.
+            storage.record_sample(now - 20, 100, 100, 20, 40, "eth0", "boot-a")
+            storage.record_sample(now - 10, 110, 120, 40, 60, "eth0", "boot-a")
+            history = storage.resource_history(now)
+            self.assertEqual(set(history), {"1h", "6h", "24h"})
+            self.assertEqual(len(history["1h"]), 1)
+            self.assertEqual(history["1h"][0]["cpuPercent"], 30)
+            self.assertEqual(history["1h"][0]["memoryPercent"], 50)
+            self.assertEqual(history["1h"][0]["capturedAt"], datetime.fromtimestamp(now - 10, timezone.utc).isoformat().replace("+00:00", "Z"))
+
     def test_visible_panels_use_canonical_order_for_saved_preferences(self) -> None:
         self.assertEqual(
             ordered_visible_panels(["traffic", "alerts", "audit", "accounts", "traffic", "services"]),

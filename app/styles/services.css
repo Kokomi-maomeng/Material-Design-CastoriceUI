@@ -75,3 +75,35 @@
 .navigation-surface [data-no-navigate] { cursor: default; }
 
 .service-card--abnormal .service-card__body, .service-card--abnormal .service-card__body p, .service-card--abnormal dt, .service-card--abnormal dd { color: var(--error); }
+
+/* Dense, extensible overview service list. */
+.overview-service-health { min-width: 0; overflow: hidden; }
+.overview-health-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px; padding: 16px 20px 20px; }
+.overview-health-list button { position: relative; min-width: 0; min-height: 52px; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 18px; gap: 9px; align-items: center; padding: 8px 10px; border: 1px solid var(--outline-variant); border-radius: 15px; background: var(--surface-container-low); color: var(--on-surface); font: inherit; text-align: left; cursor: pointer; transition: background-color var(--motion-enter-duration) var(--motion-standard), border-color var(--motion-enter-duration) var(--motion-standard), transform var(--motion-enter-duration) var(--motion-standard); }
+.overview-health-list button:hover, .overview-health-list button:focus-visible { background: var(--surface-container-high); border-color: var(--primary); outline: none; }
+.overview-health-list button:active { transform: scale(.985); }
+.overview-health-list button > span:not(.material-symbols-rounded) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.overview-health-list button strong { font-size: 11px; white-space: nowrap; }
+.overview-health-list .is-healthy { color: var(--success); }.overview-health-list .is-error { color: var(--error); }
+.overview-health-list button > .material-symbols-rounded:last-child { color: var(--on-surface-variant); }
+
+/* Give the overview trend the full height of its two adjacent cards. */
+.resource-panel { display: flex; flex-direction: column; min-width: 0; }
+.resource-panel > [data-no-navigate] { display: flex; flex: 1; min-height: 0; }
+.resource-panel .chart--traffic { flex: 1; height: auto; min-height: 315px; }
+
+.resource-history-panel { min-width: 0; }
+.resource-chart-legend { padding: 14px 22px 0; }
+.resource-chart { padding: 4px 18px 16px; min-width: 0; }
+.resource-chart svg { display: block; width: 100%; height: auto; max-height: 370px; cursor: crosshair; touch-action: pan-y; outline: none; }
+.resource-chart svg:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
+.resource-range-control { flex-wrap: nowrap; }
+
+@media (max-width: 900px) {
+  .resource-panel .chart--traffic { min-height: 300px; }
+}
+@media (max-width: 620px) {
+  .overview-health-list { grid-template-columns: minmax(0, 1fr); padding: 14px 16px 16px; }
+  .resource-chart { padding-inline: 8px; }
+  .resource-chart-legend { padding-inline: 16px; }
+}

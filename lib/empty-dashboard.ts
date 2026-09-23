@@ -14,6 +14,7 @@ export const emptyDashboard: DashboardPayload = {
     trafficQuota: { bytes: 0, autoReset: false, periodUnit: "month", periodCount: 1, resetAnchor: "2000-01-01", resetTime: "00:00", timezone: "UTC", cycleStart: new Date(0).toISOString(), nextReset: null },
     downloadBps: 0, uploadBps: 0, interface: "--", kernel: "--", databaseBytes: 0, databaseWritable: false,
   },
+  resourceHistory: { "1h": [], "6h": [], "24h": [] },
   accounts: [], connections: [],
   traffic: { totalBytes: 0, protocolTotalBytes: 0, accountTotalBytes: 0, ranges: emptyRanges, hourly: [], daily: [], monthly: [], protocol: [], account: [] },
   subscriptions: [], networkTargets: [], services: [], alerts: [], integrations: [],

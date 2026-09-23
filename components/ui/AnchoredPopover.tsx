@@ -15,6 +15,7 @@ interface AnchoredPopoverProps {
   children: ReactNode;
   className?: string;
   preferredWidth?: number;
+  placementPreference?: "adjacent" | "vertical";
   onPointerEnter?: PointerEventHandler<HTMLDivElement>;
   onPointerLeave?: PointerEventHandler<HTMLDivElement>;
 }
@@ -40,6 +41,7 @@ export function AnchoredPopover({
   children,
   className = "",
   preferredWidth = 304,
+  placementPreference = "adjacent",
   onPointerEnter,
   onPointerLeave,
 }: AnchoredPopoverProps) {
@@ -65,24 +67,24 @@ export function AnchoredPopover({
     const maxHeight = Math.max(1, Math.min(360, viewportHeight - VIEWPORT_EDGE * 2));
     const measuredHeight = Math.min(popup.scrollHeight || maxHeight, maxHeight);
     const anchorRect = anchor.getBoundingClientRect();
-    const surfaceRect = surfaceRef?.current?.getBoundingClientRect() ?? anchorRect;
-    const roomRight = viewportWidth - surfaceRect.right - SURFACE_GAP - VIEWPORT_EDGE;
-    const roomLeft = surfaceRect.left - SURFACE_GAP - VIEWPORT_EDGE;
+    const targetRect = anchorRect.width && anchorRect.height ? anchorRect : surfaceRef?.current?.getBoundingClientRect() ?? anchorRect;
+    const roomRight = viewportWidth - targetRect.right - SURFACE_GAP - VIEWPORT_EDGE;
+    const roomLeft = targetRect.left - SURFACE_GAP - VIEWPORT_EDGE;
 
     let placement: Placement;
     let left: number;
     let top: number;
 
-    if (viewportWidth >= 760 && Math.max(roomRight, roomLeft) >= Math.min(width, 220)) {
+    if (placementPreference === "adjacent" && viewportWidth >= 760 && Math.max(roomRight, roomLeft) >= width) {
       placement = roomRight >= width || roomRight >= roomLeft ? "right" : "left";
-      left = placement === "right" ? surfaceRect.right + SURFACE_GAP : surfaceRect.left - SURFACE_GAP - width;
-      top = anchorRect.top - 12;
+      left = placement === "right" ? targetRect.right + SURFACE_GAP : targetRect.left - SURFACE_GAP - width;
+      top = targetRect.top;
     } else {
-      const roomBelow = viewportHeight - surfaceRect.bottom - SURFACE_GAP - VIEWPORT_EDGE;
-      const roomAbove = surfaceRect.top - SURFACE_GAP - VIEWPORT_EDGE;
+      const roomBelow = viewportHeight - targetRect.bottom - SURFACE_GAP - VIEWPORT_EDGE;
+      const roomAbove = targetRect.top - SURFACE_GAP - VIEWPORT_EDGE;
       placement = roomBelow >= measuredHeight || roomBelow >= roomAbove ? "bottom" : "top";
-      left = Math.min(surfaceRect.left, viewportWidth - width - VIEWPORT_EDGE);
-      top = placement === "bottom" ? surfaceRect.bottom + SURFACE_GAP : surfaceRect.top - SURFACE_GAP - measuredHeight;
+      left = Math.min(targetRect.left, viewportWidth - width - VIEWPORT_EDGE);
+      top = placement === "bottom" ? targetRect.bottom + SURFACE_GAP : targetRect.top - SURFACE_GAP - measuredHeight;
     }
 
     setPosition({
@@ -93,7 +95,7 @@ export function AnchoredPopover({
       placement,
       ready: true,
     });
-  }, [anchorRef, preferredWidth, surfaceRef]);
+  }, [anchorRef, placementPreference, preferredWidth, surfaceRef]);
 
   useEffect(() => {
     if (!present) return;
@@ -107,12 +109,17 @@ export function AnchoredPopover({
     };
     window.addEventListener("resize", positionPanel);
     window.addEventListener("scroll", positionPanel, true);
+    window.visualViewport?.addEventListener("resize", positionPanel);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(positionPanel);
+    if (popupRef.current) observer?.observe(popupRef.current);
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", positionPanel);
       window.removeEventListener("scroll", positionPanel, true);
+      window.visualViewport?.removeEventListener("resize", positionPanel);
+      observer?.disconnect();
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };

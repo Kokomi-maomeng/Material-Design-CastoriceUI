@@ -306,6 +306,31 @@ class Storage:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def resource_history(self, now: int) -> dict[str, list[dict[str, Any]]]:
+        """Return bounded one, five, and fifteen minute resource averages."""
+        ranges = {"1h": (3600, 60), "6h": (21600, 300), "24h": (86400, 900)}
+        result: dict[str, list[dict[str, Any]]] = {}
+        with self.connect() as connection:
+            for name, (duration, interval) in ranges.items():
+                rows = connection.execute(
+                    """
+                    SELECT MAX(captured_at) AS captured_at,
+                           ROUND(AVG(cpu), 1) AS cpu_percent,
+                           ROUND(AVG(memory), 1) AS memory_percent
+                    FROM samples
+                    WHERE captured_at >= ? AND captured_at <= ?
+                    GROUP BY CAST(captured_at / ? AS INTEGER)
+                    ORDER BY captured_at
+                    """,
+                    (now - duration, now, interval),
+                ).fetchall()
+                result[name] = [
+                    {"capturedAt": datetime.fromtimestamp(int(row["captured_at"]), timezone.utc).isoformat().replace("+00:00", "Z"),
+                     "cpuPercent": float(row["cpu_percent"]), "memoryPercent": float(row["memory_percent"])}
+                    for row in rows
+                ]
+        return result
+
     def traffic_usage_since(self, timestamp: int, count_mode: str = "sum", initial_used_bytes: int = 0) -> dict[str, Any]:
         with self.connect() as connection:
             newest = connection.execute("SELECT MAX(bucket_start) FROM traffic_hourly").fetchone()[0]

@@ -10,11 +10,15 @@ function smoothPath(points: Point[]): string { if (!points.length) return ""; if
 
 interface TrafficChartBoundaryState { failed: boolean }
 
-class TrafficChartBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, TrafficChartBoundaryState> {
+class TrafficChartBoundary extends Component<{ children: ReactNode; fallback: ReactNode; resetSignature: string }, TrafficChartBoundaryState> {
   state: TrafficChartBoundaryState = { failed: false };
 
   static getDerivedStateFromError(): TrafficChartBoundaryState {
     return { failed: true };
+  }
+
+  componentDidUpdate(previous: Readonly<{ resetSignature: string }>) {
+    if (this.state.failed && previous.resetSignature !== this.props.resetSignature) this.setState({ failed: false });
   }
 
   render() {
@@ -35,8 +39,8 @@ function sampleKeys(data: TrafficPoint[]): string[] {
 export function TrafficChart({ data }: { data: TrafficPoint[] }) {
   const { t } = useI18n();
   const last = data[data.length - 1];
-  const resetKey = `${data.length}:${data[0]?.capturedAt ?? data[0]?.label ?? "empty"}:${last?.capturedAt ?? last?.label ?? "empty"}`;
-  return <TrafficChartBoundary key={resetKey} fallback={<div className="chart-empty" role="alert">{t("流量图暂时无法显示；其他页面仍可使用", "The traffic chart is temporarily unavailable; other pages remain usable")}</div>}>
+  const resetSignature = `${data.length}:${data[0]?.capturedAt ?? data[0]?.label ?? "empty"}:${last?.capturedAt ?? last?.label ?? "empty"}`;
+  return <TrafficChartBoundary resetSignature={resetSignature} fallback={<div className="chart-empty" role="alert">{t("流量图暂时无法显示；其他页面仍可使用", "The traffic chart is temporarily unavailable; other pages remain usable")}</div>}>
     <TrafficChartPlot data={data} />
   </TrafficChartBoundary>;
 }
@@ -44,10 +48,13 @@ export function TrafficChart({ data }: { data: TrafficPoint[] }) {
 function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
   const { language, t } = useI18n();
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [hoverRatio, setHoverRatio] = useState<number | null>(null);
   const [viewWidth, setViewWidth] = useState(BASE_WIDTH);
   const svgRef = useRef<SVGSVGElement>(null);
   const keys = sampleKeys(data);
-  const active = activeKey === null ? -1 : keys.indexOf(activeKey);
+  const active = hoverRatio !== null && data.length
+    ? Math.round(hoverRatio * (data.length - 1))
+    : activeKey === null ? -1 : keys.indexOf(activeKey);
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -76,6 +83,7 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
     const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     const ratio = (cursor.x - plot.x) / plot.width;
     const index = Math.max(0, Math.min(data.length - 1, Math.round(ratio * (data.length - 1))));
+    setHoverRatio(Math.max(0, Math.min(1, ratio)));
     setActiveKey(keys[index] ?? null);
   };
   const moveSelection = (event: KeyboardEvent<SVGSVGElement>) => {
@@ -86,6 +94,7 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
     else if (event.key === "End") next = data.length - 1;
     else return;
     event.preventDefault();
+    setHoverRatio(null);
     setActiveKey(keys[next] ?? null);
   };
   const selected = active >= 0 ? data[active] : null;
@@ -99,10 +108,10 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
       ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }
       : { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(item.capturedAt));
   };
-  const labelStep = Math.max(1, Math.ceil(data.length / 7));
-  const showAxisLabel = (index: number) => index === 0 || index === data.length - 1 || index % labelStep === 0;
+  const labelStep = Math.max(1, Math.ceil(data.length / Math.max(2, Math.floor(plot.width / 95))));
+  const showAxisLabel = (index: number) => index === 0 || index === data.length - 1 || (index % labelStep === 0 && data.length - 1 - index >= labelStep * .75);
 
-  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend; use the pointer or arrow keys to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActiveKey(null)} onFocus={() => setActiveKey((value) => value && keys.includes(value) ? value : keys[keys.length - 1] ?? null)} onBlur={() => setActiveKey(null)} onKeyDown={moveSelection}>
+  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><svg ref={svgRef} className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${HEIGHT}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend; use the pointer or arrow keys to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => { setHoverRatio(null); setActiveKey(null); }} onFocus={() => setActiveKey((value) => value && keys.includes(value) ? value : keys[keys.length - 1] ?? null)} onBlur={() => { setHoverRatio(null); setActiveKey(null); }} onKeyDown={moveSelection}>
     <defs><linearGradient id="nativeDownloadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-primary)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--chart-primary)" stopOpacity=".02" /></linearGradient><linearGradient id="nativeUploadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-secondary)" stopOpacity=".22" /><stop offset="100%" stopColor="var(--chart-secondary)" stopOpacity=".01" /></linearGradient></defs>
     {[0, .25, .5, .75, 1].map((ratio) => { const y = plot.y + plot.height - ratio * plot.height; return <g key={ratio}><line className="chart-grid-line" x1={plot.x} x2={plot.x + plot.width} y1={y} y2={y} /><text className="chart-axis-label" x={plot.x - 8} y={y + 4} textAnchor="end">{Math.round(max * ratio)} GB</text></g>; })}
     {data.map((item, index) => showAxisLabel(index) ? <text className="chart-axis-label" key={`${item.label}-${index}`} x={point(0, index).x} y={HEIGHT - 8} textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}>{displayLabel(item)}</text> : null)}
