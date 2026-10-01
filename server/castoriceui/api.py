@@ -73,6 +73,9 @@ def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple
     return scheme, parsed.hostname.lower(), port or (443 if scheme == "https" else 80)
 
 
+from .validation import integer, boolean, text
+
+
 class ApiHandler(BaseHTTPRequestHandler):
     server_version = f"CastoriceUI/{__version__}"
 
@@ -117,7 +120,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return {}
         if length > 65_536:
             raise ValueError("Request body exceeds 64 KiB")
-        value = json.loads(self.rfile.read(length))
+        value = json.loads(self.rfile.read(length), parse_constant=lambda _value: (_ for _ in ()).throw(ValueError("Non-finite JSON number")))
         if not isinstance(value, dict):
             raise ValueError("JSON object required")
         return value
@@ -171,10 +174,12 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def current_session(self) -> dict[str, Any] | None:
         settings = self.app.storage.get_setting("ui_settings", {})
-        idle_minutes = int(settings.get("idleTimeoutMinutes", 15)) if isinstance(settings, dict) else 15
+        idle_minutes = settings.get("idleTimeoutMinutes", 15) if isinstance(settings, dict) else 15
+        if type(idle_minutes) is not int:
+            idle_minutes = 15
         if idle_minutes not in {2, 5, 10, 15, 20, 30}:
             idle_minutes = 15
-        return self.app.storage.session(self.session_token(), idle_minutes * 60)
+        return self.app.storage.session(self.session_token(), idle_minutes * 60, touch=False)
 
     def require_session(self, mutation: bool = False) -> dict[str, Any] | None:
         session = self.current_session()
@@ -188,6 +193,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             if not supplied or not hmac.compare_digest(supplied, str(session["csrf_token"])):
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "invalid_csrf_token"})
                 return None
+            self.app.storage.session(self.session_token(), touch=True)
         return session
 
     def session_cookie(self, token: str, max_age: int) -> str:
@@ -322,19 +328,19 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if current.get("idleTimeoutMinutes") not in {2, 5, 10, 15, 20, 30}:
                     current["idleTimeoutMinutes"] = 15
                 if "showSetup" in payload:
-                    current["showSetup"] = bool(payload["showSetup"])
+                    current["showSetup"] = boolean(payload["showSetup"], "showSetup")
                 if "visiblePanels" in payload:
                     panels = payload["visiblePanels"]
                     if not isinstance(panels, list) or any(str(item) not in VISIBLE_PANELS for item in panels):
                         raise ValueError("visiblePanels contains an unknown panel")
                     current["visiblePanels"] = ordered_visible_panels(list(dict.fromkeys(str(item) for item in panels)))
                 if "panelTitle" in payload:
-                    panel_title = str(payload["panelTitle"]).strip()
+                    panel_title = text(payload["panelTitle"], "panelTitle").strip()
                     if not panel_title or len(panel_title) > 40 or any(ord(character) < 32 for character in panel_title):
                         raise ValueError("panelTitle must contain 1 to 40 printable characters")
                     current["panelTitle"] = panel_title
                 if "idleTimeoutMinutes" in payload:
-                    idle_timeout = int(payload["idleTimeoutMinutes"])
+                    idle_timeout = integer(payload["idleTimeoutMinutes"], "idleTimeoutMinutes")
                     if idle_timeout not in {2, 5, 10, 15, 20, 30}:
                         raise ValueError("idleTimeoutMinutes is not supported")
                     current["idleTimeoutMinutes"] = idle_timeout
@@ -343,10 +349,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, current)
                 return
             if path == "/api/v2/settings/login-background":
-                background_type = str(payload.get("type", "default"))
-                background_value = str(payload.get("value", ""))
-                fit = str(payload.get("fit", "cover"))
-                position = str(payload.get("position", "center"))
+                background_type = text(payload.get("type", "default"), "type")
+                background_value = text(payload.get("value", ""), "value")
+                fit = text(payload.get("fit", "cover"), "fit")
+                position = text(payload.get("position", "center"), "position")
                 if fit not in {"cover", "contain"} or position not in {"center", "top", "bottom", "left", "right"}:
                     raise ValueError("Invalid background fit or position")
                 if background_type == "url":
@@ -379,11 +385,11 @@ class ApiHandler(BaseHTTPRequestHandler):
                     if not self.app.login_allowed(self.source_ip()):
                         self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too_many_attempts"})
                         return
-                    if not self.app.verify_bootstrap(str(payload.get("bootstrapToken", ""))):
+                    if not self.app.verify_bootstrap(text(payload.get("bootstrapToken", ""), "bootstrapToken")):
                         self.app.record_login_failure(self.source_ip())
                         self.send_json(HTTPStatus.FORBIDDEN, {"error": "invalid_bootstrap_token"})
                         return
-                    user_id = self.app.storage.create_initial_user(str(payload.get("username", "")), str(payload.get("password", "")))
+                    user_id = self.app.storage.create_initial_user(text(payload.get("username", ""), "username"), text(payload.get("password", ""), "password"))
                     self.app.consume_bootstrap()
                 token, csrf, expires_at = self.app.storage.create_session(user_id, self.app.config.session_lifetime_seconds)
                 username = str(payload.get("username", "")).strip()
@@ -400,7 +406,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     if not self.app.login_allowed(self.source_ip()):
                         self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too_many_attempts"})
                         return
-                    authenticated = self.app.storage.authenticate(str(payload.get("username", "")), str(payload.get("password", "")))
+                    authenticated = self.app.storage.authenticate(text(payload.get("username", ""), "username"), text(payload.get("password", ""), "password"))
                     if authenticated is None:
                         self.app.record_login_failure(self.source_ip())
                         self.app.storage.add_audit("登录失败", "认证", "用户名或密码错误", self.source_ip(), result="失败", actor=str(payload.get("username", "unknown")))
@@ -424,13 +430,16 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.app.storage.add_audit("退出登录", "认证", "管理员会话已注销", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True}, {"Set-Cookie": self.session_cookie("", 0)})
             return
+        if path == "/api/v2/auth/activity":
+            self.send_json(HTTPStatus.OK, {"ok": True})
+            return
         if path == "/api/v2/auth/change-password":
             try:
                 payload = self.read_json()
                 changed = self.app.storage.change_password(
                     int(session["user_id"]),
-                    str(payload.get("currentPassword", "")),
-                    str(payload.get("newPassword", "")),
+                    text(payload.get("currentPassword", ""), "currentPassword"),
+                    text(payload.get("newPassword", ""), "newPassword"),
                     self.session_token(),
                 )
             except (ValueError, json.JSONDecodeError) as error:
@@ -445,9 +454,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/v2/initialization/complete":
             overrides = self.app.storage.get_setting("integration_overrides", {})
-            system_values = overrides.get("system", {}).get("values", {}) if isinstance(overrides, dict) else {}
-            traffic_values = overrides.get("traffic", {}).get("values", {}) if isinstance(overrides, dict) else {}
-            if not str(system_values.get("nodeName", "")).strip() or not str(traffic_values.get("quotaGb", "")).strip():
+            configured_system = overrides.get("system", {}) if isinstance(overrides, dict) else {}
+            if not isinstance(configured_system, dict):
+                configured_system = {}
+            system_values = configured_system.get("values", {})
+            quota = self.app.storage.get_setting("traffic_quota", {})
+            traffic = overrides.get("traffic", {}) if isinstance(overrides, dict) else {}
+            confirmed = self.app.storage.get_setting("traffic_quota_confirmed", False) or isinstance(traffic, dict) and traffic.get("configured")
+            if not isinstance(system_values, dict) or not str(system_values.get("nodeName", "")).strip() or not configured_system.get("configured") or not confirmed or not isinstance(quota, dict) or type(quota.get("bytes")) is not int or not 1_000_000_000 <= quota["bytes"] <= 1_000_000_000_000_000:
                 self.send_json(HTTPStatus.CONFLICT, {"error": "basic_setup_required"})
                 return
             self.app.storage.set_setting("initial_setup_complete", True)
@@ -468,7 +482,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 class ApiServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 64
-    max_request_workers = 32
+    max_request_workers = 16
 
     def __init__(self, config: AppConfig, storage: Storage, dashboard: DashboardService) -> None:
         self.config = config
@@ -477,6 +491,7 @@ class ApiServer(ThreadingHTTPServer):
         self.authentication_lock = threading.Lock()
         self.background_cache_lock = threading.Lock()
         self.background_cache: tuple[str, float, bytes, str] | None = None
+        self.background_failure: tuple[str, float] | None = None
         self.request_slots = threading.BoundedSemaphore(self.max_request_workers)
         try:
             if ipaddress.ip_address(config.listen_host).version == 6:
@@ -538,7 +553,13 @@ class ApiServer(ThreadingHTTPServer):
         with self.background_cache_lock:
             if self.background_cache and self.background_cache[0] == normalized and self.background_cache[1] > time.monotonic():
                 return self.background_cache[2], self.background_cache[3]
-        body, mime, _ = fetch_https_image_api(normalized, self.config.external_background_hosts)
-        with self.background_cache_lock:
+            if self.background_failure and self.background_failure[0] == normalized and self.background_failure[1] > time.monotonic():
+                raise ValueError("Background image is temporarily unavailable")
+            try:
+                body, mime, _ = fetch_https_image_api(normalized, self.config.external_background_hosts)
+            except ValueError:
+                self.background_failure = (normalized, time.monotonic() + 30)
+                raise
             self.background_cache = (normalized, time.monotonic() + 900, body, mime)
-        return body, mime
+            self.background_failure = None
+            return body, mime

@@ -1,4 +1,5 @@
 import type { AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import { validDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
@@ -25,29 +26,37 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
   }
   const abortFromCaller = () => controller.abort(externalSignal?.reason);
   externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
-  let response: Response;
   try {
-    response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers, signal: controller.signal });
+    const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init, headers, signal: controller.signal });
+    let body: unknown = null;
+    try { body = await response.json(); } catch (error) {
+      if (controller.signal.aborted) throw error;
+      if (response.ok) throw new ApiError(502, "invalid_response");
+    }
+    if (!response.ok) {
+      const fallbackCodes: Record<number, string> = { 401: "session_expired", 403: "forbidden", 408: "request_timeout", 502: "upstream_unavailable", 503: "service_unavailable", 504: "upstream_timeout" };
+      const serverError = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "";
+      const error = response.status === 401 && serverError === "authentication_required" ? "session_expired" : serverError || fallbackCodes[response.status] || "request_failed";
+      const message = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : undefined;
+      const field = body && typeof body === "object" && "field" in body ? String((body as { field: unknown }).field) : undefined;
+      throw new ApiError(response.status, error, message, field);
+    }
+    if (path.includes("/dashboard") && !validDashboard(body)) throw new ApiError(502, "invalid_dashboard_response");
+    return body as T;
   } catch (error) {
     if (controller.signal.aborted && !externalSignal?.aborted) throw new ApiError(408, "request_timeout");
     if (externalSignal?.aborted) throw new ApiError(499, "request_aborted");
+    if (error instanceof ApiError) throw error;
     if (error instanceof TypeError) throw new ApiError(0, "network_unavailable");
     throw new ApiError(0, "request_failed");
   } finally {
     window.clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abortFromCaller);
   }
-  let body: unknown = null;
-  try { body = await response.json(); } catch { /* A proxy error may not be JSON. */ }
-  if (!response.ok) {
-    const fallbackCodes: Record<number, string> = { 401: "session_expired", 403: "forbidden", 408: "request_timeout", 502: "upstream_unavailable", 503: "service_unavailable", 504: "upstream_timeout" };
-    const serverError = body && typeof body === "object" && "error" in body ? String((body as { error: unknown }).error) : "";
-    const error = response.status === 401 && serverError === "authentication_required" ? "session_expired" : serverError || fallbackCodes[response.status] || "request_failed";
-    const message = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : undefined;
-    const field = body && typeof body === "object" && "field" in body ? String((body as { field: unknown }).field) : undefined;
-    throw new ApiError(response.status, error, message, field);
-  }
-  return body as T;
+}
+
+export function reportActivity() {
+  return request<{ ok: boolean }>("/api/v2/auth/activity", { method: "POST" }, true);
 }
 
 function rememberSession(session: SessionState): SessionState {
@@ -112,7 +121,7 @@ export function configureIntegration(id: string, enabled: boolean, values: Recor
   return request<IntegrationStatus>(`/api/v2/integrations/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ enabled, values }) }, true);
 }
 
-export function updateNetworkTargets(targets: Array<Pick<NetworkTarget, "name" | "address"> & { order: number }>) {
+export function updateNetworkTargets(targets: Array<Pick<NetworkTarget, "name" | "address"> & { order: number; ipVersion?: 0 | 4 | 6 }>) {
   return request<{ targets: NetworkTarget[] }>("/api/v2/settings/network-targets", { method: "PUT", body: JSON.stringify({ targets }) }, true);
 }
 

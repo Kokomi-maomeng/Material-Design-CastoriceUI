@@ -8,6 +8,11 @@ import json
 import re
 import socket
 import ssl
+import queue
+import threading
+import time
+import yaml
+from typing import Any
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -16,6 +21,25 @@ from . import __version__
 
 _HOST_LABEL = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$")
 _INTERFACE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}$")
+_PUBLIC_FETCH_SLOTS = threading.BoundedSemaphore(4)
+
+
+class _SubscriptionLoader(yaml.SafeLoader):
+    """Bound YAML structure; aliases and custom object tags are unsupported."""
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self.node_count = 0
+        self.node_depth = 0
+
+    def compose_node(self, parent: object, index: object) -> object:
+        self.node_count += 1
+        self.node_depth += 1
+        try:
+            if self.node_count > 20_000 or self.node_depth > 32 or self.check_event(yaml.AliasEvent):
+                raise ValueError("Subscription YAML exceeds structure limits or uses unsupported aliases")
+            return super().compose_node(parent, index)
+        finally:
+            self.node_depth -= 1
 
 
 def normalize_loopback_endpoint(value: str) -> str:
@@ -189,14 +213,15 @@ def _parse_subscription(body: bytes, content_type: str, depth: int = 0) -> dict[
             uri_count += 1
     if uri_count:
         return {"format": "uri-list", "nodeCount": uri_count}
-    # Conservative Clash YAML recognition: require proxies plus per-node name/server/port fields.
-    if re.search(r"(?m)^proxies\s*:\s*$", text):
-        blocks = re.split(r"(?m)^\s*-\s+", text)[1:]
-        valid = []
-        for block in blocks:
-            fields = {match.group(1): match.group(2).strip().strip("'\"") for match in re.finditer(r"(?m)^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$", block)}
-            if fields.get("name") and _valid_structured_node(fields):
-                valid.append(fields)
+    if re.search(r"(?m)^\s*proxies\s*:", text):
+        try:
+            payload = yaml.load(text, Loader=_SubscriptionLoader)
+        except yaml.YAMLError as error:
+            raise ValueError("Subscription YAML is malformed or contains unsupported tags") from error
+        nodes = payload.get("proxies") if isinstance(payload, dict) else None
+        if not isinstance(nodes, list) or len(nodes) > 2048:
+            raise ValueError("Subscription YAML must contain at most 2048 proxy nodes")
+        valid = [item for item in nodes if isinstance(item, dict) and item.get("name") and _valid_structured_node(item)]
         if valid:
             return {"format": "clash-yaml", "nodeCount": len(valid)}
     try:
@@ -318,6 +343,42 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 
 
 def _public_https_get(value: str, headers: dict[str, str], max_bytes: int, timeout: float = 8) -> tuple[int, http.client.HTTPMessage, bytes]:
+    """One wall-clock budget including DNS, TLS, headers, address retries and body."""
+    if timeout <= 0:
+        raise TimeoutError("Public fetch exceeded the total deadline")
+    if not _PUBLIC_FETCH_SLOTS.acquire(blocking=False):
+        raise ValueError("Public fetch concurrency budget is exhausted")
+    deadline = time.monotonic() + timeout
+    mailbox: queue.Queue[Any] = queue.Queue(maxsize=1)
+    connection_holder: list[Any] = []
+    cancelled = threading.Event()
+    def worker() -> None:
+        try:
+            mailbox.put((True, _public_https_get_before(value, headers, max_bytes, deadline, connection_holder, cancelled)))
+        except Exception as error:
+            mailbox.put((False, error))
+        finally:
+            _PUBLIC_FETCH_SLOTS.release()
+    threading.Thread(target=worker, name="public-fetch", daemon=True).start()
+    try:
+        ok, result = mailbox.get(timeout=max(0.001, deadline - time.monotonic()))
+    except queue.Empty as error:
+        cancelled.set()
+        for connection in connection_holder:
+            raw_socket = getattr(connection, "sock", None)
+            if raw_socket is not None:
+                try:
+                    raw_socket.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            connection.close()
+        raise TimeoutError("Public fetch exceeded the total deadline") from error
+    if not ok:
+        raise result
+    return result
+
+
+def _public_https_get_before(value: str, headers: dict[str, str], max_bytes: int, deadline: float, holder: list[Any], cancelled: threading.Event) -> tuple[int, http.client.HTTPMessage, bytes]:
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError("Public fetch URL must use HTTPS")
@@ -326,11 +387,29 @@ def _public_https_get(value: str, headers: dict[str, str], max_bytes: int, timeo
     target = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
     last_error: Exception | None = None
     for address in addresses:
-        connection = _PinnedHTTPSConnection(str(parsed.hostname), port, address, timeout)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or cancelled.is_set():
+            raise TimeoutError("Public fetch exceeded the total deadline")
+        connection = _PinnedHTTPSConnection(str(parsed.hostname), port, address, remaining)
+        holder.append(connection)
         try:
             connection.request("GET", target, headers=headers)
             response = connection.getresponse()
-            return response.status, response.headers, response.read(max_bytes + 1)
+            chunks = []
+            total = 0
+            reader = getattr(response, "read1", response.read)
+            while total <= max_bytes:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or cancelled.is_set():
+                    raise TimeoutError("Public fetch exceeded the total deadline")
+                if getattr(connection, "sock", None) is not None:
+                    connection.sock.settimeout(max(0.001, remaining))
+                chunk = reader(min(65_536, max_bytes + 1 - total))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            return response.status, response.headers, b"".join(chunks)
         except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
             last_error = error
         finally:
@@ -353,12 +432,14 @@ def _image_mime(body: bytes) -> str:
 def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, max_bytes: int = 5 * 1024 * 1024) -> tuple[bytes, str, str]:
     """Fetch a bounded public image response, redirect, or small JSON object containing an image URL."""
     current = normalize_https_image_url(value, allowed_hosts)
+    deadline = time.monotonic() + 8
     for _ in range(5):
         try:
             status, headers, body = _public_https_get(
                 current,
                 {"Accept": "image/avif,image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": f"CastoriceUI/{__version__}"},
                 max_bytes,
+                max(0, deadline - time.monotonic()),
             )
         except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
             raise ValueError("Background image API is unreachable") from error

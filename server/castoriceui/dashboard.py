@@ -25,6 +25,7 @@ from .collectors import (
     singbox_snapshot,
 )
 from .config import AppConfig, DEFAULT_INTEGRATIONS, normalize_alert_thresholds
+from .validation import integer, number, boolean
 from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
@@ -70,8 +71,11 @@ class DashboardService:
         self.system_collector = SystemCollector(config, storage)
         self.lock = threading.RLock()
         self.snapshot_lock = threading.Lock()
-        self.cached_network: list[dict[str, Any]] = []
-        self.network_at = 0.0
+        self.network_generation = 0
+        self.monitor_lock = threading.Lock()
+        self.collection_state: dict[str, dict[str, Any]] = {}
+        self.connection_cache: list[dict[str, Any]] = []
+        self.connection_generation: tuple[Any, ...] | None = None
         self.subscription_probe_cache: tuple[str, float, dict[str, Any]] | None = None
         self.monthly_traffic_cache: tuple[int, str, str, list[dict[str, Any]]] | None = None
         self.resource_history_cache: tuple[int, dict[str, list[dict[str, Any]]]] | None = None
@@ -156,7 +160,7 @@ class DashboardService:
             default_bytes = int(legacy_limit)
         elif str(values.get("quotaGb", "")).strip():
             try:
-                default_bytes = round(float(values["quotaGb"]) * 1_000_000_000)
+                default_bytes = round(number(values["quotaGb"], "quotaGb") * 1_000_000_000)
             except (TypeError, ValueError):
                 pass
         raw.setdefault("bytes", default_bytes)
@@ -216,9 +220,9 @@ class DashboardService:
         state = self.traffic_quota_state()
         candidate = dict(state)
         if "bytes" in values:
-            quota_bytes = int(values["bytes"])
+            quota_bytes = integer(values["bytes"], "bytes")
         elif str(values.get("quotaGb", "")).strip():
-            quota_bytes = round(float(values["quotaGb"]) * 1_000_000_000)
+            quota_bytes = round(number(values["quotaGb"], "quotaGb") * 1_000_000_000)
         else:
             quota_bytes = int(state["bytes"])
         if not 1_000_000_000 <= quota_bytes <= 1_000_000_000_000_000:
@@ -226,16 +230,16 @@ class DashboardService:
         candidate["bytes"] = quota_bytes
 
         has_legacy_cycle = wizard and any(str(values.get(key, "")).strip() for key in ("billingDay", "billingTimezone"))
-        auto_reset = bool(values.get("autoReset", True if has_legacy_cycle else state["autoReset"]))
+        auto_reset = boolean(values.get("autoReset", True if has_legacy_cycle else state["autoReset"]), "autoReset")
         period_unit = "month" if has_legacy_cycle else str(values.get("periodUnit", state["periodUnit"]))
         if period_unit not in {"day", "week", "month", "year"}:
             raise ValueError("periodUnit must be day, week, month, or year")
-        period_count = 1 if has_legacy_cycle else int(values.get("periodCount", state["periodCount"]))
+        period_count = 1 if has_legacy_cycle else integer(values.get("periodCount", state["periodCount"]), "periodCount")
         if not 1 <= period_count <= 365:
             raise ValueError("periodCount must be between 1 and 365")
         timezone_name = validate_timezone(values.get("billingTimezone") if has_legacy_cycle else values.get("timezone", state["timezone"]))
         if has_legacy_cycle:
-            billing_day = int(values.get("billingDay", self.config.traffic_billing_day))
+            billing_day = integer(values.get("billingDay", self.config.traffic_billing_day), "billingDay")
             if not 1 <= billing_day <= 28:
                 raise ValueError("Billing day must be between 1 and 28")
             reset_anchor = date(2000, 1, billing_day)
@@ -271,15 +275,18 @@ class DashboardService:
         candidate["countMode"] = count_mode
         normalized = normalize_quota_state(candidate, default_bytes=quota_bytes)
         if "initialUsedGb" in values and str(values.get("initialUsedGb", "")).strip():
-            initial_bytes = round(float(values["initialUsedGb"]) * 1_000_000_000)
+            initial_bytes = round(number(values["initialUsedGb"], "initialUsedGb") * 1_000_000_000)
             if not 0 <= initial_bytes <= 1_000_000_000_000_000:
                 raise ValueError("Initial traffic usage must be between 0 and 1 PB")
             cycle_start, _, _ = traffic_quota_period(datetime.now(timezone.utc), normalized)
             normalized["baseline"] = {"bytes": initial_bytes, "cycleStart": utc_cycle_id(cycle_start)}
         self.storage.set_setting("traffic_quota", normalized)
+        self.storage.set_setting("traffic_quota_confirmed", True)
         overrides = self._without_legacy_quota_values(self.storage.get_setting("integration_overrides", {}))
         self.storage.set_setting("integration_overrides", overrides)
         self._apply_quota_state_to_config(normalized)
+        with self.lock:
+            self.system_cache = None
         self.monthly_traffic_cache = None
         return normalized
 
@@ -325,8 +332,7 @@ class DashboardService:
             if not targets:
                 raise ValueError("At least one valid network target is required")
             self.config.network_targets = self._normalize_network_targets(targets)
-            self.cached_network = []
-            self.network_at = 0.0
+            self._invalidate_network()
         elif integration_id == "alerts":
             self.config.alert_thresholds = self._alert_thresholds_from_values(values)
 
@@ -364,7 +370,7 @@ class DashboardService:
             if len(text) > limit:
                 raise ValueError(f"{key} must be at most {limit} characters")
             clean_values[key] = text
-        enabled = bool(payload.get("enabled", True))
+        enabled = boolean(payload.get("enabled", True), "enabled")
         required = {
             "hysteria2": {"endpoint"},
             "anytls": {"endpoint", "inboundTags"},
@@ -491,7 +497,7 @@ class DashboardService:
                 if Path("/sys/class/net").is_dir() and not all((statistics / name).is_file() for name in ("rx_bytes", "tx_bytes")):
                     raise ValueError("Configured network interface does not expose readable traffic counters")
             if values.get("quotaGb", "").strip():
-                quota = float(values["quotaGb"])
+                quota = number(values["quotaGb"], "quotaGb")
                 if not 1 <= quota <= 1_000_000:
                     raise ValueError("quotaGb must be between 1 and 1000000 decimal GB")
             if values.get("billingDay", "").strip() and not 1 <= int(values["billingDay"]) <= 28:
@@ -504,7 +510,7 @@ class DashboardService:
                     except ZoneInfoNotFoundError as error:
                         raise ValueError("billingTimezone must be UTC or an installed IANA timezone") from error
             if values.get("initialUsedGb", "").strip():
-                baseline = float(values["initialUsedGb"])
+                baseline = number(values["initialUsedGb"], "initialUsedGb")
                 if not 0 <= baseline <= 1_000_000:
                     raise ValueError("initialUsedGb must be between 0 and 1000000 decimal GB")
             if values.get("countMode", "").strip() not in {"", "sum", "max"}:
@@ -632,19 +638,22 @@ class DashboardService:
             raise ValueError("Subscription publisher validation failed")
         return result
 
-    def network(self) -> list[dict[str, Any]]:
+    def _invalidate_network(self) -> None:
         with self.lock:
-            if time.monotonic() - self.network_at > 5 or not self.cached_network:
-                self.cached_network = network_snapshots(self.config)
-                self.network_at = time.monotonic()
-            return self.cached_network
+            self.network_generation += 1
+            self.runtime_cache["network"] = [
+                {**item, "latency": None, "loss": None, "jitter": None,
+                 "history": [], "status": "unavailable", "measurementStatus": "unavailable",
+                 "probeReason": "pending", "observedAt": None}
+                for item in self.config.network_targets
+            ]
+            self.collection_state["network"] = {"observedAt": None, "error": "pending"}
 
     def update_network_targets(self, payload: Any, source_ip: str, actor: str) -> list[dict[str, Any]]:
         targets = self._normalize_network_targets(payload)
         with self.lock:
             self.config.network_targets = targets
-            self.cached_network = []
-            self.network_at = 0.0
+            self._invalidate_network()
             self._persist_network_targets(targets)
         self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
         return targets
@@ -674,9 +683,11 @@ class DashboardService:
                 "name": name,
                 "provider": "Custom",
                 "address": address,
-                "ipVersion": version,
+                "ipVersion": version if ":" in address or all(part.isdigit() for part in address.split(".")) else integer(item.get("ipVersion", 0), "ipVersion"),
                 "order": max(1, min(order, 999)),
             })
+        if any(item["ipVersion"] not in {0, 4, 6} for item in targets):
+            raise ValueError("ipVersion must be 0 (auto), 4, or 6")
         targets.sort(key=lambda item: (item["order"], item["name"].casefold()))
         for index, item in enumerate(targets, 1):
             item["order"] = index
@@ -846,7 +857,7 @@ class DashboardService:
         current: dict[str, tuple[float, int, int]] = {}
         groups: dict[tuple[str, str, str], dict[str, Any]] = {}
         for item in raw_connections:
-            connection_id = str(item["id"])
+            connection_id = f"{item['protocol']}\0{item['id']}\0{item.get('connectedAt') or ''}"
             uploaded = int(item.get("uploadedBytes", 0)); downloaded = int(item.get("downloadedBytes", 0))
             previous = self.connection_baseline.get(connection_id)
             upload_rate = download_rate = None
@@ -919,6 +930,7 @@ class DashboardService:
                 summary_en = str(integration.get("summaryEn") or integration.get("summary") or "Runtime validation failed")
                 summary_zh = str(integration.get("summaryZh") or "运行验证失败")
                 alerts.append({"id": f"integration-{integration_id}", "severity": "warning", "title": f"{name_en} requires attention", "titleEn": f"{name_en} requires attention", "titleZh": f"{name_zh}需要检查", "description": summary_en, "descriptionEn": summary_en, "descriptionZh": summary_zh, "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Integration validation", "sourceEn": "Integration validation", "sourceZh": "数据接入验证"})
+        alerts.extend(self.collection_alerts())
         episodes = self.storage.reconcile_alerts(alerts)
         for alert in alerts:
             episode = episodes[str(alert["id"])]
@@ -1082,10 +1094,58 @@ class DashboardService:
     def collect_system_snapshot(self) -> dict[str, Any]:
         """Sample only local host state and publish it atomically."""
         with self.snapshot_lock:
-            system = self.system_collector.snapshot()
+            try:
+                system = self.system_collector.snapshot()
+            except Exception as error:
+                self._collection_result("system", error=type(error).__name__)
+                raise
+        system["observedAt"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self.lock:
             self.system_cache = system
+            self._collection_result("system", observed_at=system["observedAt"])
         return system
+
+    def _collection_result(self, name: str, *, observed_at: str | None = None, error: str | None = None) -> None:
+        with self.lock:
+            previous = self.collection_state.get(name, {})
+            self.collection_state[name] = {"observedAt": observed_at or previous.get("observedAt"), "error": error}
+
+    def collection_freshness(self) -> dict[str, dict[str, Any]]:
+        now = time.time()
+        result = {}
+        for name, ttl in (("system", 150), ("runtime", 90), ("hysteria2", 90), ("singbox", 90), ("network", 90), ("subscriptions", 180)):
+            entry = dict(self.collection_state.get(name, {}))
+            observed = entry.get("observedAt")
+            if name == "system":
+                observed = (self.system_cache or {}).get("observedAt", observed)
+            elif name == "runtime":
+                observed = self.runtime_cache.get("observedAt", observed)
+            try:
+                age = max(0, now - datetime.fromisoformat(str(observed).replace("Z", "+00:00")).timestamp())
+            except (ValueError, TypeError):
+                age = None
+            status = "unavailable" if age is None else "stale" if age > ttl else "error" if entry.get("error") else "live"
+            result[name] = {"status": status, "observedAt": observed, "ageSeconds": round(age, 1) if age is not None else None, "ttlSeconds": ttl, "error": entry.get("error")}
+        return result
+
+    def collection_alerts(self) -> list[dict[str, Any]]:
+        result = []
+        labels = {"system": ("Host metrics", "主机指标"), "runtime": ("Runtime monitor", "运行状态监控"), "network": ("Network probes", "网络探测")}
+        for name, (en, zh) in labels.items():
+            item = self.collection_freshness()[name]
+            if item["status"] == "live":
+                continue
+            description = f"Status: {item['status']}; last measurement: {item['observedAt'] or 'unavailable'}"
+            result.append({"id": f"collector-{name}", "severity": "warning", "title": f"{en} collection requires attention", "titleEn": f"{en} collection requires attention", "titleZh": f"{zh}采集需要检查", "description": description, "descriptionEn": description, "descriptionZh": f"采集状态：{item['status']}；最近测量：{item['observedAt'] or '暂无'}", "source": "Collector monitor", "sourceEn": "Collector monitor", "sourceZh": "采集监控", "time": "latest check", "acknowledged": False})
+        return result
+
+    def refresh_collection_alerts(self) -> None:
+        """A blocked sampler cannot keep its status healthy."""
+        with self.lock:
+            active = [item for item in self.storage.alert_history() if item.get("status") == "active" and not str(item["id"]).startswith("collector-")]
+            active.extend(self.collection_alerts())
+            self.storage.reconcile_alerts(active)
+            self.runtime_cache["alerts"] = self.storage.alert_history()
 
     def evaluate_monitoring(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]], integrations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         active = self.alerts(system, services, network, integrations)
@@ -1097,23 +1157,57 @@ class DashboardService:
 
     def refresh_monitoring(self) -> dict[str, Any]:
         """Refresh bounded external/runtime evidence for the HTTP cache."""
+        with self.monitor_lock:
+            return self._refresh_monitoring()
+
+    def _refresh_monitoring(self) -> dict[str, Any]:
         system = self.system_cache or self.collect_system_snapshot()
+        with self.lock:
+            network_config = copy.copy(self.config)
+            network_config.network_targets = copy.deepcopy(self.config.network_targets)
+            generation = self.network_generation
+        def collect(name: str, function: Any, *args: Any, **kwargs: Any) -> Any:
+            try:
+                result = function(*args, **kwargs)
+                observed = result.get("observedAt") if isinstance(result, dict) else None
+                self._collection_result(name, observed_at=observed or datetime.now(timezone.utc).isoformat(timespec="seconds"), error="adapter_unavailable" if isinstance(result, dict) and result.get("available") is False else None)
+                return result
+            except Exception as error:
+                self._collection_result(name, error=type(error).__name__)
+                if name == "network":
+                    return [{**item, "latency": None, "jitter": None, "loss": None, "status": "unavailable", "measurementStatus": "unavailable", "probeReason": "probeFailed", "history": []} for item in network_config.network_targets]
+                return {"available": False, "traffic": {}, "online": {}, "streams": [], "connections": [], "inventory": {}, "configured": False, "ready": False, "count": 0}
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="runtime-monitor") as pool:
-            hy2_future = pool.submit(hysteria_snapshot, self.config)
-            singbox_future = pool.submit(singbox_snapshot, self.config)
-            network_future = pool.submit(network_snapshots, self.config)
-            subscription_future = pool.submit(self.subscription_probe, self.config.subscription_base_url, force=False)
+            hy2_future = pool.submit(collect, "hysteria2", hysteria_snapshot, self.config)
+            singbox_future = pool.submit(collect, "singbox", singbox_snapshot, self.config)
+            network_future = pool.submit(collect, "network", network_snapshots, network_config)
+            subscription_future = pool.submit(collect, "subscriptions", self.subscription_probe, self.config.subscription_base_url, force=False)
             hy2, singbox = hy2_future.result(), singbox_future.result()
             network, subscription = network_future.result(), subscription_future.result()
-        services = service_snapshots(self.config, system, hy2, singbox)
+        services = collect("services", service_snapshots, self.config, system, hy2, singbox)
+        if not isinstance(services, list):
+            services = []
+        with self.lock:
+            if generation != self.network_generation:
+                network = copy.deepcopy(self.runtime_cache["network"])
+                self.collection_state["network"] = {"observedAt": None, "error": "pending"}
         integrations = self.runtime_integrations(hy2, singbox, network, system, subscription)
-        alerts = self.evaluate_monitoring(system, services, network, integrations)
+        observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self._collection_result("runtime", observed_at=observed_at, error="service_collection_failed" if not services else None)
+        with self.lock:
+            alerts = self.evaluate_monitoring(system, services, network, integrations)
+            core_generation = (singbox.get("inventory", {}).get("pid"), singbox.get("inventory", {}).get("startedTicks"))
+            if self.connection_generation != core_generation:
+                self.connection_baseline = {}
+                self.connection_generation = core_generation
+            connections = self.aggregate_connections(connection_snapshots(hy2, singbox, self.config.protocol_adapters))
         state = {"hy2": hy2, "singbox": singbox, "network": network, "subscription": subscription,
                  "services": services, "integrations": integrations, "alerts": alerts,
-                 "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+                 "connections": connections, "observedAt": observed_at}
         with self.lock:
-            self.cached_network = network
-            self.network_at = time.monotonic()
+            if generation != self.network_generation:
+                state["network"] = copy.deepcopy(self.runtime_cache["network"])
+                self.collection_state["network"] = {"observedAt": None, "error": "pending"}
             self.runtime_cache = state
         return state
 
@@ -1126,14 +1220,32 @@ class DashboardService:
             runtime = copy.deepcopy(self.runtime_cache)
         if system is None:
             system = self.collect_system_snapshot()
+        # Settings are current configuration, independent of the cached measurement interval.
+        system["nodeName"] = self.config.node_name
         hy2 = runtime["hy2"]
         singbox = runtime["singbox"]
         network = runtime["network"]
         services = runtime["services"]
         integrations = runtime["integrations"] or self.config.public_integrations()
-        raw_connections = connection_snapshots(hy2, singbox, self.config.protocol_adapters)
-        with self.lock:
-            connections = self.aggregate_connections(raw_connections)
+        connections = runtime.get("connections", [])
+        freshness = self.collection_freshness()
+        stale = any(freshness[key]["status"] != "live" for key in ("system", "runtime"))
+        if freshness["network"]["status"] != "live":
+            network = [{**target, "status": "unavailable", "measurementStatus": "unavailable", "probeReason": "stale" if freshness["network"]["status"] == "stale" else "pending" if freshness["network"].get("error") == "pending" else "probeFailed", "latency": None, "jitter": None, "loss": None, "history": []} for target in network]
+        for integration in integrations:
+            collector = "hysteria2" if integration["id"] == "hysteria2" else "singbox" if integration["id"] in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic", "connections"} else integration["id"]
+            if collector in freshness and freshness[collector]["status"] != "live" and integration.get("configured"):
+                integration["status"] = "error"
+                integration["summaryEn"] = "Cached evidence; collection requires attention"
+                integration["summaryZh"] = "缓存证据：采集需要检查"
+        if stale:
+            for service in services:
+                service["status"] = "warning"
+                service["detailEn"] = "Cached evidence; collection is stale or unavailable"
+                service["detailZh"] = "缓存证据：采集已过期或不可用"
+            for integration in integrations:
+                integration["ready"] = False
+                integration["status"] = "error"
         if self.config.redact_live_data:
             for connection in connections:
                 for detail in connection.get("details", []):
@@ -1169,7 +1281,8 @@ class DashboardService:
         if saved_ui_settings.get("idleTimeoutMinutes", 15) not in {2, 5, 10, 15, 20, 30}:
             saved_ui_settings["idleTimeoutMinutes"] = 15
         return {
-            "mode": "live",
+            "mode": "stale" if stale else "live",
+            "freshness": freshness,
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "overview": system,
             "resourceHistory": resource_history,

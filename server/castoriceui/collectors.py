@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import ipaddress
+import math
 import os
 import platform
 import re
@@ -90,10 +92,13 @@ def detect_interface(configured: str) -> str:
     configured = configured.strip()
     if configured and interface_has_counters(configured):
         return configured
-    output = run(["ip", "-o", "route", "show", "default"])
-    match = re.search(r"\bdev\s+(\S+)", output)
-    if match and interface_has_counters(match.group(1)):
-        return match.group(1)
+    for family in ([], ["-6"]):
+        output = run(["ip", *family, "-o", "route", "show", "default"])
+        routes = sorted(output.splitlines(), key=lambda line: int(re.search(r"\bmetric\s+(\d+)", line).group(1)) if re.search(r"\bmetric\s+(\d+)", line) else 0)
+        for route in routes:
+            match = re.search(r"\bdev\s+(\S+)", route)
+            if match and interface_has_counters(match.group(1)):
+                return match.group(1)
     network_root = Path("/sys/class/net")
     try:
         candidates = sorted(path.name for path in network_root.iterdir() if path.name != "lo" and (path / "statistics" / "rx_bytes").is_file())
@@ -254,6 +259,18 @@ def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float =
         return None
 
 
+def valid_counter(value: Any) -> bool:
+    return type(value) in {int, float} and math.isfinite(value) and 0 <= value < 1e30 and int(value) == value
+
+
+def valid_hysteria_traffic(value: Any) -> bool:
+    return isinstance(value, dict) and all(isinstance(item, dict) and all(valid_counter(item.get(key, 0)) for key in ("tx", "rx")) for item in value.values())
+
+
+def valid_hysteria_streams(value: Any) -> bool:
+    return isinstance(value, dict) and isinstance(value.get("streams", []), list) and all(isinstance(item, dict) and all(valid_counter(item.get(key, 0)) for key in ("tx", "rx")) for item in value.get("streams", []))
+
+
 def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
     api = config.hysteria_api
     base = str(api.get("url", "")).rstrip("/")
@@ -267,13 +284,14 @@ def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
         traffic_raw = traffic_future.result()
         online_raw = online_future.result()
         stream_raw = stream_future.result()
-    traffic = traffic_raw if isinstance(traffic_raw, dict) else {}
-    online = online_raw if isinstance(online_raw, dict) else {}
-    stream_data = stream_raw if isinstance(stream_raw, dict) else {}
+    traffic = traffic_raw if valid_hysteria_traffic(traffic_raw) else {}
+    online_valid = isinstance(online_raw, dict) and all(valid_counter(value) for value in online_raw.values())
+    online = online_raw if online_valid else {}
+    stream_data = stream_raw if valid_hysteria_streams(stream_raw) else {}
     endpoint_status = {
-        "traffic": isinstance(traffic_raw, dict),
-        "online": isinstance(online_raw, dict),
-        "streams": isinstance(stream_raw, dict),
+        "traffic": valid_hysteria_traffic(traffic_raw),
+        "online": online_valid,
+        "streams": valid_hysteria_streams(stream_raw),
     }
     return {
         "available": all(endpoint_status.values()),
@@ -312,8 +330,8 @@ PROTOCOLS = {
 
 def valid_singbox_payload(payload: Any) -> bool:
     return (isinstance(payload, dict) and isinstance(payload.get("connections"), list)
-            and all(isinstance(item, dict) and isinstance(item.get("metadata", {}), dict) for item in payload["connections"])
-            and all(type(payload.get(key)) in {int, float} and 0 <= payload[key] < 1e30 for key in ("uploadTotal", "downloadTotal")))
+            and all(isinstance(item, dict) and isinstance(item.get("metadata", {}), dict) and all(valid_counter(item.get(key, 0)) for key in ("upload", "download")) for item in payload["connections"])
+            and all(valid_counter(payload.get(key)) for key in ("uploadTotal", "downloadTotal")))
 
 
 def read_protocol_inventory(config: AppConfig | None = None) -> dict[str, Any]:
@@ -465,6 +483,8 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     cert = certificate_info(config.certificate_path, config.certificate_renewal_unit, config.certificate_host, config.certificate_port)
     certificate_state = str(cert.get("state", "unreadable"))
     certificate_zh = "未配置证书路径" if certificate_state == "unconfigured" else "证书已过期" if certificate_state == "expired" else f"证书剩余 {cert['days']} 天" if cert.get("days") is not None else "无法读取证书"
+    evidence_zh = {"verified": "已核验", "different-certificate": "实际端点使用其他证书", "unavailable": "无法连接或验证", "active": "运行中", "inactive": "未运行", "failed": "失败", "unconfigured": "未配置", "unknown": "未知"}
+    certificate_zh += f"；端点证据：{evidence_zh.get(str(cert.get('endpointEvidence')), str(cert.get('endpointEvidence', '未知')))}；续期证据：{evidence_zh.get(str(cert.get('renewalEvidence')), str(cert.get('renewalEvidence', '未知')))}"
     services.extend([
         {"id": "kernel", "name": "Linux kernel", "nameZh": "Linux 内核", "nameEn": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "detailZh": f"{system['cpuCores']} 核 CPU · 负载 {system['load'][0]}", "detailEn": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
         {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "certificateState": certificate_state, "renewalEvidence": cert.get("renewalEvidence", "unknown"), "endpointEvidence": cert.get("endpointEvidence", "unknown"), "version": "TLS", "icon": "verified_user"},
@@ -490,6 +510,8 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
             if isinstance(inbound, dict) and str(inbound.get("tag", "")).strip():
                 live_inbounds.setdefault(str(inbound["tag"]).strip().casefold(), []).append(inbound)
     for index, stream in enumerate(hy2.get("streams", [])):
+        if not isinstance(stream, dict) or not all(valid_counter(stream.get(key, 0)) for key in ("tx", "rx")):
+            continue
         started = stream.get("initial_at")
         account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "")
         address_text = " ".join(str(stream.get(key, "")) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
@@ -498,6 +520,8 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
         destination = str(stream.get("hooked_req_addr") or stream.get("req_addr") or "").strip() or None
         connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started, "destination": destination})
     for index, connection in enumerate(sb.get("connections", [])):
+        if not isinstance(connection, dict) or not isinstance(connection.get("metadata", {}), dict) or not all(valid_counter(connection.get(key, 0)) for key in ("upload", "download")):
+            continue
         metadata = connection.get("metadata", {})
         source_ip = str(metadata.get("sourceIP") or "")
         ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
@@ -532,7 +556,7 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
 def ping_target(target: dict[str, Any]) -> dict[str, Any]:
     address = str(target.get("address", ""))
     version = int(target.get("ipVersion", 4))
-    command = ["ping", "-6" if version == 6 else "-4", "-c", "8", "-i", "0.2", "-W", "1", address]
+    command = ["ping", *(["-6"] if version == 6 else ["-4"] if version == 4 else []), "-c", "8", "-i", "0.2", "-W", "1", address]
     base = {"id": str(target.get("id", address)), "name": str(target.get("name", address)),
             "provider": str(target.get("provider", "Custom")), "address": address,
             "ipVersion": version, "order": int(target.get("order", 0)), "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
@@ -542,6 +566,13 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
     try:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=4, check=False, env={**os.environ, "LC_ALL": "C", "LANG": "C"})
         output = "\n".join(value for value in (completed.stdout, completed.stderr) if value)
+        # Keep the requested automatic setting; expose the actual ping destination separately.
+        destination = re.search(r"^PING\s+.*?\(([^()]+)\)", output, re.MULTILINE)
+        if destination:
+            try:
+                base["resolvedIpVersion"] = ipaddress.ip_address(destination.group(1)).version
+            except ValueError:
+                pass
     except subprocess.TimeoutExpired:
         return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
                 "measurementStatus": "unavailable", "probeReason": "timeout", "history": []}

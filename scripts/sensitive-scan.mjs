@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const root = new URL("../", import.meta.url);
-const ignoredDirectories = new Set([".git", ".next", ".vinext", ".wrangler", "node_modules"]);
+const ignoredDirectories = new Set([".git", ".next", ".vinext", ".wrangler", "node_modules", "__pycache__"]);
 const ignoredFiles = new Set();
 const forbiddenNames = /(^|\/)(\.env(?:\..+)?|.*\.(?:key|pem|p12|pfx)|.*(?:credential|secret|password).*)$/i;
 const forbiddenContent = [

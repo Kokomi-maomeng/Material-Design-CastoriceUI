@@ -1,300 +1,107 @@
-# CastoriceUI v4.4 deployment / 部署手册
+# CastoriceUI deployment and recovery
 
-This guide uses versioned releases, a loopback backend, application sessions, TLS, backups, and explicit rollback points. Real domains, Secrets, subscription values, certificates, and Bootstrap Tokens belong only on the server.
+Supported server baseline: Debian 12/13, Python 3.11+, Nginx with TLS, systemd, `iproute2`, `iputils-ping`, and safe YAML parsing. Frontend builds need Node 20.19+; installed release packages do not need Node. This is a single-host panel; it does not install proxy cores or provision proxy accounts.
 
-本手册采用版本化目录、回环后端、应用会话、TLS、备份和明确回滚点。真实域名、Secret、订阅内容、证书和 Bootstrap Token 只能保留在服务器。
+服务器基线为 Debian 12/13、Python 3.11+、Nginx/TLS、systemd、`iproute2`、`iputils-ping` 和安全 YAML 解析器。发布包在服务器运行时不需要 Node。面板向导只配置和核验已存在的数据源，不安装代理核心、不生成上游密钥、不创建代理账号。
 
-## 1. Requirements / 环境要求
+## Choose the route
 
-- Debian 12/13 or another systemd Linux distribution
-- Python 3.11+
-- Nginx and a valid TLS certificate
-- Node.js 20.19+ on the build machine
-- Optional loopback-only Hysteria2 Traffic Stats and sing-box Clash APIs
+| Route | Prerequisites | Core changes |
+| --- | --- | --- |
+| Minimal panel | Complete steps 1–4 below, then install and initialize | None; optional protocols stay unconfigured |
+| Existing proxy host | Same panel prerequisites; register actual loopback API endpoints/secrets, units and inbound tags in protected config | The panel installer never restarts or reconfigures cores |
+| Upgrade | Existing healthy panel, known live unit/config/database/site, verified archive and rollback media | Only the panel backend restarts; Nginx reloads only if its upstream changes |
 
-Do not deploy the backend directly on a public address. The application login cookie is Secure by default and therefore requires HTTPS in production.
+新主机按下面顺序执行，已有代理主机在相同前提下配置真实回环 API；升级走第 5 节。不要在服务账号、受保护配置和已启用 TLS 站点准备好之前运行安装器。
 
-The first-run wizard configures node and quota settings and validates live integrations. It does not install Hysteria2 or sing-box, create upstream API secrets, or create managed-account and protected-subscription records. Prepare those in the root-only configuration before expecting their cards to populate. CPU, memory, and traffic history require actual sampling time after installation.
+## 1. Obtain and verify the release
 
-### Supported installation paths / 支持的安装路径
+Download `CastoriceUI-v4.5.0.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v4.5.0), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
 
-Choose exactly one path before changing the host:
+```sh
+tar -xzf CastoriceUI-v4.5.0.tar.gz
+cd CastoriceUI-v4.5.0
+```
 
-| Path | Use when | Required preflight | Proxy-core impact |
-| --- | --- | --- | --- |
-| Minimal panel | A new Debian 12/13 host has no existing panel | Verify TCP 18080 and TCP 443 are free, install Nginx/Python, create the service account | None; proxy integrations stay unconfigured |
-| Existing proxy host | Hysteria2 or sing-box already carries traffic | Record exact unit names, binary/config paths, TCP/UDP listeners and an independent management route | Never restart or rewrite a proxy core as part of panel installation |
-| Upgrade | CastoriceUI is already installed | Back up config, SQLite including WAL, units, Nginx site and current symlink; stage the new release separately | None; switch only backend/frontend after validation |
+A source checkout uses `npm ci`, `python3 -m pip install -r server/requirements.txt`, `npm run check`, then `npm run release:package`. The package includes the built frontend, backend, tests, templates and installer. Never include protected config, bootstrap tokens, databases or personal subscriptions in a public release.
 
-On Debian 12/13 the minimal package step is:
+## 2. Prepare packages, identity and writable directories
 
-```bash
+```sh
 sudo apt-get update
-sudo apt-get install --no-install-recommends python3 nginx ca-certificates iproute2 iputils-ping
-```
-
-Before installation or upgrade, run the shipped read-only preflight from the staged release:
-
-Fresh Debian 12/13 independent acceptance was not run in this repository-only review; execute this preflight and the target-host checks below before deployment.
-
-```bash
-sudo python3 server/preflight.py --config /etc/castoriceui/config.json | tee /tmp/castoriceui-preflight.json
-```
-
-For a first install without a config, first copy `server/config.example.json` to a temporary root-only file, edit only intended values, and pass that temporary path to preflight. The preflight reads OS metadata, paths, listeners, systemd state, the protected configuration and `nginx -t`; it does not install, write, reload, enable, stop or restart anything. A `fail` blocks deployment. A `warning` requires an operator decision and written rollback point.
-
-If existing units or binaries have non-default names, set `hysteria_unit`, `singbox_unit`, `nginx_unit`, `hysteria_binary`, `singbox_binary`, and `protocol_status_path` in the protected config. For the root protocol probe, copy [`../deploy/protocol-probe.env.example`](../deploy/protocol-probe.env.example) to `/etc/castoriceui/protocol-probe.env` and set matching `SING_BOX_UNIT` and `CASTORICEUI_PROTOCOL_STATUS` values; do not edit the upstream proxy configuration merely to fit defaults.
-
-## 2. Choose an artifact and inspect it / 选择交付物并检查
-
-From a source checkout, install the locked dependencies and build `dist/`:
-
-从源码检出时，安装锁定依赖并构建 `dist/`：
-
-```bash
-npm ci
-npm run check
-npm run build
-```
-
-The GitHub Release archive is a prebuilt deployment bundle. Download both assets, verify the checksum before extracting, then use its `frontend/` directory directly; it intentionally does not contain `package.json`, `package-lock.json`, or `dist/`, so do not run `npm ci` inside the extracted bundle.
-
-GitHub Release 压缩包是预构建部署包。请同时下载压缩包与校验文件，解压前先验证校验值，然后直接使用其中的 `frontend/`；包内有意不包含 `package.json`、`package-lock.json` 或 `dist/`，因此不要在解压目录中执行 `npm ci`。
-
-```bash
-sha256sum -c SHA256SUMS.txt
-tar -xzf CastoriceUI-v4.4.0.tar.gz
-cd CastoriceUI-v4.4.0
-python3 -m compileall -q server
-python3 -m unittest discover -s server/tests -p 'test_*.py' -v
-```
-
-Do not deploy when any applicable check fails. Review the produced `dist/` or bundled `frontend/`, the staged backend, and the sensitive-content results before copying files.
-
-The recommended live install/upgrade entrypoint is the shipped [`../deploy/install-or-upgrade.sh`](../deploy/install-or-upgrade.sh). It validates archive members before extraction, runs backend tests and the read-only host preflight in a staging directory, makes an online SQLite backup, records both current release targets, installs backend and frontend into matching versioned directories, atomically switches both `current` symlinks, restarts only `castoriceui-backend`, validates `nginx -t`, and checks that loopback health reports the requested version. Its failure trap restores the recorded panel links, unit and backed-up database; it never restarts Hysteria2 or sing-box.
-
-推荐使用随包提供的 `deploy/install-or-upgrade.sh`。脚本会在解包前校验归档成员，在暂存目录运行后端测试和只读主机预检，在线备份 SQLite，记录前后端当前版本指针，将前后端安装到配对的版本目录并原子切换两个 `current` 软链接；随后只重启 `castoriceui-backend`，执行 `nginx -t` 并核对回环健康接口版本。任何失败都会恢复已记录的面板链接、服务单元和已备份数据库，脚本绝不会重启 Hysteria2 或 sing-box。
-
-From a verified archive in a source checkout:
-
-```bash
-sudo sh deploy/install-or-upgrade.sh --archive "$PWD/release/CastoriceUI-v4.4.0.tar.gz"
-```
-
-When only the release assets are available, extract just the installer first, then point it at the still-verified archive:
-
-```bash
-tar -xzf CastoriceUI-v4.4.0.tar.gz CastoriceUI-v4.4.0/deploy/install-or-upgrade.sh
-sudo sh CastoriceUI-v4.4.0/deploy/install-or-upgrade.sh --archive "$PWD/CastoriceUI-v4.4.0.tar.gz"
-```
-
-## 3. Back up before install or upgrade / 先备份
-
-Record the current symlink targets and back up, when present:
-
-- `/var/www/castorice-ui/current` and its release directory;
-- `/opt/castoriceui/current` and its versioned release directory;
-- `/etc/castoriceui/config.json`;
-- `/var/lib/castoriceui/state.db`, `state.db-wal`, and `state.db-shm`;
-- the systemd unit and active Nginx site.
-
-For a live SQLite database, stop `castoriceui-backend` briefly before copying the database files, or use SQLite's online backup API. Never copy only `state.db` while ignoring an active WAL.
-
-## 4. Service identity and protected files / 服务账号与文件
-
-```bash
-getent group proxycert >/dev/null || sudo groupadd --system proxycert
-getent passwd castoriceui >/dev/null || sudo useradd --system --home-dir /var/lib/castoriceui --create-home --shell /usr/sbin/nologin castoriceui
-sudo usermod -aG proxycert castoriceui
-sudo install -d -m 0755 /opt/castoriceui/releases
+sudo apt-get install -y python3 python3-yaml nginx openssl iproute2 iputils-ping
+sudo groupadd --system -f proxycert
+getent passwd castoriceui >/dev/null || sudo useradd --system --user-group --home-dir /var/lib/castoriceui --shell /usr/sbin/nologin castoriceui
+sudo usermod -a -G proxycert castoriceui
 sudo install -d -m 0750 -o root -g castoriceui /etc/castoriceui
-sudo install -d -m 0750 -o castoriceui -g castoriceui /var/lib/castoriceui
+sudo install -d -m 0700 -o castoriceui -g castoriceui /var/lib/castoriceui
 sudo install -d -m 0700 -o castoriceui -g castoriceui /var/lib/castoriceui/login-backgrounds
-```
-
-First installation only:
-
-```bash
+sudo install -d -m 0755 /opt/castoriceui/releases /var/www/castorice-ui/releases
 sudo install -m 0640 -o root -g castoriceui server/config.example.json /etc/castoriceui/config.json
 ```
 
-On upgrades, merge new keys manually into the existing protected config. Never overwrite it with `config.example.json`. An empty `interface` selects a real readable default-route interface automatically. An explicit unavailable interface falls back to the detected interface while producing a visible configuration warning; set the intended interface when stable accounting must remain tied to a specific device. Set quota, certificate path, subscription provider, account mappings, and loopback API Secrets only on the server.
+The Debian package supplies a supported PyYAML 6.x parser. Isolated source development can use the pinned `server/requirements.txt`. Install the parser before preflight; the installer does not change system packages.
 
-## 5. Protocol statistics / 协议统计
+The protected config must stay under `/etc/castoriceui`. Database, bootstrap and image state must stay under `/var/lib/castoriceui`; paths outside this layout are rejected before switching. Root owns immutable release code. Do not run the backend as root or make the source tree service-writable.
 
-Hysteria2 example:
+## 3. Edit protected configuration
 
-```yaml
-trafficStats:
-  listen: 127.0.0.1:19090
-  secret: generate-a-long-random-secret-on-the-server
-```
+Edit `/etc/castoriceui/config.json` as root. Keep `secure_cookies: true` and a loopback `listen_host`. Defaults are `127.0.0.1:18080`; other loopback IPs/ports and protected config filenames are supported consistently by the service, Nginx upstream and health checks. Changing an upgrade's live database path is rejected to prevent silently losing state.
 
-sing-box example:
+For a minimal panel, keep optional core API URLs, managed accounts and subscriptions empty. For an existing host, use the actual API URLs, separate random secrets, `hysteria_unit`, `singbox_unit`, binaries, `protocol_status_path`, protocol adapters and identity mappings. Management APIs must remain loopback-only. Store real subscription URLs and credentials only in this protected file; never put them in commands, issues, screenshots or Git.
 
-```json
-{
-  "experimental": {
-    "clash_api": {
-      "external_controller": "127.0.0.1:19091",
-      "secret": "generate-a-different-random-secret-on-the-server",
-      "access_control_allow_origin": [],
-      "access_control_allow_private_network": false
-    }
-  }
-}
-```
+Set `certificate_path`, `certificate_host`, `certificate_port` and `certificate_renewal_unit` only when the intended evidence exists. Host traffic is an interface ledger; account traffic is an explicitly mapped protocol counter and may reset with the core. Neither is a cloud-provider billing API. See [integration contracts](INTEGRATION.md).
 
-Validate each core with its own binary, restart one service at a time, then test its authenticated loopback endpoint. AnyTLS, VLESS, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC classification additionally requires explicit inbound tags in `protocol_adapters`; see [`INTEGRATION.md`](INTEGRATION.md).
+## 4. Prepare and enable the TLS site
 
-### Read-only protocol health probe (v4.1+)
+Obtain a certificate for your own panel domain and prepare the certificate paths in `deploy/nginx.conf.example`. The example is an HTTP-context include, containing a TLS server on TCP/2087 and same-origin API proxying; replace the example domain/certificate paths before enabling it. Verify certificate renewal separately.
 
-Install the probe on both new installations and upgrades, after the backend release path is in place. Preserve an existing environment file on upgrades so custom unit and status-path values are not reset:
+Give the backend read access to only the intended certificate evidence, for example a root-owned copy of the public leaf certificate under `/etc/castoriceui/tls` with a narrowly scoped renewal hook. Do not broadly change existing proxy key permissions. Nginx certificate access and panel certificate evidence are separate checks.
 
-```bash
-sudo install -m 0644 deploy/castoriceui-protocol-probe.service deploy/castoriceui-protocol-probe.timer /etc/systemd/system/
-if [ ! -e /etc/castoriceui/protocol-probe.env ]; then
-  sudo install -m 0644 deploy/protocol-probe.env.example /etc/castoriceui/protocol-probe.env
-fi
-sudo systemctl daemon-reload
-sudo systemctl enable --now castoriceui-protocol-probe.timer
-sudo systemctl start castoriceui-protocol-probe.service
-sudo systemctl status castoriceui-protocol-probe.timer --no-pager
-```
+Install the edited site into `/etc/nginx/sites-available/castoriceui`, link it in `sites-enabled`, and make its root `/var/www/castorice-ui/current`. The site must contain exactly one loopback API upstream. The frontend link will be created by the installer; until then static requests can return 404. Do not replace unrelated sites.
 
-This does not restart Hysteria2 or sing-box. A separate root oneshot reads the current `sing-box` process's command line, loaded JSON files, and owned listening sockets every 30 seconds. It atomically publishes only non-secret inbound metadata to `/run/castoriceui/protocol-status.json`; the unprivileged backend rejects samples older than 90 seconds or belonging to a previous process. Do not grant the web backend read access to core credential files.
-
-Standard `-c`/`--config`, `-C`/`--config-directory`, and `-D`/`--directory` layouts are supported. Core configuration files modified after process startup cannot prove what is loaded, so the card remains abnormal until an independently scheduled core reload/restart establishes a matching baseline. Missing probe access or nonstandard launchers also show abnormal status. A panel-only upgrade never performs that core restart automatically.
-
-On rollback to pre-v4.1 backend code, stop and disable `castoriceui-protocol-probe.timer` before switching the old backend symlink, as the old release does not contain the probe module. Keep the normal backend and frontend rollback procedure below.
-
-## 6. systemd and Bootstrap Token
-
-```bash
-sudo cp deploy/castoriceui-backend.service /etc/systemd/system/
-sudo systemd-analyze verify /etc/systemd/system/castoriceui-backend.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now castoriceui-backend
-sudo systemctl status castoriceui-backend --no-pager
-curl -fsS http://127.0.0.1:18080/api/v2/health
-```
-
-Expected version: `4.4.0`.
-
-For a new database, generate the first-admin token once:
-
-```bash
-sudo -u castoriceui /usr/bin/python3 /opt/castoriceui/current/server/run.py \
-  --config /etc/castoriceui/config.json --generate-bootstrap
-sudo stat -c '%a %U:%G %n' /var/lib/castoriceui/bootstrap-token
-```
-
-Expected mode/owner: `600 castoriceui:castoriceui`. Read it from a protected administrator terminal and enter it only on the first-run page. It is consumed after the administrator is created. Do not put it into shell history, logs, chat, screenshots, Git, or Nginx configuration. If no user exists and the token was lost, stop the service, remove only the exact token file after verifying its path, generate a new one, then restart.
-
-## 7. Frontend release / 前端版本目录
-
-```bash
-release=v4.4.0
-frontend_source=dist       # source checkout / 源码检出
-# frontend_source=frontend # GitHub Release bundle / GitHub Release 预构建包
-test -f "$frontend_source/index.html"
-sudo install -d "/var/www/castorice-ui/releases/$release"
-sudo cp -a "$frontend_source/." "/var/www/castorice-ui/releases/$release/"
-sudo ln -sfn "/var/www/castorice-ui/releases/$release" /var/www/castorice-ui/current.next
-sudo mv -Tf /var/www/castorice-ui/current.next /var/www/castorice-ui/current
-```
-
-The supplied Nginx example uses `root /var/www/castorice-ui/current` and SPA fallback routing.
-
-## 8. Nginx, TLS, and application login / Nginx、TLS 与登录
-
-Copy [`../deploy/nginx.conf.example`](../deploy/nginx.conf.example), replace only the documentation domain/certificate paths on the server, then run:
-
-For an existing certificate, copy neither the private key nor full chain into the repository. Point Nginx at the certificate provider's protected files. If the unprivileged backend must read a separate full-chain file for expiry evidence, install a certificate-only copy such as `/etc/castoriceui/tls-fullchain.pem` as `0640 root:castoriceui`; never grant it the private key. `certificate_renewal_unit` is optional evidence only: an empty value means renewal is unconfigured/unknown, not automatic.
-
-Install the site explicitly and check for conflicts before enabling it:
-
-```bash
-sudo install -m 0644 deploy/nginx.conf.example /etc/nginx/sites-available/castoriceui
-sudo grep -R "listen .*443\|server_name panel.example.com" /etc/nginx/sites-enabled /etc/nginx/conf.d
-sudo ln -s /etc/nginx/sites-available/castoriceui /etc/nginx/sites-enabled/castoriceui
+```sh
 sudo nginx -t
+sudo systemctl enable --now nginx
+sudo python3 server/preflight.py --config /etc/castoriceui/config.json
 ```
 
-If the grep shows another owner for the same address/name, stop and merge the required `location /api/` and SPA `location /` blocks into that existing site instead of enabling a competing server block. TCP 443 belongs to Nginx; UDP 443 may independently belong to QUIC/Hysteria2 and is not a TCP conflict.
+Preflight is read-only. It checks actual loaded/active required units, optional unconfigured cores, Python/parser availability, service-account permissions, data layout, certificate file, listener ownership and the enabled site. Every `fail` must be corrected before installing; review each warning in the recorded report. A loaded Nginx config does not itself prove public DNS/firewall/TLS reachability.
 
-```bash
-sudo nginx -t
-sudo systemctl reload nginx
+## 5. Install or upgrade
+
+Before upgrading, record public/loopback health, enabled/active units, live symlink targets and HY2/sing-box/Nginx PIDs. Verify config and SQLite rollback media. The database backup uses SQLite's online backup API rather than copying a live `state.db` independently of WAL/SHM.
+
+```sh
+sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v4.5.0.tar.gz --config /etc/castoriceui/config.json
 ```
 
-The checked-in template deliberately uses `listen 443 ssl http2`, which is accepted by Debian 12's default Nginx 1.22 and Debian 13's default package. Do not replace it with the standalone `http2 on` directive unless every supported host runs Nginx 1.25.1 or newer. Validate the complete rendered site with `nginx -t` on the target host before reloading.
+The installer validates the archive, runs staged backend regressions and preflight, records config/units/site/links and a consistent SQLite backup, then installs into paired unique release directories. It atomically replaces each frontend/backend link. These are separate filesystem operations, so a brief panel-only mismatch can occur during the switch. It restarts only `castoriceui-backend`; proxy-core continuity is checked through PIDs. The probe timer is installed/enabled and runs a read-only inventory probe. Its custom unit/output settings are read from `/etc/castoriceui/protocol-probe.env`; start with [`protocol-probe.env.example`](../deploy/protocol-probe.env.example) when needed.
 
-Do **not** enable `auth_basic`. CastoriceUI provides its own sign-in page and server-side session. Nginx Basic Auth would bring back the browser credential prompt and interfere with sign-out. Keep the complete security-header set inside every location that declares its own `add_header`; Nginx does not inherit parent `add_header` directives into such a location.
+A fresh backend is enabled for boot. An upgrade preserves the existing backend enable policy; an intentionally disabled service stays disabled. The upgrade starts the panel for acceptance but does not promise it will start after reboot if the operator intentionally disabled it.
 
-Recommended validation before using a browser:
+Failure produces a retained `/var/backups/castoriceui-v4.5.0-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
 
-```bash
-curl -fsS http://127.0.0.1:18080/api/v2/health
-curl -fsS https://panel.example.com/api/v2/health
-curl -fsS https://panel.example.com/api/v2/bootstrap
-curl -i https://panel.example.com/api/v2/dashboard   # expect 401 without session
-curl -I https://panel.example.com/                   # expect 200, never a Basic Auth challenge
+## 6. Bootstrap and complete first use
+
+```sh
+sudo -u castoriceui python3 /opt/castoriceui/current/server/run.py --config /etc/castoriceui/config.json --generate-bootstrap
 ```
 
-The public health and bootstrap-state endpoints contain no credentials. Dashboard and mutation endpoints require an authenticated session. Mutations also require the session CSRF token and `X-CastoriceUI-Request: 1`.
+Use the one-time token on the HTTPS login page to create the administrator. Save node name and traffic quota, then complete initialization. The token is consumed and initialization cannot be repeated once a user exists. The setup-complete state and canonical quota persist through backend restart. Optional unconfigured adapters remain visibly unconfigured.
 
-## 9. First browser use / 首次浏览器使用
+CPU, memory and traffic history accumulate from real samples. Fresh installations have no previous-day history. Missing samples are reported as gaps rather than estimated traffic. Collector timestamps and TTLs indicate stale evidence independently of when an HTTP response was generated. Background dashboard polling does not renew the administrator's idle session; actual user activity is reported separately.
 
-1. Open the HTTPS panel in a private browser window.
-2. Confirm the CastoriceUI sign-in/initialization page appears, not a browser password dialog.
-3. Enter the one-time token, a 3-64 character username, and a password of at least 12 characters using three character classes.
-4. Save the required node display name and traffic quota.
-5. Configure only protocol integrations whose loopback endpoint and server Secret are already ready.
-6. Complete initialization and verify Overview uses the saved name/quota.
-7. Sign out and confirm the protected dashboard cannot be reopened with the old page history.
+## 7. Accept the deployment
 
-For an existing v1.5 database, v2.0 reports setup required until a v2.0 administrator is created. Existing operational history/configuration is retained; a new application user is still required because v1.5 relied on Nginx Basic Auth and had no compatible password database.
+- Check loopback/public health reports `ok / 4.5.0`, static frontend HTTP 200, unauthenticated dashboard/session HTTP 401, login/logout/CSRF, settings persistence and audit records.
+- Check live and backup SQLite `PRAGMA integrity_check`, writable storage, fresh collector times, historical coverage, alerts and recovery. Confirm missing probe targets do not produce an overall excellent grade.
+- Check Nginx syntax, required units enabled/active, failed units and recent backend logs. Compare HY2/sing-box/Nginx PIDs to the recorded baseline.
+- Test desktop/mobile, both languages/themes, keyboard interactions and malformed/slow API responses. A browser-engine matrix does not substitute for physical Safari/iOS or minimum-version acceptance.
+- Test boot recovery only on an independent test VM, or during an expressly planned production maintenance window. Do not reboot a live proxy host simply to complete panel acceptance.
 
-## 10. Login backgrounds / 登录背景
+## 8. Recover and retain evidence
 
-Server images must be PNG, JPEG, or WebP, no larger than 5 MB, and stored directly inside the configured `login_background_directory` (default: `/var/lib/castoriceui/login-backgrounds`). The settings page displays this exact directory. The backend rejects traversal, nested paths, unsupported magic bytes, and files outside the directory. Image API mode accepts a public HTTPS image, redirect, or small JSON object containing `url`, `image`, `imageUrl`, or `image_url`; it rejects credentials, fragments, private/reserved DNS results, responses over 5 MB, and non-image magic bytes. Results are served same-origin and cached for 15 minutes, so no CSP host change is required. Set `external_background_hosts` only when an explicit host allowlist is desired.
+If automatic recovery fails, use the retained `transaction.json`, previous-target files, unit copies, `config.json`, `nginx-site.conf`, consistent `state.db`, staged test log and preflight report. Stop only the panel backend before database restoration. Restore a complete compatible backend/frontend/config/database/unit/site set, reload systemd, restore enable state, validate Nginx and old health, and compare proxy PIDs. Use the SQLite backup API to restore rather than ignoring WAL/SHM or writing into an actively served database.
 
-## 11. Upgrade and rollback / 升级与回滚
-
-The automated script above is the supported upgrade sequence. Its backup directory is printed on success and retained for rollback review. Manual equivalents, only when the script cannot be used, are:
-
-1. Back up the protected config, database/WAL, current frontend target, backend, service unit, and Nginx site.
-2. Stage and test the complete new release in a separate directory.
-3. Use SQLite's online backup API; do not copy a live WAL database as one file.
-4. Install the backend under `/opt/castoriceui/releases/vX.Y.Z` and frontend under `/var/www/castorice-ui/releases/vX.Y.Z`; preserve private config and state.
-5. Atomically switch `/opt/castoriceui/current` and `/var/www/castorice-ui/current`, restart only the panel backend, and verify loopback health reports the new version.
-6. Verify TLS, login/session/CSRF, dashboard truthfulness, protocol status, and logs.
-7. Keep the prior release and backup until post-restart validation passes.
-
-Rollback:
-
-1. Restore both recorded `current` symlinks to the previous frontend and backend release directories.
-2. Restore the matching database/config backup if the previous backend cannot read the upgraded state.
-3. Restore the previous unit/Nginx file when changed.
-4. Run `systemd-analyze verify` and `nginx -t`.
-5. Restart the backend, reload Nginx only if its config changed, and repeat health/auth/protocol checks.
-
-Common blocking results: `address already in use` means identify the exact TCP/UDP listener before choosing a new loopback port; `permission denied` on the certificate means fix only the certificate-chain group/mode and never broaden private-key access; `nginx -t` failure means do not reload; an unknown unit/binary means configure its real name/path or leave that integration unconfigured; a failed database migration means restore the matched database/WAL/config backup with the previous backend. Never claim rollback is available until the prior symlink, backend, unit, Nginx site, config and database backup have all been recorded.
-
-## 12. Restart recovery and release checklist / 重启恢复与发布检查
-
-If this VPS also carries the operator's active proxy traffic, do not reboot the host merely to prove recovery. First establish an independent management path or provider console, verify the proxy services are enabled, stage an automatic rollback, and monitor the proxy from outside the VPS. Otherwise restart only `castoriceui-backend`; CastoriceUI deployment must not restart Hysteria2 or sing-box.
-
-- `systemctl is-enabled castoriceui-backend` returns `enabled`
-- `systemctl restart castoriceui-backend` returns to `active`
-- loopback and HTTPS health report `4.4.0`
-- `/api/v2/dashboard` rejects an unauthenticated request
-- the application login works and logout invalidates the session
-- first-run setup is required only when appropriate
-- config is `0640 root:castoriceui`; state/background directories are restricted
-- backend, Hysteria2, and sing-box controllers listen on loopback only
-- dashboard, Accounts, and Traffic use consistent real values
-- unavailable protocol/source/rate fields remain unavailable instead of zero/fabricated
-- Nginx root resolves to the intended versioned release
-- `npm run check`, CodeQL, responsive/browser checks, sensitive scan, backup, and rollback review pass
+Retain the prior release, checksums and rollback directory until acceptance is complete. This panel does not automatically repair operating-system networking, firewall rules, proxy services or external certificates.

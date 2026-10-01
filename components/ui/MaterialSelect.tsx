@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "./Icon";
@@ -32,6 +32,7 @@ export function MaterialSelect({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeValue, setActiveValue] = useState(value);
   const [position, setPosition] = useState({ left: 0, top: 0, width: 240, maxHeight: 320, placement: "bottom" as "top" | "bottom", ready: false });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -85,9 +86,9 @@ export function MaterialSelect({
     window.addEventListener("scroll", place, true);
     const focusTimer = window.setTimeout(() => {
       if (searchable) searchRef.current?.focus();
-      else popupRef.current?.querySelector<HTMLElement>("[aria-selected='true']")?.focus();
+      else (popupRef.current?.querySelector<HTMLElement>("[aria-selected='true']") ?? popupRef.current?.querySelector<HTMLElement>("[role='option']"))?.focus();
     });
-    return () => {
+  return () => {
       window.clearTimeout(focusTimer);
       window.cancelAnimationFrame(placementFrame);
       document.removeEventListener("pointerdown", closeOnOutside, true);
@@ -96,6 +97,25 @@ export function MaterialSelect({
       window.removeEventListener("scroll", place, true);
     };
   }, [open, present, searchable]);
+
+    const navigateOptions = (event: ReactKeyboardEvent<HTMLElement>) => {
+            const buttons = Array.from(popupRef.current?.querySelectorAll<HTMLButtonElement>("[role='option']") ?? []);
+            if (!buttons.length) return;
+            const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            let index: number;
+            if (event.key === "ArrowDown") index = current < 0 ? 0 : (current + 1) % buttons.length;
+            else if (event.key === "ArrowUp") index = current < 0 ? buttons.length - 1 : (current + buttons.length - 1) % buttons.length;
+            else if (event.key === "Home" && current >= 0) index = 0;
+            else if (event.key === "End" && current >= 0) index = buttons.length - 1;
+            else if (event.key === "Enter" && current < 0) { event.preventDefault(); buttons[0].click(); return; }
+            else return;
+            event.preventDefault();
+            event.stopPropagation();
+            setActiveValue(filtered[index].value);
+            buttons[index].focus();
+            buttons[index].scrollIntoView?.({ block: "nearest" });
+            };
+
 
   return (
     <>
@@ -108,8 +128,18 @@ export function MaterialSelect({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         disabled={disabled}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setQuery("");
+            setActiveValue(value);
+            setPosition((current) => ({ ...current, ready: false }));
+            setOpen(true);
+          }
+        }}
         onClick={() => {
           setQuery("");
+          setActiveValue(value);
           setOpen((current) => {
             if (!current) setPosition((value) => ({ ...value, ready: false }));
             return !current;
@@ -125,21 +155,23 @@ export function MaterialSelect({
           className={`md-select-menu md-floating-panel ${open ? "is-open" : "is-closing"}`}
           data-placement={position.placement}
           aria-hidden={!open}
+          role="group"
           style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}
         >
           {searchable ? (
             <label className="md-select-search">
               <Icon name="search" size={19} />
-              <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索选项", "Search options")} aria-label={t("搜索选项", "Search options")} />
+              <input onKeyDown={navigateOptions} ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索选项", "Search options")} aria-label={t("搜索选项", "Search options")} />
               {query ? <button type="button" onClick={() => setQuery("")} aria-label={t("清空搜索", "Clear search")}><Icon name="close" size={18} /></button> : null}
             </label>
           ) : null}
-          <div id={listboxId} className="md-select-list" role="listbox" aria-label={ariaLabel}>
+          <div id={listboxId} className="md-select-list" role="listbox" onKeyDown={navigateOptions} tabIndex={-1} aria-label={ariaLabel}>
             {filtered.map((option) => (
               <button
                 type="button"
                 role="option"
                 aria-selected={option.value === value}
+                tabIndex={option.value === activeValue || (!filtered.some((item) => item.value === activeValue) && option === filtered[0]) ? 0 : -1}
                 key={option.value}
                 onClick={() => {
                   onChange(option.value);

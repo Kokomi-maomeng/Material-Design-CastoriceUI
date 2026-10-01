@@ -80,7 +80,8 @@ export interface NetworkTarget {
   name: string;
   provider: string;
   address: string;
-  ipVersion: 4 | 6;
+  ipVersion: 0 | 4 | 6;
+  resolvedIpVersion?: 4 | 6;
   latency: number | null;
   jitter: number | null;
   loss: number | null;
@@ -193,6 +194,8 @@ export interface TrafficBreakdown {
 export interface DashboardPayload {
   mode: "loading" | "live" | "stale" | "error";
   generatedAt: string;
+  runtimeObservedAt?: string | null;
+  freshness?: Record<string, { status: string; observedAt: string | null; ageSeconds: number | null; ttlSeconds: number; error: string | null }>;
   overview: OverviewMetrics;
   resourceHistory: Record<"1h" | "6h" | "24h", ResourceSample[]>;
   accounts: Account[];

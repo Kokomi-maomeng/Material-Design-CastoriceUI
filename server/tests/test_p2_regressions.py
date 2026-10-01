@@ -176,7 +176,7 @@ class P2RegressionTests(unittest.TestCase):
                 started = time.monotonic()
                 payload = dashboard.snapshot()
             self.assertLess(time.monotonic() - started, 0.2)
-            self.assertEqual(payload["mode"], "live")
+            self.assertEqual(payload["mode"], "stale")
 
     def test_f16_background_monitor_records_failure_and_recovery_without_browser(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -247,7 +247,7 @@ class P2RegressionTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=32) as pool:
                 payloads = list(pool.map(lambda _index: dashboard.snapshot(), range(128)))
             self.assertEqual(len(payloads), 128)
-            self.assertTrue(all(item["mode"] == "live" for item in payloads))
+            self.assertTrue(all(item["mode"] == "stale" for item in payloads))
 
     def test_f22_integration_audit_uses_authenticated_actor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

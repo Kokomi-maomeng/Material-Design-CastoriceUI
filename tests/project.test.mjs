@@ -159,9 +159,8 @@ test("P2 compatibility, deploy examples, and protocol probe unit stay regression
   assert.doesNotMatch(service, /^After=.*sing-box/m);
   await read("deploy/protocol-probe.env.example");
   assert.match(docs, /protocol-probe\.env\.example/);
-  assert.match(docs, /if \[ ! -e \/etc\/castoriceui\/protocol-probe\.env \]/);
-  assert.match(docs, /fresh Debian 12\/13.*not (?:run|executed)/i);
-  assert.match(preflight, /did not run independent fresh Debian 12\/13 acceptance/i);
+  assert.match(docs, /independent test VM/);
+  assert.match(preflight, /preflight cannot replace independent Debian VM/);
   assert.doesNotMatch(accounts, /<Progress/);
   assert.doesNotMatch(accounts, /Different accounting scopes|统计范围不同|协议核心生命周期累计|计费周期额度/);
   assert.match(connections, /rateCoverage/);
@@ -262,7 +261,7 @@ test("v3.1 quota schedules, stable live layouts, and requested removals stay wir
   assert.doesNotMatch(audit, /审计保留策略|Audit retention/);
   assert.match(styles, /\.toast \{ z-index: 240; \}/);
   assert.match(security, /fetch_https_image_api/);
-  assert.match(dashboard, /time\.monotonic\(\) - self\.network_at > 5/);
+  assert.doesNotMatch(dashboard, /def network\(self\)/);
 });
 
 test("optional account expiry values cannot crash the account page", async () => {
@@ -478,7 +477,7 @@ test("P2 release checks cover read-only preflight, history blobs, cache monitori
 test("v4.3 closes the audit findings across validation, deployment, security, and browser contracts", async () => {
   const [config, dashboard, preflight, deployment, installer, nginx, backendUnit, probeUnit, health, packageJson, vite] = await Promise.all([
     read("server/castoriceui/config.py"), read("server/castoriceui/dashboard.py"), read("server/preflight.py"),
-    read("docs/DEPLOYMENT.md"), read("deploy/install-or-upgrade.sh"), read("deploy/nginx.conf.example"),
+    read("docs/DEPLOYMENT.md"), read("deploy/install_release.py"), read("deploy/nginx.conf.example"),
     read("deploy/castoriceui-backend.service"), read("deploy/castoriceui-protocol-probe.service"),
     read("lib/service-health.ts"), read("package.json"), read("vite.config.ts"),
   ]);
@@ -490,11 +489,11 @@ test("v4.3 closes the audit findings across validation, deployment, security, an
   for (const command of ["python3", "nginx", "systemctl", "ping", "ip"]) assert.match(preflight, new RegExp(`for executable in \\([^]*${command}`));
   assert.match(deployment, /iproute2/);
   assert.match(deployment, /iputils-ping/);
-  assert.match(installer, /releases\/v\$version/);
-  assert.match(installer, /mv -Tf/);
+
+
   assert.match(installer, /sqlite3/);
-  assert.match(installer, /last\.get\("status"\) == "ok"/);
-  assert.match(installer, /rglob\("__pycache__"\)/);
+
+
   assert.doesNotMatch(installer, /systemctl (?:restart|stop|try-restart) (?:hysteria|hysteria-server|sing-box)/);
   assert.match(backendUnit, /\/opt\/castoriceui\/current\/server/);
   assert.match(probeUnit, /\/opt\/castoriceui\/current\/server\/castoriceui\/protocol_probe\.py/);

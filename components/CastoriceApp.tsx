@@ -16,6 +16,7 @@ import {
   fetchDashboard,
   fetchSession,
   logout,
+  reportActivity,
   updateTrafficLimit,
   updateUiSettings,
 } from "../lib/api";
@@ -43,6 +44,7 @@ import { TrafficQuotaDialog } from "./traffic/TrafficQuotaDialog";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import { Toast } from "./ui/Toast";
+import { DataBoundary } from "./ui/DataBoundary";
 
 const PAGE_IDS = new Set<PageId>(navigation.map((item) => item.id));
 const OverviewPage = lazy(() =>
@@ -232,7 +234,7 @@ export function CastoriceApp() {
     dashboardLoading.current = true;
     try {
       const payload = await fetchDashboard();
-      setDashboard({ ...payload, mode: "live" });
+      setDashboard(payload);
       setAlerts(payload.alerts);
       setConnections(payload.connections);
       hasLiveData.current = true;
@@ -278,7 +280,12 @@ export function CastoriceApp() {
   useEffect(() => {
     if (!session) return;
     let timeout = 0;
-    const schedule = () => {
+    let lastReported = 0;
+    const schedule = (event?: Event) => {
+      if (event?.isTrusted && Date.now() - lastReported >= 30_000) {
+        lastReported = Date.now();
+        void reportActivity().catch((error: unknown) => { if (error instanceof ApiError && error.status === 401) void signOut(); });
+      }
       window.clearTimeout(timeout);
       timeout = window.setTimeout(
         () => void signOut(),
@@ -307,7 +314,7 @@ export function CastoriceApp() {
     };
   }, [session, signOut, uiSettings.idleTimeoutMinutes]);
   const visiblePanels =
-    dashboard.mode === "live" ? uiSettings.visiblePanels : PANEL_IDS;
+    dashboard.mode === "live" || dashboard.mode === "stale" ? uiSettings.visiblePanels : PANEL_IDS;
   const visibleNavigation = useMemo(
     () =>
       navigation.filter((item) =>
@@ -398,7 +405,7 @@ export function CastoriceApp() {
       try {
         const saved = await configureIntegration(id, true, values);
         const payload = await fetchDashboard();
-        setDashboard({ ...payload, mode: "live" });
+        setDashboard(payload);
         setAlerts(payload.alerts);
         setConnections(payload.connections);
         hasLiveData.current = true;
@@ -737,20 +744,20 @@ export function CastoriceApp() {
               <div>
                 <strong>
                   {t(
-                    "后端连接中断，数据已停止更新",
-                    "Backend disconnected; data is no longer updating",
+                    "采集或连接异常，当前数据可能已过期",
+                    "Collection or connection fault; current data may be stale",
                   )}
                 </strong>
                 <span>
                   {t(
-                    `页面保留 ${new Date(dashboard.generatedAt).toLocaleString("zh-CN")} 的最后一次真实快照。`,
-                    `The page retains the last real snapshot from ${new Date(dashboard.generatedAt).toLocaleString("en")}.`,
+                    `页面保留 ${new Date(dashboard.freshness?.system?.observedAt ?? dashboard.runtimeObservedAt ?? dashboard.generatedAt).toLocaleString("zh-CN")} 的最后一次真实快照。`,
+                    `The page retains the last real snapshot from ${new Date(dashboard.freshness?.system?.observedAt ?? dashboard.runtimeObservedAt ?? dashboard.generatedAt).toLocaleString("en")}.`,
                   )}
                 </span>
               </div>
             </div>
           ) : null}
-          <Suspense fallback={<PageLoading />}>{content}</Suspense>
+          <DataBoundary resetKey={`${page}:${dashboard.generatedAt}`} message={t("页面数据异常，请刷新重试。", "This page could not display its data. Refresh to retry.")} retry={t("刷新数据", "Refresh")} onRetry={() => void loadDashboard()}><Suspense fallback={<PageLoading />}>{content}</Suspense></DataBoundary>
         </main>
       </div>
       <SettingsDialog
