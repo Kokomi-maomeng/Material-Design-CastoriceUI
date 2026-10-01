@@ -54,7 +54,7 @@ Set `certificate_path`, `certificate_host`, `certificate_port` and `certificate_
 
 ## 4. Prepare and enable the TLS site
 
-Obtain a certificate for your own panel domain and prepare the certificate paths in `deploy/nginx.conf.example`. The example is an HTTP-context include, containing a TLS server on TCP/2087 and same-origin API proxying; replace the example domain/certificate paths before enabling it. Verify certificate renewal separately.
+Obtain a certificate for your own panel domain and prepare the certificate paths in `deploy/nginx.conf.example`. The example is an HTTP-context include, containing a TLS server on TCP/443 and same-origin API proxying. A minimal panel can use that default. On an existing proxy host where TCP/443 is already occupied, edit both TLS `listen` directives to an available panel port such as 2087 before enabling the site; use that port in the panel URL. Replace the example domain/certificate paths and verify certificate renewal separately.
 
 Give the backend read access to only the intended certificate evidence, for example a root-owned copy of the public leaf certificate under `/etc/castoriceui/tls` with a narrowly scoped renewal hook. Do not broadly change existing proxy key permissions. Nginx certificate access and panel certificate evidence are separate checks.
 

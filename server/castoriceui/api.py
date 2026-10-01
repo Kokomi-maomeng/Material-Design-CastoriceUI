@@ -88,28 +88,26 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def send_json(self, status: HTTPStatus, payload: Any, headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        for key, value in (headers or {}).items():
-            self.send_header(key, value)
-        self.end_headers()
-        self.wfile.write(body)
+        self.write_response(status, body, {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", **(headers or {})})
+
+    def write_response(self, status: HTTPStatus, body: bytes, headers: dict[str, str]) -> None:
+        try:
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # A browser reload or timeout closes the transport, not the collector.
+            self.close_connection = True
 
     def send_image(self, path: Path, mime: str) -> None:
         self.send_image_bytes(path.read_bytes(), mime)
 
     def send_image_bytes(self, body: bytes, mime: str) -> None:
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "private, max-age=300")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
-        self.end_headers()
-        self.wfile.write(body)
+        self.write_response(HTTPStatus.OK, body, {"Content-Type": mime, "Cache-Control": "private, max-age=300", "Content-Security-Policy": "default-src 'none'; sandbox"})
 
     def read_json(self) -> dict[str, Any]:
         try:

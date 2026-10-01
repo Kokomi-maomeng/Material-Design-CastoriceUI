@@ -29,7 +29,11 @@ def main() -> None:
     if args.phase == "install":
         source.mkdir(exist_ok=True)
         with tarfile.open(args.archive) as bundle:
-            bundle.extractall(source, filter="data")
+            for member in bundle.getmembers():
+                path = Path(member.name)
+                if path.is_absolute() or ".." in path.parts or member.issym() or member.islnk() or not (member.isfile() or member.isdir()):
+                    raise ValueError("Unsafe QA release archive")
+            bundle.extractall(source)
     release = next(source.glob("CastoriceUI-v*"))
     config_path = Path("/etc/castoriceui/custom-qa.json")
     version = args.archive.name.removeprefix("CastoriceUI-v").removesuffix(".tar.gz")
@@ -77,7 +81,7 @@ def main() -> None:
     cookie = csrf = ""
     def call(method, path, payload=None):
         nonlocal cookie, csrf
-        connection = http.client.HTTPSConnection("127.0.0.1", 2087, context=ssl._create_unverified_context(), timeout=12)
+        connection = http.client.HTTPSConnection("127.0.0.1", 443, context=ssl._create_unverified_context(), timeout=12)
         headers = {"Content-Type": "application/json", "Cookie": cookie, "X-CastoriceUI-Request": "1", "X-CSRF-Token": csrf}
         connection.request(method, path, json.dumps(payload) if payload else None, headers)
         response = connection.getresponse(); raw = response.read()
@@ -130,7 +134,7 @@ def main() -> None:
                 if expected == version and not rollback_armed[0] and failure in {"health", "restore"}:
                     rollback_armed[0] = True
                     with sqlite3.connect(config.database_path) as connection:
-                        connection.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('synthetic_rollback_marker','true')")
+                        connection.execute("INSERT OR REPLACE INTO settings(key,value,updated_at) VALUES('synthetic_rollback_marker','true',datetime('now'))")
                     fail_once("health")
                     raise RuntimeError("Synthetic health failure to exercise restore")
                 return original_health(config, expected)

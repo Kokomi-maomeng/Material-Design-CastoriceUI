@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import copy
+import contextlib
+import io
+import socket
+import struct
 import http.client
 import json
 import sys
@@ -34,6 +38,25 @@ def system_fixture() -> dict:
 
 
 class AuditRegressions(unittest.TestCase):
+    def test_browser_transport_reset_is_not_a_collector_failure(self) -> None:
+        self.start_api(); self.initialize()
+        entered, released, finished = threading.Event(), threading.Event(), threading.Event()
+        def blocked_snapshot():
+            entered.set(); released.wait(3)
+            return {"synthetic": "x" * 100_000}
+        original = self.server.shutdown_request
+        def shutdown(request):
+            original(request); finished.set()
+        errors = io.StringIO()
+        with patch.object(self.dashboard, "snapshot", side_effect=blocked_snapshot), patch.object(self.server, "shutdown_request", side_effect=shutdown), contextlib.redirect_stderr(errors):
+            client = socket.create_connection(("127.0.0.1", self.server.server_port), timeout=3)
+            client.sendall(f"GET /api/v2/dashboard HTTP/1.0\r\nHost: localhost\r\nCookie: {self.cookie}\r\n\r\n".encode())
+            self.assertTrue(entered.wait(3))
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)); client.close()
+            released.set(); self.assertTrue(finished.wait(3))
+        self.assertNotIn("Traceback", errors.getvalue())
+        self.assertEqual(self.call("GET", "/api/v2/health")[0], 200)
+
     def test_public_fetch_dns_and_address_retries_share_one_deadline(self) -> None:
         def slow_dns(*_args):
             time.sleep(0.15)
