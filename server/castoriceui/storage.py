@@ -411,6 +411,11 @@ class Storage:
         samples = int(coverage_row["samples"] or 0)
         resets = int(coverage_row["resets"] or 0)
         gaps = int(coverage_row["gaps"] or 0) + crossing_count + (1 if samples == 0 else 0)
+        coverage_end = min(int(end_timestamp), int(time.time()))
+        first_at, last_at = coverage_row["first_at"], coverage_row["last_at"]
+        leading_gap = samples > 0 and int(first_at) - int(start_timestamp) > 90
+        trailing_gap = samples > 0 and coverage_end - int(last_at) > 90
+        gaps += int(leading_gap) + int(trailing_gap)
         return {
             "usedBytes": used,
             "receivedBytes": received,
@@ -420,6 +425,9 @@ class Storage:
                 "complete": samples > 0 and resets == 0 and gaps == 0,
                 "gapCount": gaps + resets,
                 "resetCount": resets,
+                "leadingGap": leading_gap,
+                "trailingGap": trailing_gap,
+                "checkedThrough": coverage_end,
                 "firstSampleAt": int(coverage_row["first_at"]) if coverage_row["first_at"] is not None else None,
                 "lastSampleAt": int(coverage_row["last_at"]) if coverage_row["last_at"] is not None else None,
             },
@@ -658,7 +666,7 @@ class Storage:
             )
         return token, csrf_token, expires_at
 
-    def session(self, token: str, idle_timeout_seconds: int = 0) -> dict[str, Any] | None:
+    def session(self, token: str, idle_timeout_seconds: int = 0, *, touch: bool = True) -> dict[str, Any] | None:
         if not token:
             return None
         now = int(time.time())
@@ -676,7 +684,7 @@ class Storage:
                 """,
                 (token_hash(token), now),
             ).fetchone()
-            if row is not None:
+            if row is not None and touch:
                 connection.execute("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", (utc_now(), token_hash(token)))
         return dict(row) if row is not None else None
 

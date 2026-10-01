@@ -62,7 +62,6 @@
 .settings-row > span { display: flex; gap: 12px; align-items: center; }
 .settings-row strong, .settings-row small { display: block; }
 .settings-row small { margin-top: 3px; color: var(--md-sys-color-on-surface-variant); }
-.demo-indicator.is-live { color: var(--md-sys-color-on-tertiary-container); background: var(--md-sys-color-tertiary-container); }
 .status-dot--warning { background: var(--md-sys-color-error); }
 
 @media (max-width: 760px) {

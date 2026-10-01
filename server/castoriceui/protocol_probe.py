@@ -120,6 +120,7 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
         if not arguments or Path(arguments[0]).name != "sing-box":
             return result
         started_ticks = int((process / "stat").read_text().rsplit(")", 1)[1].split()[19])
+        result["startedTicks"] = started_ticks
         boot_time = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime "))
         started_at = boot_time + started_ticks / os.sysconf("SC_CLK_TCK")
         paths = config_paths(arguments, Path(os.readlink(process / "cwd")))

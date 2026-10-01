@@ -20,11 +20,7 @@
 .service-card dd { max-width: 70%; overflow-wrap: anywhere; text-align: right; }
 .color-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 6px; }
 .settings-row { width: 100%; border: 0; border-top: 1px solid var(--md-sys-color-outline-variant); color: inherit; background: transparent; text-align: left; }
-.settings-row--button { cursor: pointer; }
-.settings-row--button:hover { color: var(--primary); }
-.settings-row--button > b { min-width: 42px; font-size: 10px; color: var(--on-surface-variant); }
 
 @media (max-width: 480px) {
   .color-options { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .settings-row--button { flex-wrap: wrap; }
 }

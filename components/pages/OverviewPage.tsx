@@ -85,7 +85,9 @@ export function OverviewPage({
   const networkGrade =
     networkTargets.length === 0
       ? t("暂无数据", "No data")
-      : averageLoss === null || averageLatency === null
+      : networkTargets.some((target) => target.status === "down")
+        ? t("较差", "Poor")
+      : networkTargets.some((target) => target.status === "unavailable") || averageLoss === null || averageLatency === null
         ? t("部分不可用", "Partially unavailable")
       : averageLoss >= 5 || averageLatency >= 150
         ? t("较差", "Poor")
@@ -98,8 +100,8 @@ export function OverviewPage({
       <PageHeader
         title={metrics.nodeName}
         description={stale ? t(
-          "当前是最后一次成功快照，后端连接已中断；这些值不是当前实时状态。",
-          "This is the last successful snapshot. The backend is disconnected, so these values are not live.",
+          "当前展示缓存快照，采集或连接异常；这些值不是当前实时状态。",
+          "This is cached evidence. Collection or connection is unavailable, so these values are not live.",
         ) : undefined}
         actions={
           <Button variant="tonal" icon="refresh" onClick={onRefresh}>

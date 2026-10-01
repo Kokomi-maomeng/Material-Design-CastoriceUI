@@ -11,9 +11,11 @@ import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
+import { MaterialSelect } from "../ui/MaterialSelect";
 import { PageHeader } from "../ui/Page";
 
 interface TargetDraft {
+  ipVersion: 0 | 4 | 6;
   name: string;
   address: string;
   order: number;
@@ -40,7 +42,7 @@ export function NetworkPage({
   const filtered = useMemo(
     () =>
       targets.filter(
-        (target) => version === "all" || target.ipVersion === version,
+        (target) => version === "all" || (target.resolvedIpVersion ?? target.ipVersion) === version,
       ),
     [targets, version],
   );
@@ -54,7 +56,9 @@ export function NetworkPage({
   const quality =
     filtered.length === 0
       ? t("暂无数据", "No data")
-      : avgLoss === null || avgLatency === null
+      : filtered.some((target) => target.status === "down")
+        ? t("较差", "Poor")
+      : filtered.some((target) => target.status === "unavailable") || avgLoss === null || avgLatency === null
         ? t("部分不可用", "Partially unavailable")
       : avgLoss >= 5 || avgLatency >= 150
         ? t("较差", "Poor")
@@ -64,7 +68,9 @@ export function NetworkPage({
   const grade =
     filtered.length === 0
       ? "—"
-      : avgLoss === null || avgLatency === null
+      : filtered.some((target) => target.status === "down")
+        ? "C"
+      : filtered.some((target) => target.status === "unavailable") || avgLoss === null || avgLatency === null
         ? "—"
       : avgLoss >= 5 || avgLatency >= 150
         ? "C"
@@ -74,6 +80,7 @@ export function NetworkPage({
   const openEditor = () => {
     setDrafts(
       targets.map((target, index) => ({
+        ipVersion: target.ipVersion,
         name: target.name,
         address: target.address,
         order: target.order ?? index + 1,
@@ -85,7 +92,7 @@ export function NetworkPage({
     setDrafts((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
-          ? { ...item, [key]: key === "order" ? Number(value) : value }
+          ? { ...item, [key]: (key === "order" || key === "ipVersion") ? Number(value) : value }
           : item,
       ),
     );
@@ -227,7 +234,7 @@ export function NetworkPage({
             <Card variant="outlined" className="network-target-card" key={target.id}>
               <div className="network-target-card__header">
                 <div className="provider-mark">{target.name.slice(0, 1)}</div>
-                <div className="network-target__identity"><strong>{target.name}</strong><span>{target.address} · IPv{target.ipVersion}</span></div>
+                <div className="network-target__identity"><strong>{target.name}</strong><span>{target.address} · {(target.resolvedIpVersion ?? target.ipVersion) === 0 ? t("自动解析", "Automatic") : `IPv${target.resolvedIpVersion ?? target.ipVersion}`}</span></div>
                 <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "degraded" || target.status === "unavailable" ? "warning" : "danger"}>
                   {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
                 </Chip>
@@ -316,6 +323,10 @@ export function NetworkPage({
                   }
                 />
               </label>
+              <label>
+                <span>{t("解析协议族", "Address family")}</span>
+                <MaterialSelect ariaLabel={t("解析协议族", "Address family")} value={String(item.ipVersion)} onChange={(value) => change(index, "ipVersion", value)} options={[{ value: "0", label: t("自动", "Automatic") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }]} />
+              </label>
               <button
                 className="icon-button"
                 aria-label={t("删除目标", "Remove target")}
@@ -336,7 +347,7 @@ export function NetworkPage({
             onClick={() =>
               setDrafts((current) => [
                 ...current,
-                { name: "", address: "", order: current.length + 1 },
+                { name: "", address: "", order: current.length + 1, ipVersion: 0 },
               ])
             }
           >

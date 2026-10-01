@@ -57,6 +57,13 @@ def main() -> None:
             sampler_stop.wait(15)
 
     threading.Thread(target=monitor_runtime, name="runtime-monitor", daemon=True).start()
+    def watch_collections() -> None:
+        while not sampler_stop.wait(5):
+            try:
+                dashboard.refresh_collection_alerts()
+            except Exception as error:
+                print(f"Collection watchdog failed: {type(error).__name__}", flush=True)
+    threading.Thread(target=watch_collections, name="collection-watchdog", daemon=True).start()
     print(f"CastoriceUI backend listening on {config.listen_host}:{config.listen_port}")
     try:
         server.serve_forever(poll_interval=0.5)

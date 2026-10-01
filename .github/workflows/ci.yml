@@ -20,6 +20,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: python3 -m pip install -r server/requirements.txt
       - run: npm run check
 
   nginx-template:
@@ -71,6 +72,7 @@ jobs:
       - run: npm ci
       - name: Install browser runtime
         run: |
+          python3 -m pip install -r server/requirements.txt
           python3 -m pip install 'playwright==1.58.0'
           python3 -m playwright install --with-deps '${{ matrix.engine }}'
       - name: Run interaction and viewport matrix
@@ -91,3 +93,44 @@ jobs:
             sleep 1
           done
           python3 scripts/browser-matrix.py '${{ matrix.engine }}'
+          python3 scripts/browser-first-run.py '${{ matrix.engine }}'
+
+  linux-install:
+    name: Linux install (Debian ${{ matrix.debian }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ["12", "13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run release:package
+      - name: Install independent VM runtime
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
+      - name: Fresh installation, rollback, retry and actual VM reboot
+        run: python3 scripts/linux-vm-qa.py '${{ matrix.debian }}' release/CastoriceUI-v4.5.0.tar.gz
+
+  acceptance:
+    name: Release acceptance
+    if: always()
+    needs: [validate, nginx-template, browser-matrix, linux-install]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every validation matrix
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failed = {name: item["result"] for name, item in results.items() if item["result"] != "success"}
+          if failed:
+              raise SystemExit(f"Acceptance failed: {failed}")
+          print("All code, browser, Nginx and Linux deployment gates passed")
+          PY

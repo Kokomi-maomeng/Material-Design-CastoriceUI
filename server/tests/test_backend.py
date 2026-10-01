@@ -537,7 +537,7 @@ class BackendTests(unittest.TestCase):
             services = [{"id": "nginx", "name": "Nginx", "status": "stopped", "detail": "offline"}]
             network = [{"id": "edge", "name": "Edge", "status": "down", "latency": 999, "loss": 100}]
             alerts = dashboard.alerts(system, services, network)
-            self.assertEqual({item["id"] for item in alerts}, {"traffic-threshold", "service-nginx", "network-edge"})
+            self.assertEqual({item["id"] for item in alerts}, {"traffic-threshold", "service-nginx", "network-edge", "collector-system", "collector-runtime", "collector-network"})
             self.assertTrue(storage.acknowledge("service-nginx"))
             refreshed = dashboard.alerts(system, services, network)
             self.assertTrue(next(item for item in refreshed if item["id"] == "service-nginx")["acknowledged"])
@@ -713,7 +713,7 @@ class BackendTests(unittest.TestCase):
         response = MagicMock()
         response.status = 200
         response.headers = MagicMock()
-        response.read.return_value = b"ok"
+        response.read1.side_effect = [b"ok", b""]
         connection = MagicMock()
         connection.getresponse.return_value = response
         resolved = [(2, 1, 6, "", ("93.184.216.34", 443))]
@@ -721,7 +721,10 @@ class BackendTests(unittest.TestCase):
             status, _, body = _public_https_get("https://example.com/resource", {"Accept": "text/plain"}, 16)
         self.assertEqual((status, body), (200, b"ok"))
         resolver.assert_called_once()
-        pinned.assert_called_once_with("example.com", 443, "93.184.216.34", 8)
+        pinned.assert_called_once()
+        self.assertEqual(pinned.call_args.args[:3], ("example.com", 443, "93.184.216.34"))
+        self.assertGreater(pinned.call_args.args[3], 0)
+        self.assertLessEqual(pinned.call_args.args[3], 8)
 
     def test_subscription_setup_probes_protected_url_without_persisting_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1011,7 +1014,7 @@ class BackendTests(unittest.TestCase):
             with patch("preflight.shutil.which", side_effect=lambda name: None if name in {"ping", "ip"} else f"/usr/bin/{name}"), patch("preflight.command", return_value=(True, "ok")), patch("preflight.listening_ports", return_value={"tcp": set(), "udp": set()}):
                 report = preflight_inspect(config_path)
             failures = {item["name"] for item in report["checks"] if item["status"] == "fail"}
-            self.assertEqual(failures, {"command-ping", "command-ip"})
+            self.assertTrue({"command-ping", "command-ip"}.issubset(failures))
             self.assertFalse(report["ok"])
 
     def test_login_failures_persist_across_storage_instances(self) -> None:

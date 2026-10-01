@@ -60,7 +60,7 @@ Display names are not assumed to equal protocol authentication identities. For m
 }
 ```
 
-Only `trafficIdentities` mappings are associated; display names and IDs are never guessed to be protocol identities. When exactly one managed account explicitly owns every reported identity, its cumulative usage uses the durable interface ledger and is labelled accordingly. With multiple or incomplete owners, protocol counters remain separate and the ledger difference stays unattributed. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
+Only `trafficIdentities` mappings are associated; display names and IDs are never guessed to be protocol identities. Account usage uses only explicitly mapped protocol counters. A core restart may reset these counters; no account inherits the host interface ledger. Host ledger remainder stays unattributed. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
 
 ## sing-box protocol adapters
 
