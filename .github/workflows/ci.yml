@@ -115,7 +115,9 @@ jobs:
       - name: Install independent VM runtime
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
       - name: Fresh installation, rollback, retry and actual VM reboot
-        run: python3 scripts/linux-vm-qa.py '${{ matrix.debian }}' release/CastoriceUI-v4.5.0.tar.gz
+        run: |
+          panel_version=$(node --print "require('./package.json').version")
+          python3 scripts/linux-vm-qa.py '${{ matrix.debian }}' "release/CastoriceUI-v${panel_version}.tar.gz"
 
   acceptance:
     name: Release acceptance

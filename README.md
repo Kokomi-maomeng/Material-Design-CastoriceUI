@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-4.5.0-6750A4)
+![Version](https://img.shields.io/badge/version-4.6.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
