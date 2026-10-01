@@ -191,7 +191,9 @@ def run(engine, timezone, browser):
 
 with sync_playwright() as playwright:
     for engine in ENGINES:
-        options = {"ignore_default_args": ["--hide-scrollbars"]} if engine == "chromium" else {}
+        # Juggler injects an AGENT_SHEET with scrollbar-width:none!important in
+        # headless Firefox. Use a real display (xvfb in CI) to test native bars.
+        options = {"ignore_default_args": ["--hide-scrollbars"]} if engine == "chromium" else {"headless": False} if engine == "firefox" else {}
         browser = getattr(playwright, engine).launch(**options)
         for timezone in ("Asia/Shanghai", "America/New_York", "Europe/Berlin"):
             print(json.dumps(run(engine, timezone, browser)), flush=True)
