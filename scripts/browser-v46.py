@@ -8,7 +8,7 @@ import sys
 import time
 from urllib.parse import parse_qs, urlsplit
 
-from playwright.sync_api import TimeoutError as BrowserTimeout, sync_playwright
+from playwright.sync_api import TimeoutError as BrowserTimeout, expect, sync_playwright
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
@@ -174,7 +174,7 @@ def run(engine, timezone, browser):
     page.wait_for_function("document.querySelectorAll('.alert-row').length===30")
     page.get_by_role("button", name="Show all records").click()
     page.locator(".alert-row").nth(49).wait_for()
-    assert page.locator(".md-pagination").inner_text() == audit_controls
+    expect(page.locator(".md-pagination")).to_have_text(audit_controls, use_inner_text=True)
     page.get_by_role("textbox", name="Enter page number").fill("3")
     page.get_by_role("button", name="Go", exact=True).click()
     page.get_by_text("Synthetic alert 100", exact=True).wait_for()
