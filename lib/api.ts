@@ -1,4 +1,4 @@
-import type { AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { validDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -105,6 +105,11 @@ export function fetchAudits(options: { page: number; pageSize: 30 | 50; search?:
   return request<AuditPageResponse>(`/api/v2/audits?${query}`, { signal: options.signal });
 }
 
+export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: "pending" | "all"; signal?: AbortSignal }) {
+  const query = new URLSearchParams({ page: String(options.page), pageSize: String(options.pageSize), filter: options.filter });
+  return request<AlertPageResponse>(`/api/v2/alerts?${query}`, { signal: options.signal });
+}
+
 export function fetchSubscriptionUrl(id: string) {
   return request<{ url: string }>(`/api/v2/subscriptions/${encodeURIComponent(id)}/url`);
 }
@@ -115,6 +120,10 @@ export function updateTrafficLimit(settings: Pick<TrafficQuotaSettings, "bytes" 
 
 export function acknowledgeAlert(id: string) {
   return request<{ ok: boolean }>(`/api/v2/alerts/${encodeURIComponent(id)}/ack`, { method: "POST" }, true);
+}
+
+export function acknowledgeAllAlerts() {
+  return request<{ ok: boolean; count: number }>("/api/v2/alerts/ack-all", { method: "POST" }, true);
 }
 
 export function configureIntegration(id: string, enabled: boolean, values: Record<string, string>) {

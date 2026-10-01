@@ -1,4 +1,10 @@
 /* Interaction and Material consistency. */
+/* Keep the viewport scrollbar and its width through every page and overlay. */
+html { overflow-y: scroll; scrollbar-gutter: stable; }
+html.has-dialog { overscroll-behavior: none; scroll-behavior: auto !important; }
+.md-dialog__content { overflow-y: scroll; scrollbar-gutter: stable; }
+.md-select-list, .md-date-picker, .md-date-picker__year-grid, .md-anchored-popover { scrollbar-gutter: stable; }
+@media (min-width: 901px) { .drawer-scrim { display: none; } }
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--primary) 42%, var(--outline-variant)) transparent; }
 *::-webkit-scrollbar { width: 11px; height: 11px; }
 *::-webkit-scrollbar-track { background: transparent; margin: 8px; }
@@ -104,8 +110,6 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
 .settings-about__content dl > div { display: grid; grid-template-columns: minmax(80px, .7fr) minmax(0, 1.3fr); gap: 12px; padding: 12px; border-radius: 12px; background: var(--surface-container); align-items: baseline; }
 .settings-about__content dt { color: var(--on-surface-variant); font-size: 13px; }
 .settings-about__content dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 650; font-size: 13px; text-align: right; }
-.settings-dialog, .settings-dialog .md-dialog__content { scrollbar-width: none; -ms-overflow-style: none; }
-.settings-dialog::-webkit-scrollbar, .settings-dialog .md-dialog__content::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .page-customization-switch { border-top: 0; padding-top: 4px; }
 .general-settings-group .settings-disclosure { margin-top: 0; }
 .general-setting-content { padding: 2px 2px 14px; }

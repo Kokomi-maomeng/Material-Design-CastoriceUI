@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { fetchAudits } from "../../lib/api";
 import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 import type { AuditEvent } from "../../lib/types";
-import { Button } from "../ui/Button";
+import { RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
+import { formatLocalDateTime, localTimeZone } from "../../lib/format";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
@@ -14,7 +15,7 @@ const AUDIT_ACTION_EN: Record<string, string> = {
   "更新流量额度": "Updated traffic quota", "更新面板设置": "Updated panel settings",
   "更新登录背景": "Updated sign-in background", "创建初始管理员": "Created initial administrator",
   "登录失败": "Sign-in failed", "登录成功": "Signed in", "退出登录": "Signed out",
-  "完成初始化向导": "Completed initialization", "确认告警": "Acknowledged alert",
+  "完成初始化向导": "Completed initialization", "确认告警": "Acknowledged alert", "确认全部告警": "Acknowledged all alerts",
   "清理旧版接入密钥": "Removed legacy integration secret", "更新数据接入": "Updated data integration",
   "更新网络探测目标": "Updated network probe targets",
 };
@@ -35,19 +36,8 @@ function auditDetailEn(value: string) {
   return value.replace(/^(.+) 接入配置已更新$/, "$1 integration settings were updated")
     .replace(/^已保存 (\d+) 个探测目标$/, "$1 probe targets were saved")
     .replace(/^登录背景类型已设为 (.+)$/, "Sign-in background type set to $1")
-    .replace(/^告警 (.+) 已确认$/, "Alert $1 was acknowledged");
-}
-
-function pageItems(current: number, total: number): Array<number | "ellipsis-left" | "ellipsis-right"> {
-  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
-  const pages = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
-  const sorted = [...pages].filter((page) => page > 0 && page <= total).sort((a, b) => a - b);
-  const result: Array<number | "ellipsis-left" | "ellipsis-right"> = [];
-  sorted.forEach((page, index) => {
-    if (index && page - sorted[index - 1] > 1) result.push(page < current ? "ellipsis-left" : "ellipsis-right");
-    result.push(page);
-  });
-  return result;
+    .replace(/^告警 (.+) 已确认$/, "Alert $1 was acknowledged")
+    .replace(/^已确认 (\d+) 条告警$/, "$1 alerts were acknowledged");
 }
 
 export function AuditPage() {
@@ -56,14 +46,12 @@ export function AuditPage() {
   const [category, setCategory] = useState<"全部" | AuditEvent["category"]>("全部");
   const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(1);
-  const [jump, setJump] = useState("");
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const currentPage = expanded ? Math.min(page, totalPages) : 1;
-  const go = (next: number) => setPage(Math.min(totalPages, Math.max(1, next)));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,8 +69,8 @@ export function AuditPage() {
         setTotal(result.total);
         setTotalPages(result.totalPages);
         if (expanded && result.page !== page) setPage(result.page);
-      }).catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
+      }).catch(() => {
+        if (!controller.signal.aborted) {
           setEvents([]);
           setTotal(0);
           setTotalPages(1);
@@ -99,26 +87,18 @@ export function AuditPage() {
   }, [category, expanded, page, search]);
 
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} />
+    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} description={t(`时间按本地时区 ${localTimeZone()} 显示。`, `Times are shown in your local time zone: ${localTimeZone()}.`)} />
     <Card variant="outlined" className="table-panel">
       <div className="table-toolbar table-toolbar--wrap">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={t("搜索操作、账号或 IP", "Search action, account, or IP")} aria-label={t("搜索审计记录", "Search audit records")} /></label>
         <div className="filter-chips">{(["全部", "认证", "账号", "配置", "系统"] as const).map((item) => <Chip key={item} selected={category === item} onClick={() => { setCategory(item); setPage(1); }}>{item === "全部" ? t("全部", "All") : item === "认证" ? t("认证", "Authentication") : item === "账号" ? t("账号", "Account") : item === "配置" ? t("配置", "Configuration") : t("系统", "System")}</Chip>)}</div>
       </div>
       <div className="responsive-table audit-table"><table><thead><tr><th>{t("时间", "Time")}</th><th>{t("操作", "Action")}</th><th>{t("类别", "Category")}</th><th>{t("操作者", "Actor")}</th><th>{t("来源 IP", "Source IP")}</th><th>{t("结果", "Result")}</th><th>{t("详情", "Details")}</th></tr></thead><tbody>
-        {events.map((event) => <tr key={event.id}><td data-label={t("时间", "Time")}><span className="mono-time">{event.time}</span></td><td data-label={t("操作", "Action")}><strong>{language === "zh" ? event.action : AUDIT_ACTION_EN[event.action] || event.action}</strong></td><td data-label={t("类别", "Category")}><Chip staticChip>{event.category === "认证" ? t("认证", "Authentication") : event.category === "账号" ? t("账号", "Account") : event.category === "配置" ? t("配置", "Configuration") : t("系统", "System")}</Chip></td><td data-label={t("操作者", "Actor")}><span className="actor"><Icon name={event.actor === "system" ? "smart_toy" : "person"} size={18} />{event.actor}</span></td><td data-label={t("来源 IP", "Source IP")}><code>{event.ip}</code></td><td data-label={t("结果", "Result")}><Chip staticChip tone={event.result === "成功" ? "success" : "danger"} icon={event.result === "成功" ? "check" : "close"}>{event.result === "成功" ? t("成功", "Success") : t("失败", "Failed")}</Chip></td><td data-label={t("详情", "Details")}><span className="muted">{withoutTerminalPeriod(language === "zh" ? event.detail : auditDetailEn(event.detail))}</span></td></tr>)}
+        {events.map((event) => <tr key={event.id}><td data-label={t("时间", "Time")}><time className="mono-time" dateTime={event.time}>{formatLocalDateTime(event.time, language)}</time></td><td data-label={t("操作", "Action")}><strong>{language === "zh" ? event.action : AUDIT_ACTION_EN[event.action] || event.action}</strong></td><td data-label={t("类别", "Category")}><Chip staticChip>{event.category === "认证" ? t("认证", "Authentication") : event.category === "账号" ? t("账号", "Account") : event.category === "配置" ? t("配置", "Configuration") : t("系统", "System")}</Chip></td><td data-label={t("操作者", "Actor")}><span className="actor"><Icon name={event.actor === "system" ? "smart_toy" : "person"} size={18} />{event.actor}</span></td><td data-label={t("来源 IP", "Source IP")}><code>{event.ip}</code></td><td data-label={t("结果", "Result")}><Chip staticChip tone={event.result === "成功" ? "success" : "danger"} icon={event.result === "成功" ? "check" : "close"}>{event.result === "成功" ? t("成功", "Success") : t("失败", "Failed")}</Chip></td><td data-label={t("详情", "Details")}><span className="muted">{withoutTerminalPeriod(language === "zh" ? event.detail : auditDetailEn(event.detail))}</span></td></tr>)}
         {!loading && events.length === 0 ? <tr><td colSpan={7}><span className="muted">{loadError ? t("审计记录加载失败，请稍后重试。", "Unable to load audit records. Try again later.") : t("没有符合条件的审计记录。", "No audit records match these filters.")}</span></td></tr> : null}
       </tbody></table></div>
-      <div className="audit-controls">
-        <div><strong>{loading ? t("正在读取审计记录", "Loading audit records") : expanded ? t(`第 ${currentPage}/${totalPages} 页`, `Page ${currentPage} of ${totalPages}`) : t(`默认显示最近 ${Math.min(30, total)} 条`, `Showing the latest ${Math.min(30, total)} by default`)}</strong><span>{t(`总计 ${total} 条`, `${total} total records`)}</span></div>
-        {!expanded ? <Button variant="outlined" icon="unfold_more" onClick={() => { setExpanded(true); setPage(1); }}>{t("展开全部日志", "Show all logs")}</Button> : <Button variant="text" icon="unfold_less" onClick={() => { setExpanded(false); setPage(1); }}>{t("收起到最近 30 条", "Collapse to latest 30")}</Button>}
-      </div>
-      {expanded && totalPages > 1 ? <nav className="md-pagination" aria-label={t("审计日志分页", "Audit log pagination")}>
-        <button onClick={() => go(currentPage - 1)} disabled={currentPage === 1} aria-label={t("上一页", "Previous page")}><Icon name="chevron_left" size={18} /></button>
-        {pageItems(currentPage, totalPages).map((item) => typeof item === "number" ? <button key={item} className={currentPage === item ? "is-current" : ""} aria-current={currentPage === item ? "page" : undefined} onClick={() => go(item)}>{item}</button> : <span key={item}>…</span>)}
-        <button onClick={() => go(currentPage + 1)} disabled={currentPage === totalPages} aria-label={t("下一页", "Next page")}><Icon name="chevron_right" size={18} /></button>
-        <form onSubmit={(event) => { event.preventDefault(); go(Number(jump)); setJump(""); }}><label><span>{t("跳至", "Go to")}</span><input inputMode="numeric" pattern="[0-9]*" value={jump} onChange={(event) => setJump(event.target.value.replace(/\D/g, ""))} aria-label={t("输入页码", "Enter page number")} /><span>/ {totalPages}</span></label><Button type="submit" compact disabled={!jump}>{t("跳转", "Go")}</Button></form>
-      </nav> : null}
+      <RecordHistoryControls kind="audit" expanded={expanded} loading={loading} total={total} page={currentPage} totalPages={totalPages} onExpandedChange={(value) => { setExpanded(value); setPage(1); }} />
+      {expanded ? <RecordPagination page={currentPage} totalPages={totalPages} onPageChange={setPage} label={t("审计日志分页", "Audit log pagination")} /> : null}
     </Card>
   </div>;
 }

@@ -48,6 +48,19 @@ export function formatDate(value: string): string {
   ).format(date);
 }
 
+export function formatLocalDateTime(value: string, language: "zh" | "en"): string {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).format(date);
+}
+
+export function localTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 export function percent(value: number, total: number): number {
   if (total <= 0) return 0;
   return Math.min(100, Math.max(0, (value / total) * 100));

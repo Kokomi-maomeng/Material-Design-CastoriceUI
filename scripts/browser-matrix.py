@@ -174,6 +174,8 @@ with sync_playwright() as playwright:
             data = {"ok": True, **payload}
         elif request_path == "settings/background-options":
             data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover", "position": "center"}, "configured": {"type": "default", "value": ""}}
+        elif request_path == "alerts":
+            data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1, "summary": {"pending": 0, "critical": 0, "warning": 0, "info": 0}}
         elif request_path == "audits":
             data = {
                 "items": [{

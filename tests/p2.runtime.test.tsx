@@ -8,6 +8,7 @@ import { AccountsPage } from "../components/pages/AccountsPage";
 import { AlertsPage } from "../components/pages/AlertsPage";
 import { TrafficChart } from "../components/charts/TrafficChart";
 import { fetchDashboard } from "../lib/api";
+import * as api from "../lib/api";
 import type { Account, AlertItem, Connection, TrafficPoint } from "../lib/types";
 
 const renderEnglish = (node: ReactNode) => {
@@ -118,18 +119,21 @@ describe("P2 truthfulness and interaction regressions", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
-  it("renders durable alert event timestamps instead of payload-relative words", () => {
+  it("renders durable alert event timestamps instead of payload-relative words", async () => {
     const alert: AlertItem = {
       id: "service-nginx", episodeId: "episode", severity: "critical", title: "Nginx is offline",
       description: "offline", time: "now", acknowledged: true, status: "resolved",
       startedAt: "2026-01-01T01:02:03+00:00", resolvedAt: "2026-01-01T01:03:03+00:00",
       acknowledgedAt: "2026-01-01T01:02:33+00:00", source: "Service monitor",
     };
-    renderEnglish(<AlertsPage alerts={[alert]} onAcknowledge={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    vi.spyOn(api, "fetchAlerts").mockResolvedValue({ items: [alert], total: 1, page: 1, pageSize: 30, totalPages: 1, summary: { pending: 0, critical: 0, warning: 0, info: 0 } });
+    renderEnglish(<AlertsPage alerts={[alert]} onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     fireEvent.click(screen.getByText("All records"));
-    expect(screen.getByText(/Started.*2026/)).toBeTruthy();
-    expect(screen.getByText(/Recovered.*2026/)).toBeTruthy();
-    expect(screen.getByText(/Acknowledged.*2026/)).toBeTruthy();
+    await screen.findByText("Nginx is offline");
+    const timestamps = [...document.querySelectorAll(".alert-row__content > span")].map((element) => element.textContent);
+    expect(timestamps.some((text) => /Started.*2026/.test(text || ""))).toBe(true);
+    expect(timestamps.some((text) => /Recovered.*2026/.test(text || ""))).toBe(true);
+    expect(timestamps.some((text) => /Acknowledged.*2026/.test(text || ""))).toBe(true);
     expect(screen.queryByText("now")).toBeNull();
   });
 

@@ -1,17 +1,26 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button";
 import { useI18n } from "../../lib/i18n";
 import { usePresence } from "./usePresence";
 
 const dialogStack: HTMLDivElement[] = [];
-let bodyOverflow = "";
+let rootWasInert = false;
+let scrollPosition = { left: 0, top: 0 };
+const restoreBackgroundScroll = () => {
+  if (window.scrollX !== scrollPosition.left || window.scrollY !== scrollPosition.top) window.scrollTo(scrollPosition.left, scrollPosition.top);
+};
+const blockBackgroundScroll = (event: Event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest(".md-dialog__content, .md-select-menu, .md-date-picker, .md-anchored-popover")) event.preventDefault();
+};
 const focusableSelector = 'a[href], summary, button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const syncDialogStack = () => {
   dialogStack.forEach((dialog, index) => {
     const covered = index !== dialogStack.length - 1;
     dialog.inert = covered;
     dialog.setAttribute("aria-modal", String(!covered));
+    dialog.setAttribute("aria-hidden", String(covered));
     const layer = dialog.parentElement;
     if (layer) {
       layer.inert = covered;
@@ -56,19 +65,28 @@ export function Dialog({
     openRef.current = open;
   }, [open]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!present || !dialog) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (dialogStack.length === 0) bodyOverflow = document.body.style.overflow;
+    if (dialogStack.length === 0) {
+      scrollPosition = { left: window.scrollX, top: window.scrollY };
+      window.addEventListener("scroll", restoreBackgroundScroll);
+      const root = document.getElementById("root");
+      rootWasInert = root?.inert ?? false;
+      if (root) root.inert = true;
+      document.documentElement.classList.add("has-dialog");
+      document.addEventListener("wheel", blockBackgroundScroll, { passive: false });
+      document.addEventListener("touchmove", blockBackgroundScroll, { passive: false });
+    }
     dialogStack.push(dialog);
     syncDialogStack();
-    document.body.style.overflow = "hidden";
     const focusableElements = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter((element) => {
       const details = element.closest("details:not([open])");
       return !element.closest("[hidden], [inert]") && (!details || details.querySelector("summary")?.contains(element));
     });
-    (focusableElements()[0] ?? dialog).focus();
+    (focusableElements()[0] ?? dialog).focus({ preventScroll: true });
+    restoreBackgroundScroll();
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!openRef.current || dialogStack[dialogStack.length - 1] !== dialog || event.defaultPrevented) return;
       if (event.key === "Escape") {
@@ -99,8 +117,16 @@ export function Dialog({
       const index = dialogStack.indexOf(dialog);
       if (index !== -1) dialogStack.splice(index, 1);
       syncDialogStack();
-      if (dialogStack.length === 0) document.body.style.overflow = bodyOverflow;
-      if (wasTop && previouslyFocused?.isConnected && !previouslyFocused.closest("[inert]")) previouslyFocused.focus();
+      if (dialogStack.length === 0) {
+        restoreBackgroundScroll();
+        const root = document.getElementById("root");
+        if (root) root.inert = rootWasInert;
+        document.documentElement.classList.remove("has-dialog");
+        document.removeEventListener("wheel", blockBackgroundScroll);
+        document.removeEventListener("touchmove", blockBackgroundScroll);
+        window.removeEventListener("scroll", restoreBackgroundScroll);
+      }
+      if (wasTop && previouslyFocused?.isConnected && !previouslyFocused.closest("[inert]")) previouslyFocused.focus({ preventScroll: true });
     };
   }, [present]);
 

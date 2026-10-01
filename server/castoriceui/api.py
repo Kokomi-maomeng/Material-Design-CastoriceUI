@@ -271,6 +271,17 @@ class ApiHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 print(f"Dashboard snapshot failed: {type(error).__name__}")
                 self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "dashboard_unavailable"})
+        elif path == "/api/v2/alerts":
+            try:
+                query = parse_qs(parsed_request.query, keep_blank_values=True)
+                page = int(query.get("page", ["1"])[0])
+                page_size = int(query.get("pageSize", ["30"])[0])
+                alert_filter = query.get("filter", ["all"])[0]
+                if page < 1 or page > 100_000 or page_size not in {30, 50} or alert_filter not in {"pending", "all"}:
+                    raise ValueError("Invalid alert pagination or filter")
+                self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending"))
+            except (TypeError, ValueError) as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
         elif path == "/api/v2/audits":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)
@@ -468,10 +479,15 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.app.storage.add_audit("完成初始化向导", "配置", "必要的面板设置已确认", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
+        if path == "/api/v2/alerts/ack-all":
+            count = self.app.storage.acknowledge_all()
+            self.app.storage.add_audit("确认全部告警", "系统", f"已确认 {count} 条告警", self.source_ip(), actor=str(session["username"]))
+            self.send_json(HTTPStatus.OK, {"ok": True, "count": count})
+            return
         if (path.startswith("/api/v1/alerts/") or path.startswith("/api/v2/alerts/")) and path.endswith("/ack"):
             alert_id = path.split("/")[-2]
             if not self.app.storage.acknowledge(alert_id):
-                self.send_json(HTTPStatus.NOT_FOUND, {"error": "active_alert_not_found"})
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "alert_not_found"})
                 return
             self.app.storage.add_audit("确认告警", "系统", f"告警 {alert_id} 已确认", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True})
