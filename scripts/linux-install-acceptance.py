@@ -159,6 +159,8 @@ def main() -> None:
                 run("systemctl", "stop", "castoriceui-backend")
                 original_backup(transaction.parent / "state.db", Path("/var/lib/castoriceui/state.db"))
                 run("systemctl", "start", "castoriceui-backend")
+                from castoriceui.config import AppConfig
+                original_health(AppConfig.load(config_path), version)
             assert all(path.resolve() == target for path, target in previous.items()), failure
             assert call("GET", "/api/v2/health")[1]["version"] == version, failure
             assert run("systemctl", "is-enabled", "castoriceui-backend").stdout.strip() == "enabled", failure

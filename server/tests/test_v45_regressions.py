@@ -149,6 +149,11 @@ class AuditRegressions(unittest.TestCase):
     def test_invalid_json_types_return_400_without_persisting(self) -> None:
         self.start_api()
         self.initialize()
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        connection.request("POST", "/api/v2/auth/login", headers={"Content-Length": "-1"})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 400)
+        response.read(); connection.close()
         original = self.dashboard.traffic_quota_state()
         for field in ("bytes", "periodCount", "autoReset"):
             for bad in (None, [], {}, True if field != "autoReset" else "false", 1.5):

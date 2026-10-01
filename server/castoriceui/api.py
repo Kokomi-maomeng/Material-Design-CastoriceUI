@@ -114,7 +114,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError as error:
             raise ValueError("Invalid Content-Length") from error
-        if length <= 0:
+        if length < 0:
+            raise ValueError("Invalid Content-Length")
+        if length == 0:
             return {}
         if length > 65_536:
             raise ValueError("Request body exceeds 64 KiB")
