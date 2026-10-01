@@ -382,7 +382,7 @@ class P2RegressionTests(unittest.TestCase):
         finally:
             Path(certificate_path).unlink(missing_ok=True)
 
-    def test_f16_alert_history_exposes_event_times_and_prunes_only_old_resolved_rows(self) -> None:
+    def test_f16_alert_history_exposes_event_times_and_retains_old_resolved_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             storage = Storage(str(Path(directory) / "state.db"), audit_retention_days=7)
             storage.reconcile_alerts([{"id": "service-nginx", "title": "down"}])
@@ -404,7 +404,7 @@ class P2RegressionTests(unittest.TestCase):
                 )
             storage.reconcile_alerts([])
             episodes = {item["episodeId"] for item in storage.alert_history()}
-            self.assertNotIn("old-resolved", episodes)
+            self.assertIn("old-resolved", episodes)
             self.assertIn("old-active", episodes)
 
     def test_f17_probe_forces_c_locale_and_classifies_local_probe_failures(self) -> None:

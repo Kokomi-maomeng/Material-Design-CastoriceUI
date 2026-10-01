@@ -1142,7 +1142,7 @@ class DashboardService:
     def refresh_collection_alerts(self) -> None:
         """A blocked sampler cannot keep its status healthy."""
         with self.lock:
-            active = [item for item in self.storage.alert_history() if item.get("status") == "active" and not str(item["id"]).startswith("collector-")]
+            active = [item for item in self.storage.active_alerts() if not str(item["id"]).startswith("collector-")]
             active.extend(self.collection_alerts())
             self.storage.reconcile_alerts(active)
             self.runtime_cache["alerts"] = self.storage.alert_history()
@@ -1302,6 +1302,7 @@ class DashboardService:
             "networkTargets": network,
             "services": services,
             "alerts": runtime["alerts"],
+            "alertSummary": self.storage.alert_summary(),
             "integrations": integrations,
             "runtimeObservedAt": runtime["observedAt"],
             "uiSettings": {

@@ -294,7 +294,8 @@ test("v3.1 detail interactions avoid native or stale UI artifacts", async () => 
   assert.match(app, /snapshot-date/);
   assert.match(audit, /fetchAudits/);
   assert.match(audit, /pageSize: expanded \? 50 : 30/);
-  assert.match(audit, /pageItems/);
+  assert.match(audit, /RecordPagination/);
+  assert.match(await read("components/ui/RecordHistory.tsx"), /pageItems/);
   assert.match(traffic, /chart-inspector/);
   assert.doesNotMatch(`${traffic}\n${donut}`, /<title>/);
   assert.doesNotMatch(login, /凭据只发送到当前面板后端|Use your panel account to access live server data/);
@@ -306,7 +307,7 @@ test("v3.1 scopes alert acknowledgement and audit history on the server", async 
     read("server/castoriceui/storage.py"), read("package.json"), read("scripts/package-release.mjs"),
   ]);
   assert.match(app, /await acknowledgeAlert\(id\)/);
-  assert.match(app, /Unable to acknowledge the alert/);
+  assert.match(await read("components/pages/AlertsPage.tsx"), /Unable to acknowledge the alert/);
   assert.match(client, /\/api\/v2\/audits\?/);
   assert.doesNotMatch(dashboard, /"auditEvents"/);
   assert.match(storage, /def reconcile_alerts/);

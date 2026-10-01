@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -121,6 +121,8 @@ class Storage:
                 );
                 CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
                 CREATE INDEX IF NOT EXISTS audits_category_id ON audits(category, id DESC);
+                CREATE INDEX IF NOT EXISTS alerts_started_episode ON alert_history(started_at DESC, episode_id DESC);
+                CREATE INDEX IF NOT EXISTS alerts_pending ON alert_history(acknowledged_at, started_at DESC, episode_id DESC);
                 CREATE INDEX IF NOT EXISTS login_failures_source_time ON login_failures(source_ip, failed_at);
                 CREATE INDEX IF NOT EXISTS traffic_deltas_previous_at ON traffic_deltas(previous_at);
                 """
@@ -516,8 +518,8 @@ class Storage:
                    (SELECT episode_id FROM alert_state WHERE active=0)""",
                 (now,),
             )
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.audit_retention_days)).isoformat(timespec="seconds")
-            connection.execute("DELETE FROM alert_history WHERE resolved_at IS NOT NULL AND resolved_at < ?", (cutoff,))
+            # Recovery and acknowledgement are separate events. Keep every
+            # episode, including recovered episodes awaiting manual review.
             for alert_id in current_ids:
                 row = connection.execute(
                     "SELECT active FROM alert_state WHERE alert_id=?", (alert_id,)
@@ -576,34 +578,77 @@ class Storage:
     def acknowledge(self, alert_id: str) -> bool:
         acknowledged_at = utc_now()
         with self.lock, self.connect() as connection:
-            cursor = connection.execute(
-                "UPDATE alert_state SET acknowledged_at=? WHERE alert_id=? AND active=1",
-                (acknowledged_at, alert_id),
-            )
-            if cursor.rowcount == 1:
-                connection.execute(
-                    "UPDATE alert_history SET acknowledged_at=? WHERE episode_id=(SELECT episode_id FROM alert_state WHERE alert_id=?)",
-                    (acknowledged_at, alert_id),
-                )
-        return cursor.rowcount == 1
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT episode_id FROM alert_history WHERE episode_id=?", (alert_id,)).fetchone()
+            if row is None:
+                # Preserve the legacy API for the current active condition.
+                row = connection.execute("SELECT episode_id FROM alert_state WHERE alert_id=? AND active=1", (alert_id,)).fetchone()
+            if row is None:
+                return False
+            episode_id = str(row["episode_id"])
+            connection.execute("UPDATE alert_history SET acknowledged_at=COALESCE(acknowledged_at, ?) WHERE episode_id=?", (acknowledged_at, episode_id))
+            connection.execute("UPDATE alert_state SET acknowledged_at=COALESCE(acknowledged_at, ?) WHERE episode_id=?", (acknowledged_at, episode_id))
+        return True
+
+    @staticmethod
+    def alert_payload(row: sqlite3.Row) -> dict[str, Any]:
+        payload = json.loads(str(row["payload_json"]))
+        payload.update({
+            "alertId": str(row["alert_id"]), "episodeId": str(row["episode_id"]),
+            "startedAt": str(row["started_at"]), "resolvedAt": row["resolved_at"],
+            "acknowledged": row["acknowledged_at"] is not None,
+            "acknowledgedAt": row["acknowledged_at"],
+            "status": "resolved" if row["resolved_at"] else "active",
+        })
+        return payload
+
+    @staticmethod
+    def pending_summary(connection: sqlite3.Connection) -> dict[str, int]:
+        summary = {"pending": 0, "critical": 0, "warning": 0, "info": 0}
+        rows = connection.execute("SELECT json_extract(payload_json, '$.severity') AS severity, COUNT(*) AS count FROM alert_history WHERE acknowledged_at IS NULL GROUP BY severity").fetchall()
+        for row in rows:
+            summary["pending"] += int(row["count"])
+            if row["severity"] in summary and row["severity"] != "pending":
+                summary[row["severity"]] = int(row["count"])
+        return summary
+
+    def acknowledge_all(self) -> int:
+        now = utc_now()
+        with self.lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute("UPDATE alert_history SET acknowledged_at=? WHERE acknowledged_at IS NULL", (now,))
+            connection.execute("UPDATE alert_state SET acknowledged_at=? WHERE acknowledged_at IS NULL", (now,))
+        return cursor.rowcount
+
+    def alert_summary(self) -> dict[str, int]:
+        with self.connect() as connection:
+            return self.pending_summary(connection)
+
+    def alert_page(self, page: int = 1, page_size: int = 30, pending: bool = False) -> dict[str, Any]:
+        page_size = max(1, min(int(page_size), 100))
+        where = " WHERE acknowledged_at IS NULL" if pending else ""
+        with self.connect() as connection:
+            # Count and rows must describe the same snapshot while monitoring
+            # or a different browser is adding/acknowledging episodes.
+            connection.execute("BEGIN")
+            total = int(connection.execute(f"SELECT COUNT(*) FROM alert_history{where}").fetchone()[0])
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            page = min(max(1, int(page)), total_pages)
+            rows = connection.execute(f"SELECT * FROM alert_history{where} ORDER BY started_at DESC, episode_id DESC LIMIT ? OFFSET ?", (page_size, (page - 1) * page_size)).fetchall()
+            summary = self.pending_summary(connection)
+        return {"items": [self.alert_payload(row) for row in rows], "total": total, "page": page, "pageSize": page_size, "totalPages": total_pages, "summary": summary}
+
+    def active_alerts(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM alert_history WHERE resolved_at IS NULL ORDER BY started_at DESC, episode_id DESC").fetchall()
+        return [self.alert_payload(row) for row in rows]
 
     def alert_history(self, limit: int = 200) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM alert_history ORDER BY started_at DESC LIMIT ?", (max(1, min(int(limit), 1000)),)
+                "SELECT * FROM alert_history ORDER BY started_at DESC, episode_id DESC LIMIT ?", (max(1, min(int(limit), 1000)),)
             ).fetchall()
-        result = []
-        for row in rows:
-            payload = json.loads(str(row["payload_json"]))
-            payload.update({
-                "alertId": str(row["alert_id"]), "episodeId": str(row["episode_id"]),
-                "startedAt": str(row["started_at"]), "resolvedAt": row["resolved_at"],
-                "acknowledged": row["acknowledged_at"] is not None,
-                "acknowledgedAt": row["acknowledged_at"],
-                "status": "resolved" if row["resolved_at"] else "active",
-            })
-            result.append(payload)
-        return result
+        return [self.alert_payload(row) for row in rows]
 
     def has_users(self) -> bool:
         with self.connect() as connection:

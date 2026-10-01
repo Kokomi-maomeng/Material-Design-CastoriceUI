@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   acknowledgeAlert,
+  acknowledgeAllAlerts,
   ApiError,
   completeInitialization,
   configureIntegration,
@@ -332,9 +333,7 @@ export function CastoriceApp() {
     [t],
   );
   const pageTitle = labelFor(page);
-  const unacknowledgedAlerts = alerts.filter(
-    (item) => item.status !== "resolved" && !item.acknowledged,
-  ).length;
+  const unacknowledgedAlerts = dashboard.alertSummary?.pending ?? alerts.filter((item) => !item.acknowledged).length;
   const navigate = useCallback((id: PageId) => {
     setPage(id);
     setDrawerOpen(false);
@@ -580,18 +579,20 @@ export function CastoriceApp() {
             integration={integrationFor("alerts")}
             onConfigure={() => configurePage("alerts")}
             onAcknowledge={async (id) => {
-              try {
-                await acknowledgeAlert(id);
-                setAlerts((current) =>
-                  current.map((item) =>
-                    item.id === id ? { ...item, acknowledged: true } : item,
-                  ),
-                );
-                showToast(t("告警已确认", "Alert acknowledged"));
-              } catch {
-                showToast(t("告警确认失败，请重试", "Unable to acknowledge the alert. Try again."));
-              }
+              await acknowledgeAlert(id);
+              setAlerts((current) =>
+                current.map((item) =>
+                  item.episodeId === id ? { ...item, acknowledged: true } : item,
+                ),
+              );
+              showToast(t("告警已确认", "Alert acknowledged"));
             }}
+            onAcknowledgeAll={async () => {
+              await acknowledgeAllAlerts();
+              setAlerts((current) => current.map((item) => ({ ...item, acknowledged: true })));
+              showToast(t("全部告警已确认", "All alerts acknowledged"));
+            }}
+            onSummaryChange={(summary) => setDashboard((current) => ({ ...current, alertSummary: summary }))}
             onToast={showToast}
           />
         );

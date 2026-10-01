@@ -49,7 +49,7 @@ npm run dev
 
 首次初始化向导可完成节点、额度、探测目标和已运行协议的接入验证。代理核心、API Secret、管理账号和订阅记录需要先在服务器受保护配置中准备；向导不会自动创建它们。CPU、内存和流量历史图只显示部署后实际积累的采样。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v4.5.0.md`](docs/RELEASE_NOTES_v4.5.0.md)，逐项修复与交叉验证见 [`docs/V4.4_FIX_SUMMARY.md`](docs/V4.4_FIX_SUMMARY.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v4.6.0.md`](docs/RELEASE_NOTES_v4.6.0.md)，逐项修复与交叉验证见 [`docs/V4.6_FIX_SUMMARY.md`](docs/V4.6_FIX_SUMMARY.md)。
 
 浏览器最低版本与发布验证边界见 [`docs/BROWSER_SUPPORT.md`](docs/BROWSER_SUPPORT.md)。
 

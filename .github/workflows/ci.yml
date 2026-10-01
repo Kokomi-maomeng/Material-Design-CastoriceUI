@@ -93,6 +93,7 @@ jobs:
             sleep 1
           done
           python3 scripts/browser-matrix.py '${{ matrix.engine }}'
+          python3 scripts/browser-v46.py '${{ matrix.engine }}'
           python3 scripts/browser-first-run.py '${{ matrix.engine }}'
 
   linux-install:

@@ -216,6 +216,7 @@ export interface DashboardPayload {
   networkTargets: NetworkTarget[];
   services: ServiceStatus[];
   alerts: AlertItem[];
+  alertSummary?: AlertSummary;
   integrations: IntegrationStatus[];
   uiSettings: UiSettings;
 }
@@ -293,6 +294,22 @@ export interface AuditPageResponse {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+export interface AlertSummary {
+  pending: number;
+  critical: number;
+  warning: number;
+  info: number;
+}
+
+export interface AlertPageResponse {
+  items: AlertItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  summary: AlertSummary;
 }
 
 export interface Subscription {

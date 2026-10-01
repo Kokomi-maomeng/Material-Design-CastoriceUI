@@ -182,15 +182,17 @@ describe("v4.0 service health and dialog layers", () => {
     fireEvent.click(trigger);
     const parent = screen.getByRole("dialog", { name: "Settings" });
     await waitFor(() => expect(parent.inert).toBe(true));
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.classList.contains("has-dialog")).toBe(true);
+    expect(document.body.style.overflow).toBe("");
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Quota" })).toBeNull();
     await waitFor(() => expect(parent.inert).toBe(false));
     expect(document.activeElement).toBe(trigger);
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.classList.contains("has-dialog")).toBe(true);
+    expect(document.body.style.overflow).toBe("");
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    await waitFor(() => expect(document.body.style.overflow).toBe(""));
+    await waitFor(() => expect(document.documentElement.classList.contains("has-dialog")).toBe(false));
   });
 });
 
