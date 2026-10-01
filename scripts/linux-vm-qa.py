@@ -13,7 +13,13 @@ from pathlib import Path
 
 
 def run(*args: str, check: bool = True, timeout: int = 600) -> subprocess.CompletedProcess:
-    return subprocess.run(args, check=check, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout)
+    if check and result.returncode:
+        # This VM contains synthetic identities only; preserve the actual failed step.
+        print(result.stdout[-8000:], flush=True)
+        print(result.stderr[-8000:], flush=True)
+        raise subprocess.CalledProcessError(result.returncode, args)
+    return result
 
 
 def main() -> None:
