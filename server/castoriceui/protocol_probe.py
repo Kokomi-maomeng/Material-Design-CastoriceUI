@@ -6,6 +6,7 @@ process's configuration and owned listening sockets without restarting it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -107,8 +108,9 @@ def inbound_records(configs: list[dict[str, Any]], listeners: set[tuple[str, int
 
 
 def collect(unit: str = "sing-box") -> dict[str, Any]:
-    result: dict[str, Any] = {"schema": 1, "sampledAt": time.time(), "pid": 0, "available": False, "reason": "core_unavailable", "inbounds": []}
+    result: dict[str, Any] = {"schema": 2, "sampledAt": time.time(), "sampleStartedAt": time.time(), "pid": 0, "available": False, "reason": "core_unavailable", "inbounds": []}
     try:
+        result["bootId"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
         output = subprocess.run(["systemctl", "show", unit, "-p", "MainPID", "-p", "ActiveState"], capture_output=True, text=True, timeout=3, check=True).stdout
         properties = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
         pid = int(properties.get("MainPID", "0"))
@@ -121,6 +123,7 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
             return result
         started_ticks = int((process / "stat").read_text().rsplit(")", 1)[1].split()[19])
         result["startedTicks"] = started_ticks
+        digest = hashlib.sha256()
         boot_time = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime "))
         started_at = boot_time + started_ticks / os.sysconf("SC_CLK_TCK")
         paths = config_paths(arguments, Path(os.readlink(process / "cwd")))
@@ -137,18 +140,28 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
             if not isinstance(data, dict):
                 raise ValueError("unreadable_config")
             configs.append(data)
+            digest.update(path.read_bytes())
+        result["configGeneration"] = digest.hexdigest()
         controllers = [(item.get("experimental") or {}).get("clash_api", {}).get("external_controller", "") for item in configs]
         controller = next((value for value in reversed(controllers) if value), "")
         result["apiPort"] = int(controller.rsplit(":", 1)[1]) if controller else 0
         result["inbounds"] = inbound_records(configs, owned_listeners(process))
         # A restart during collection invalidates this sample.
         if int((process / "stat").read_text().rsplit(")", 1)[1].split()[19]) != started_ticks:
+            result["reason"] = "core_generation_changed"
+            return result
+        current = subprocess.run(["systemctl", "show", unit, "-p", "MainPID", "--value"], capture_output=True, text=True, timeout=3, check=True).stdout.strip()
+        if current != str(pid):
+            result["reason"] = "core_generation_changed"
             return result
         result.update(available=True, reason="verified")
     except ValueError as error:
         result["reason"] = str(error) if str(error) == "config_not_loaded" else "unreadable_config"
     except (OSError, TypeError, KeyError, IndexError, AttributeError, StopIteration, subprocess.SubprocessError):
         result["reason"] = "probe_unavailable"
+    finally:
+        result["sampleEndedAt"] = time.time()
+        result["sampledAt"] = result["sampleEndedAt"]
     return result
 
 
@@ -157,6 +170,12 @@ def main() -> None:
     parser.add_argument("--unit", default=os.environ.get("SING_BOX_UNIT", "sing-box"))
     parser.add_argument("--output", default=os.environ.get("CASTORICEUI_PROTOCOL_STATUS", "/run/castoriceui/protocol-status.json"))
     args = parser.parse_args()
+    import fcntl
+    lock = open("/run/castoriceui/protocol-probe.lock", "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return
     output = Path(args.output)
     output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".protocol-", dir=output.parent)
@@ -165,6 +184,7 @@ def main() -> None:
             json.dump(collect(args.unit), handle)
             handle.flush()
             os.fchmod(handle.fileno(), 0o644)
+            os.fsync(handle.fileno())
         os.replace(temporary, output)
     finally:
         if Path(temporary).exists():

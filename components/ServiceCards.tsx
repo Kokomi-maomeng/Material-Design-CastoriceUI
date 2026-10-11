@@ -29,10 +29,11 @@ export function ServiceCards({ services, metrics, compact = false }: {
   </Card>;
   const cards = services.map((service) => {
     const healthy = service.status === "running";
-    return <Card variant="outlined" className={`service-card ${healthy ? "" : "service-card--abnormal"} ${compact ? "service-card--compact" : ""}`} key={service.id}>
+    const unknown = service.status === "warning" && ["inventory_missing", "inventory_stale", "core_generation_changed", "probe_unavailable", "collector_stale", "statistics_unavailable", "external_observer_unavailable"].includes(service.stateReason ?? "");
+    return <Card variant="outlined" className={`service-card ${healthy ? "" : service.status === "warning" ? "service-card--warning" : "service-card--abnormal"} ${compact ? "service-card--compact" : ""}`} key={service.id}>
       <div className="service-card__top">
-        <span className={`service-icon service-icon--${healthy ? "running" : "stopped"}`}><Icon name={service.icon} size={25} /></span>
-        <span className={`service-state ${healthy ? "is-healthy" : "is-error"}`}>{healthy ? t("运行中", "Running") : t("异常", "Abnormal")}</span>
+        <span className={`service-icon service-icon--${healthy ? "running" : service.status === "warning" ? "warning" : "stopped"}`}><Icon name={service.icon} size={25} /></span>
+        <span className={`service-state ${healthy ? "is-healthy" : service.status === "warning" ? "is-warning" : "is-error"}`}>{healthy ? t("运行中", "Running") : service.status === "stopped" ? t("已离线", "Offline") : unknown ? t("待核实", "Unconfirmed") : t("需关注", "Needs attention")}</span>
       </div>
       <div className="service-card__body">
         <h3>{language === "zh" ? service.nameZh || service.name : service.nameEn || service.name}</h3>

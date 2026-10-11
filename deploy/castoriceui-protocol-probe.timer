@@ -3,8 +3,8 @@ Description=Refresh CastoriceUI protocol inventory
 
 [Timer]
 OnBootSec=10s
-OnUnitActiveSec=30s
-AccuracySec=2s
+OnUnitActiveSec=10s
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target

@@ -12,6 +12,7 @@ import ssl
 import statistics
 import subprocess
 import time
+import threading
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -23,6 +24,32 @@ from typing import Any
 from .config import AppConfig
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period
+
+
+_metadata_cache: dict[tuple[Any, ...], tuple[float, Any]] = {}
+_metadata_lock = threading.Lock()
+
+
+def cached_metadata(key: tuple[Any, ...], ttl: float, function: Any) -> Any:
+    now = time.monotonic()
+    with _metadata_lock:
+        entry = _metadata_cache.get(key)
+        if entry and now - entry[0] < ttl:
+            return entry[1]
+    result = function()
+    with _metadata_lock:
+        if len(_metadata_cache) > 100:
+            _metadata_cache.clear()
+        _metadata_cache[key] = (now, result)
+    return result
+
+
+def file_signature(path: str) -> tuple[Any, ...]:
+    try:
+        stat = Path(path).stat()
+        return stat.st_ino, stat.st_size, stat.st_mtime_ns
+    except OSError:
+        return (None,)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -335,19 +362,37 @@ def valid_singbox_payload(payload: Any) -> bool:
 
 
 def read_protocol_inventory(config: AppConfig | None = None) -> dict[str, Any]:
+    evidence: dict[str, Any] = {"available": False, "reason": "inventory_missing", "inbounds": []}
     try:
         path = Path(config.protocol_status_path if config else "/run/castoriceui/protocol-status.json")
         if path.stat().st_size > 1_000_000:
-            return {}
+            return {**evidence, "reason": "inventory_oversized"}
         data = json.loads(path.read_text(encoding="utf-8"))
         pid = run(["systemctl", "show", config.singbox_unit if config else "sing-box", "-p", "MainPID", "--value"])
-        if (data.get("schema") != 1 or not 0 <= time.time() - float(data["sampledAt"]) <= 90
-                or not pid.isdigit() or int(pid) <= 0 or data.get("pid") != int(pid)
-                or not isinstance(data.get("inbounds"), list)):
-            return {}
+        evidence.update({key: data.get(key) for key in ("pid", "startedTicks", "bootId", "sampledAt", "sampleStartedAt", "sampleEndedAt")})
+        evidence["corePid"] = int(pid) if pid.isdigit() else None
+        age = time.time() - float(data["sampledAt"])
+        evidence["ageSeconds"] = round(age, 2)
+        if data.get("schema") not in {1, 2} or not isinstance(data.get("inbounds"), list):
+            return {**evidence, "reason": "inventory_invalid"}
+        if not 0 <= age <= 30:
+            return {**evidence, "reason": "inventory_stale"}
+        if not pid.isdigit() or int(pid) <= 0 or data.get("pid") != int(pid):
+            return {**evidence, "reason": "core_generation_changed"}
+        if data.get("schema") == 2:
+            process = Path("/proc") / pid
+            ticks = int((process / "stat").read_text().rsplit(")", 1)[1].split()[19])
+            boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+            if ticks != data.get("startedTicks") or boot != data.get("bootId"):
+                return {**evidence, "reason": "core_generation_changed"}
+        data["ageSeconds"] = round(age, 2)
         return data
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        return {}
+    except PermissionError:
+        return {**evidence, "reason": "inventory_permission_denied"}
+    except FileNotFoundError:
+        return evidence
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return {**evidence, "reason": "inventory_invalid"}
 
 
 def protocol_requested(config: AppConfig, protocol: str) -> bool:
@@ -446,25 +491,28 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     services: list[dict[str, Any]] = []
     def inspect(definition: tuple[str, str, str, str, list[str], dict[str, Any] | None]) -> tuple[tuple[str, str, str, str, list[str], dict[str, Any] | None], str, int, str]:
         active, uptime = service_state(definition[2])
-        version = semantic_version(run(definition[4], timeout=2), definition[0])
+        version = cached_metadata(("version", definition[0], tuple(definition[4]), file_signature(definition[4][0])), 300,
+                                  lambda: semantic_version(run(definition[4], timeout=2), definition[0]))
         return definition, active, uptime, version
 
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix="service") as pool:
         inspected = list(pool.map(inspect, definitions))
     for definition, active, uptime, version in inspected:
         service_id, name, _unit, icon, _command, adapter = definition
-        if active != "active" and adapter and adapter.get("available"):
+        if active not in {"active", "inactive", "failed"} and adapter and adapter.get("available"):
             status, detail, detail_zh = "warning", "expected systemd unit is inactive or non-standard", "预期 systemd 单元未运行或使用了非标准名称"
-        elif active != "active":
+        elif active in {"inactive", "failed"}:
             status, detail, detail_zh = "stopped", "systemd reports the service is not active", "systemd 报告服务未运行"
+        elif active != "active":
+            status, detail, detail_zh = "warning", "Core state is unknown or transitioning", "核心状态未知或切换中"
         elif adapter is None:
             status, detail, detail_zh = "running", "systemd reports active", "systemd 报告服务正在运行"
         elif adapter.get("available"):
             status, detail, detail_zh = "running", "systemd active", "systemd 正常"
         else:
             status, detail, detail_zh = "warning", "systemd active · statistics adapter unavailable", "systemd 正常 · 统计适配器当前不可用"
-        if service_id == "hysteria2" and not str(config.hysteria_api.get("url", "")).strip():
-            status, detail, detail_zh = "stopped", "Configuration incomplete: statistics API endpoint missing", "配置未完成：缺少统计 API 地址"
+        if service_id == "hysteria2" and active == "active" and not str(config.hysteria_api.get("url", "")).strip():
+            status, detail, detail_zh = "warning", "Configuration incomplete: statistics API endpoint missing", "配置未完成：缺少统计 API 地址"
         record = {"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version if status == "running" else "unknown", "icon": icon, "kind": "protocol" if service_id == "hysteria2" else "core"}
         if status == "running":
             record["uptimeSeconds"] = uptime
@@ -474,13 +522,24 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
                 if not protocol_requested(config, protocol):
                     continue
                 ready, protocol_detail, protocol_zh = protocol_readiness(config, protocol, sb)
-                if active != "active":
+                if active in {"inactive", "failed"}:
                     ready, protocol_detail, protocol_zh = False, "sing-box core is not active", "sing-box 核心未运行"
-                protocol_record = {"id": protocol, "name": label, "nameZh": label, "nameEn": label, "kind": "protocol", "detail": protocol_detail, "detailEn": protocol_detail, "detailZh": protocol_zh, "status": "running" if ready else "stopped", "version": f"sing-box {version}" if ready and version != "unknown" else "unknown", "icon": protocol_icon}
+                elif active != "active":
+                    ready, protocol_detail, protocol_zh = False, "Core state is unknown or transitioning", "核心状态未知或切换中"
+                reason = "verified" if ready else str(sb.get("inventory", {}).get("reason") or "configuration_unverified")
+                confirmed_offline = active in {"inactive", "failed"} or (sb.get("inventory", {}).get("available") and protocol_detail == "Protocol listener is unavailable")
+                evidence = {key: sb.get("inventory", {}).get(key) for key in ("pid", "corePid", "startedTicks", "bootId", "sampledAt", "ageSeconds")}
+                if not sb.get("available") and active == "active":
+                    reason = "statistics_unavailable"
+                elif active not in {"active", "inactive", "failed"}:
+                    reason = "core_state_unconfirmed"
+                inventory_problem = protocol_detail in {"Live inbound inventory unavailable; check the protocol probe", "Core configuration changed since startup; loaded inbounds cannot be verified"}
+                protocol_record = {"id": protocol, "name": label, "nameZh": label, "nameEn": label, "kind": "protocol", "detail": protocol_detail, "detailEn": protocol_detail, "detailZh": protocol_zh, "status": "running" if ready else "stopped" if confirmed_offline else "warning", "stateReason": "core_offline" if active in {"inactive", "failed"} else "listener_missing" if confirmed_offline else reason, "evidence": evidence, "rootCauseId": "singbox-core" if active in {"inactive", "failed"} else "singbox-inventory" if inventory_problem else protocol, "version": f"sing-box {version}" if ready and version != "unknown" else "unknown", "icon": protocol_icon}
                 if ready:
                     protocol_record["uptimeSeconds"] = uptime
                 services.append(protocol_record)
-    cert = certificate_info(config.certificate_path, config.certificate_renewal_unit, config.certificate_host, config.certificate_port)
+    cert = cached_metadata(("certificate", config.certificate_path, file_signature(config.certificate_path), config.certificate_renewal_unit, config.certificate_host, config.certificate_port), 60,
+                           lambda: certificate_info(config.certificate_path, config.certificate_renewal_unit, config.certificate_host, config.certificate_port))
     certificate_state = str(cert.get("state", "unreadable"))
     certificate_zh = "未配置证书路径" if certificate_state == "unconfigured" else "证书已过期" if certificate_state == "expired" else f"证书剩余 {cert['days']} 天" if cert.get("days") is not None else "无法读取证书"
     evidence_zh = {"verified": "已核验", "different-certificate": "实际端点使用其他证书", "unavailable": "无法连接或验证", "active": "运行中", "inactive": "未运行", "failed": "失败", "unconfigured": "未配置", "unknown": "未知"}
@@ -554,12 +613,16 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
 
 
 def ping_target(target: dict[str, Any]) -> dict[str, Any]:
+    started = time.monotonic()
     address = str(target.get("address", ""))
     version = int(target.get("ipVersion", 4))
     command = ["ping", *(["-6"] if version == 6 else ["-4"] if version == 4 else []), "-c", "8", "-i", "0.2", "-W", "1", address]
     base = {"id": str(target.get("id", address)), "name": str(target.get("name", address)),
             "provider": str(target.get("provider", "Custom")), "address": address,
-            "ipVersion": version, "order": int(target.get("order", 0)), "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+            "ipVersion": version, "order": int(target.get("order", 0)), "observedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "sampleStartedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "method": "icmp", "complete": False, "sent": None, "received": None,
+            **{key: target[key] for key in ("latencyMs", "lossPercent", "tcpPort", "dnsPort", "dnsName", "thresholdOverrides") if key in target}}
     if not shutil.which("ping"):
         return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
                 "measurementStatus": "unavailable", "probeReason": "probeUnavailable", "history": []}
@@ -573,15 +636,26 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
                 base["resolvedIpVersion"] = ipaddress.ip_address(destination.group(1)).version
             except ValueError:
                 pass
-    except subprocess.TimeoutExpired:
-        return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
-                "measurementStatus": "unavailable", "probeReason": "timeout", "history": []}
+        base["complete"] = True
+    except subprocess.TimeoutExpired as error:
+        def text(value: Any) -> str:
+            return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+        output = text(error.stdout) + "\n" + text(error.stderr)
+        base["probeReason"] = "timeout"
     except OSError:
         return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
                 "measurementStatus": "unavailable", "probeReason": "probeFailed", "history": []}
+    base["sampleEndedAt"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    base["durationMs"] = round((time.monotonic() - started) * 1000)
+    counts = re.search(r"(\d+) packets transmitted,\s*(\d+) (?:packets )?received", output)
+    if counts:
+        base.update(sent=int(counts[1]), received=int(counts[2]))
     values = [float(value) for value in re.findall(r"time[=<]([0-9.]+)\s*ms", output)]
+    base["observedReplies"] = len(values)
     loss_match = re.search(r"([0-9.]+)% packet loss", output)
     loss = float(loss_match.group(1)) if loss_match else None
+    if loss is None and counts and base["sent"]:
+        loss = 100 * (base["sent"] - base["received"]) / base["sent"]
     if not values:
         lowered = output.casefold()
         local_reason = (
@@ -593,17 +667,62 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
         if local_reason:
             return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
                     "measurementStatus": "unavailable", "probeReason": local_reason, "history": []}
-        reason = "noReply" if loss is not None else "probeFailed"
+        reason = base.get("probeReason") or ("noReply" if loss is not None else "probeFailed")
         return {**base, "latency": None, "jitter": None, "loss": loss, "status": "down" if loss is not None else "unavailable",
                 "measurementStatus": "measured" if loss is not None else "unavailable", "probeReason": reason, "history": []}
     latency = round(statistics.mean(values), 1)
     jitter = round(statistics.pstdev(values), 1) if len(values) > 1 else None
-    status = "degraded" if (loss or 0) >= 5 or latency >= 150 else "healthy"
+    status = "degraded" if (loss or 0) >= float(target.get("lossPercent", 5)) or latency >= float(target.get("latencyMs", 150)) else "healthy"
+    if not base["complete"]:
+        status = "unavailable"
     return {**base, "latency": latency, "jitter": jitter, "loss": loss, "status": status,
-            "measurementStatus": "measured", "probeReason": "insufficientSamples" if len(values) == 1 else "measured", "history": values}
+            "measurementStatus": "measured", "probeReason": base.get("probeReason") or ("insufficientSamples" if len(values) == 1 else "measured"), "history": values}
+
+
+def layered_probe(target: dict[str, Any]) -> dict[str, Any]:
+    """Independent TCP and DNS evidence; only explicitly configured services."""
+    result: dict[str, Any] = {}
+    address = str(target["address"])
+    for method in ("tcp", "dns"):
+        port = target.get(method + "Port")
+        if not port:
+            result[method] = {"configured": False, "status": "unconfigured"}
+            continue
+        started = time.monotonic()
+        evidence: dict[str, Any] = {"configured": True, "observedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
+        try:
+            family = socket.AF_INET6 if int(target.get("ipVersion", 0)) == 6 else socket.AF_INET
+            # Targets are validated public IPs or DNS names. DNS lookup itself
+            # uses a subprocess deadline so resolver stalls cannot leak threads.
+            if method == "tcp":
+                probe = subprocess.run(["python3", "-c", "import socket,sys;f=int(sys.argv[3]);a=socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),socket.AF_INET6 if f==6 else socket.AF_INET if f==4 else socket.AF_UNSPEC,socket.SOCK_STREAM)[0];s=socket.socket(a[0],a[1],a[2]);s.settimeout(2);s.connect(a[4]);s.close()", address, str(int(port)), str(int(target.get("resolvedIpVersion") or target.get("ipVersion", 0)))], capture_output=True, timeout=3, check=False)
+                evidence.update(status="passed" if probe.returncode == 0 else "failed", reason="connected" if probe.returncode == 0 else "connect_failed")
+            else:
+                import struct
+                query_id = int.from_bytes(os.urandom(2), "big")
+                name = str(target.get("dnsName", "example.com"))
+                labels = b"".join(bytes([len(label)]) + label.encode("ascii") for label in name.split(".")) + b"\x00"
+                request = struct.pack("!6H", query_id, 0x100, 1, 0, 0, 0) + labels + struct.pack("!HH", 1, 1)
+                with socket.socket(family, socket.SOCK_DGRAM) as sock:
+                    sock.settimeout(2)
+                    sock.connect((address, int(port)))
+                    sock.send(request)
+                    response = sock.recv(4096)
+                reply_id, flags, questions, answers = struct.unpack("!4H", response[:8]) if len(response) >= 12 else (0, 0, 0, 0)
+                question = request[12:]
+                valid = (reply_id == query_id and bool(flags & 0x8000) and not flags & 0x7A0F
+                         and questions == 1 and answers > 0 and response[12:12 + len(question)] == question
+                         and len(response) >= 12 + len(question) + 16)
+                evidence.update(status="passed" if valid else "failed", reason="answer_verified" if valid else "invalid_dns_response")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            evidence.update(status="failed", reason="timeout_or_transport")
+        evidence["durationMs"] = round((time.monotonic() - started) * 1000)
+        result[method] = evidence
+    return result
 
 
 def network_snapshots(config: AppConfig) -> list[dict[str, Any]]:
-    targets = config.network_targets[:12]
+    targets = [{**item, "thresholdOverrides": {key: item[key] for key in ("latencyMs", "lossPercent") if key in item}, "latencyMs": item.get("latencyMs", config.alert_thresholds["latencyMs"]),
+                "lossPercent": item.get("lossPercent", config.alert_thresholds["lossPercent"])} for item in config.network_targets[:12]]
     with ThreadPoolExecutor(max_workers=min(6, max(1, len(targets))), thread_name_prefix="probe") as pool:
         return list(pool.map(ping_target, targets))

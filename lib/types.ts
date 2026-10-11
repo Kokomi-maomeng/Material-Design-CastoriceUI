@@ -90,11 +90,25 @@ export interface NetworkTarget {
   probeReason?: string;
   observedAt?: string;
   history: number[];
+  complete?: boolean;
+  sent?: number | null;
+  received?: number | null;
+  latencyMs?: number;
+  lossPercent?: number;
+  tcpPort?: number;
+  dnsPort?: number;
+  dnsName?: string;
+  effectivePolicy?: { latencyMs: number; lossPercent: number; windowSeconds: number; minimumPackets: number };
+  thresholdOverrides?: { latencyMs?: number; lossPercent?: number };
+  alertConfirmed?: boolean;
+  qualityWindow?: { sent: number; received: number; loss: number | null; ready: boolean; confirmation: string };
+  layers?: Record<string, { configured: boolean; status: string; observedAt?: string; durationMs?: number }>;
+  timeHistory?: { capturedAt: number; latency: number | null; loss: number | null; complete: boolean; status: string }[];
   order?: number;
 }
 
 export interface ServiceStatus {
-  kind?: "protocol" | "core";
+  kind?: "protocol" | "core" | "monitor";
   id: string;
   name: string;
   nameZh?: string;
@@ -103,6 +117,7 @@ export interface ServiceStatus {
   detailZh?: string;
   detailEn?: string;
   status: "running" | "warning" | "stopped";
+  stateReason?: string;
   version: string;
   uptime?: string;
   uptimeSeconds?: number;
@@ -195,7 +210,7 @@ export interface DashboardPayload {
   mode: "loading" | "live" | "stale" | "error";
   generatedAt: string;
   runtimeObservedAt?: string | null;
-  freshness?: Record<string, { status: string; observedAt: string | null; ageSeconds: number | null; ttlSeconds: number; error: string | null }>;
+  freshness?: Record<string, { status: string; observedAt: string | null; ageSeconds: number | null; ttlSeconds: number; error: string | null; durationMs?: number | null }>;
   overview: OverviewMetrics;
   resourceHistory: Record<"1h" | "6h" | "24h", ResourceSample[]>;
   accounts: Account[];
@@ -301,6 +316,9 @@ export interface AlertSummary {
   critical: number;
   warning: number;
   info: number;
+  active?: number;
+  recoveredPending?: number;
+  total?: number;
 }
 
 export interface AlertPageResponse {

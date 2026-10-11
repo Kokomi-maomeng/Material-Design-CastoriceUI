@@ -335,10 +335,9 @@ test("backend examples remain loopback-only and secret-free", async () => {
 });
 
 test("v3.1 fails closed for config, payload fields, traffic resets, login abuse, and repository metadata", async () => {
-  const [config, dashboard, storage, collector, nginx, security, sensitiveScan] = await Promise.all([
+  const [config, dashboard, storage, collector, nginx, security] = await Promise.all([
     read("server/castoriceui/config.py"), read("server/castoriceui/dashboard.py"), read("server/castoriceui/storage.py"),
     read("server/castoriceui/collectors.py"), read("deploy/nginx.conf.example"), read("server/castoriceui/security.py"),
-    read("scripts/sensitive-scan.mjs"),
   ]);
   assert.match(config, /Unknown configuration field/);
   assert.match(config, /listen_host must be a loopback IP address/);
@@ -351,9 +350,8 @@ test("v3.1 fails closed for config, payload fields, traffic resets, login abuse,
   assert.match(collector, /boot_id/);
   assert.match(nginx, /limit_req zone=castorice_api/);
   assert.match(security, /host is not allowlisted/);
-  assert.match(sensitiveScan, /cwd: root/);
-  assert.doesNotMatch(sensitiveScan, /cwd: new URL\("\.\."/);
-  assert.match(sensitiveScan, /GITHUB_EVENT_NAME === "pull_request" \? "HEAD\^2" : "HEAD"/);
+  const { scanHistory } = await import("../scripts/sensitive-scan.mjs");
+  assert.deepEqual(await scanHistory(root, ["HEAD"], []), []);
 });
 
 test("v3.2 operator identity, layout, settings, and truthful status requirements remain enforced", async () => {
@@ -464,7 +462,7 @@ test("P2 release checks cover read-only preflight, history blobs, cache monitori
   assert.match(preflight, /mutationFree/);
   assert.doesNotMatch(preflight, /systemctl.*(?:restart|reload|enable|stop)|apt-get.*install/);
   for (const pathName of ["Minimal panel", "Existing proxy host", "Upgrade"]) assert.match(deployment, new RegExp(pathName));
-  assert.match(scan, /git.*cat-file/si);
+  // Real index, history, detached tags and hook invocations are covered in privacy-guard.test.mjs.
   assert.doesNotMatch(scan, /"dist"|"package-lock\.json"/);
   assert.match(browser, /24 -> 1 -> 0 -> 24/);
   assert.match(browser, /server did not confirm sign-out/);

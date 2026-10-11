@@ -16,6 +16,7 @@ from castoriceui import __version__  # noqa: E402
 from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.dashboard import DashboardService  # noqa: E402
 from castoriceui.storage import Storage  # noqa: E402
+from castoriceui.monitoring import periodic, event  # noqa: E402
 
 
 def main() -> None:
@@ -39,32 +40,19 @@ def main() -> None:
     storage.add_audit("后端启动", "系统", f"CastoriceUI {__version__} 数据服务已启动")
     sampler_stop = threading.Event()
 
-    def sample_traffic() -> None:
-        while not sampler_stop.is_set():
-            try:
-                dashboard.collect_system_snapshot()
-            except Exception as error:  # keep collection alive; systemd captures the diagnostic
-                print(f"Traffic sampler failed: {error}")
-            sampler_stop.wait(60)
-
-    threading.Thread(target=sample_traffic, name="traffic-sampler", daemon=True).start()
-    def monitor_runtime() -> None:
-        while not sampler_stop.is_set():
-            try:
-                dashboard.refresh_monitoring()
-            except Exception as error:  # cached HTTP responses remain available during an upstream fault
-                print(f"Runtime monitor failed: {error}")
-            sampler_stop.wait(15)
-
-    threading.Thread(target=monitor_runtime, name="runtime-monitor", daemon=True).start()
-    def watch_collections() -> None:
-        while not sampler_stop.wait(5):
-            try:
-                dashboard.refresh_collection_alerts()
-            except Exception as error:
-                print(f"Collection watchdog failed: {type(error).__name__}", flush=True)
-    threading.Thread(target=watch_collections, name="collection-watchdog", daemon=True).start()
-    print(f"CastoriceUI backend listening on {config.listen_host}:{config.listen_port}")
+    periodic(sampler_stop, "host", 60, dashboard.collect_system_snapshot)
+    periodic(sampler_stop, "hysteria-statistics", 5, lambda: dashboard.refresh_adapter("hysteria2"))
+    periodic(sampler_stop, "singbox-statistics", 5, lambda: dashboard.refresh_adapter("singbox"))
+    periodic(sampler_stop, "network", 20, dashboard.refresh_network)
+    periodic(sampler_stop, "subscriptions", 60, dashboard.refresh_subscription)
+    periodic(sampler_stop, "auxiliary", 600, dashboard.refresh_auxiliary)
+    periodic(sampler_stop, "runtime-monitor", 5, dashboard.refresh_services)
+    periodic(sampler_stop, "watchdog", 5, dashboard.refresh_collection_alerts)
+    def pressure_burst() -> None:
+        if time.monotonic() < dashboard.resource_pressure.burst_until:
+            storage.record_monitoring("resource", "backend", dashboard.resource_pressure.snapshot())
+    periodic(sampler_stop, "resource-burst", 10, pressure_burst)
+    event("backend", "listening")
     try:
         server.serve_forever(poll_interval=0.5)
     finally:

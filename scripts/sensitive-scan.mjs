@@ -1,81 +1,56 @@
 import { readdir, readFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { checkGitIdentityObject, checkPayload, forbiddenNames, hasSensitivePath, git, loadPrivateValues, readGitObjects } from "./privacy-policy.mjs";
 
-const root = new URL("../", import.meta.url);
+export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ignoredDirectories = new Set([".git", ".next", ".vinext", ".wrangler", "node_modules", "__pycache__"]);
-const ignoredFiles = new Set();
-const forbiddenNames = /(^|\/)(\.env(?:\..+)?|.*\.(?:key|pem|p12|pfx)|.*(?:credential|secret|password).*)$/i;
-const forbiddenContent = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-  new RegExp("-----BEGIN " + "CERTIFICATE-----"),
-  /gh[pousr]_[A-Za-z0-9_]{20,}/,
-  /sk-[A-Za-z0-9]{20,}/,
-  /AKIA[0-9A-Z]{16}/,
-  /AIza[0-9A-Za-z_-]{30,}/,
-  /(?:api[_-]?key|client[_-]?secret|access[_-]?token|password|passwd)\s*[:=]\s*["'][^"']{8,}["']/i,
-];
 
-async function collect(directory, prefix = "") {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
+export async function scanDirectory(directory, privateValues) {
+  const findings = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue;
-    const relative = path.posix.join(prefix, entry.name);
-    if (entry.isDirectory()) files.push(...await collect(new URL(`${entry.name}/`, directory), relative));
-    else if (!ignoredFiles.has(entry.name)) files.push(relative);
+    const filename = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) { findings.push("Filesystem symlink must be reviewed"); continue; }
+    if (entry.isDirectory()) {
+      if (forbiddenNames.test(entry.name) || checkPayload(entry.name, privateValues).length) findings.push("Sensitive directory name");
+      findings.push(...await scanDirectory(filename, privateValues));
+    }
+    else {
+      const reasons = [...(forbiddenNames.test(entry.name) ? ["sensitive filename"] : []), ...checkPayload(entry.name, privateValues), ...checkPayload(await readFile(filename), privateValues)];
+      if (reasons.length) findings.push(`File rejected (${[...new Set(reasons)].join(", ")})`);
+    }
   }
-  return files;
+  return findings;
 }
 
-const findings = [];
-for (const file of await collect(root)) {
-  if (forbiddenNames.test(file)) {
-    findings.push(`${file}: forbidden sensitive filename`);
-    continue;
-  }
-  const content = await readFile(new URL(file, root), "utf8").catch(() => "");
-  for (const pattern of forbiddenContent) {
-    if (pattern.test(content)) findings.push(`${file}: matched ${pattern}`);
-  }
-}
-
-try {
-  const historyRevision = process.env.GITHUB_ACTIONS === "true"
-    ? (process.env.GITHUB_EVENT_NAME === "pull_request" ? "HEAD^2" : "HEAD")
-    : "--all";
-  const metadataEmails = execFileSync("git", ["log", historyRevision, "--format=%ae%n%ce"], { cwd: root, encoding: "utf8" })
-    .split(/\r?\n/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const taggerEmails = execFileSync("git", ["for-each-ref", "--format=%(taggeremail)", "refs/tags"], { cwd: root, encoding: "utf8" })
-    .split(/\r?\n/)
-    .map((value) => value.replace(/^<|>$/g, "").trim())
-    .filter(Boolean);
-  const isPrivateEmail = (email) => !/@users\.noreply\.github\.com$/i.test(email) && !/^noreply@github\.com$/i.test(email);
-  if (metadataEmails.some(isPrivateEmail) || taggerEmails.some(isPrivateEmail)) {
-    findings.push("Git history contains non-privacy author, committer, or tagger email metadata");
-  }
-  const historicalObjects = execFileSync("git", ["rev-list", "--objects", "--all"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  for (const line of historicalObjects.split(/\r?\n/).filter(Boolean)) {
+export async function scanHistory(directory, revisions, privateValues) {
+  if (git(directory, ["rev-parse", "--is-shallow-repository"]).trim() === "true") throw new Error("Full Git history is required; shallow checkouts cannot pass");
+  const entries = git(directory, ["rev-list", "--objects", ...revisions]).trim().split(/\r?\n/).filter(Boolean);
+  const findings = [];
+  for (const line of entries) {
     const separator = line.indexOf(" ");
-    const historicalPath = separator < 0 ? "" : line.slice(separator + 1);
-    if (historicalPath && forbiddenNames.test(historicalPath)) findings.push(`${historicalPath}: forbidden sensitive filename in Git history`);
+    const filename = separator < 0 ? "" : line.slice(separator + 1);
+    if (filename && (hasSensitivePath(filename) || checkPayload(filename, privateValues).length)) findings.push("Sensitive filename in Git history");
   }
-  const objectIds = historicalObjects.split(/\r?\n/).map((line) => line.split(" ", 1)[0]).filter(Boolean);
-  const historyBlobs = execFileSync("git", ["cat-file", "--batch"], {
-    cwd: root, input: `${objectIds.join("\n")}\n`, encoding: "utf8", maxBuffer: 256 * 1024 * 1024,
-  });
-  for (const pattern of forbiddenContent) {
-    if (pattern.test(historyBlobs)) findings.push(`Git history blobs matched ${pattern}`);
+  const ids = [...new Set(entries.map((line) => line.split(" ", 1)[0]))];
+  for (const object of readGitObjects(directory, ids)) {
+    const reasons = [...checkPayload(object.data, privateValues), ...checkGitIdentityObject(object.kind, object.data)];
+    if (reasons.length) findings.push(`Git object ${object.id} rejected (${[...new Set(reasons)].join(", ")})`);
   }
-} catch {
-  findings.push("Git history metadata and blobs could not be inspected");
+  return findings;
 }
 
-if (findings.length > 0) {
-  console.error(findings.join("\n"));
-  process.exitCode = 1;
-} else {
-  console.log("Sensitive-content scan passed.");
+async function main() {
+  try {
+    const privateValues = await loadPrivateValues(root);
+    const findings = [...await scanDirectory(root, privateValues), ...await scanHistory(root, ["--all"], privateValues)];
+    if (findings.length) { console.error(findings.join("\n")); process.exitCode = 1; }
+    else console.log("Sensitive-content and Git identity scan passed (working files + complete local history).");
+  } catch {
+    console.error("Privacy scan blocked: files, local policy, or full Git history could not be inspected.");
+    process.exitCode = 1;
+  }
 }
+
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) await main();

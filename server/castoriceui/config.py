@@ -109,6 +109,8 @@ class AppConfig:
     hysteria_binary: str = "/usr/local/bin/hysteria"
     singbox_binary: str = "/usr/bin/sing-box"
     protocol_status_path: str = "/run/castoriceui/protocol-status.json"
+    external_probe_secret: str = ""
+    external_probe_agents: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: str | Path) -> "AppConfig":
@@ -129,6 +131,10 @@ class AppConfig:
         return config
 
     def _validate(self) -> None:
+        if not isinstance(self.external_probe_secret, str) or (self.external_probe_secret and len(self.external_probe_secret) < 32):
+            raise ValueError("external_probe_secret must be empty or at least 32 characters")
+        if not isinstance(self.external_probe_agents, list) or len(self.external_probe_agents) > 8 or any(not isinstance(item, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", item) for item in self.external_probe_agents):
+            raise ValueError("Invalid external_probe_agents")
         try:
             listen_address = ipaddress.ip_address(self.listen_host)
         except ValueError as error:
@@ -239,7 +245,7 @@ class AppConfig:
             if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
                 raise ValueError(f"{field_name} must be a list of objects")
         schemas = {
-            "network_targets": {"id", "name", "provider", "address", "ipVersion", "order"},
+            "network_targets": {"id", "name", "provider", "address", "ipVersion", "order", "latencyMs", "lossPercent", "tcpPort", "dnsPort", "dnsName"},
             "managed_accounts": {"id", "name", "email", "status", "protocols", "expiresAt", "note", "trafficIdentities"},
             "subscriptions": {"id", "account", "tokenHint", "protocols", "updatedAt", "lastFetchedAt", "enabled", "url"},
         }
@@ -248,6 +254,17 @@ class AppConfig:
                 unknown_nested = sorted(set(item) - schema)
                 if unknown_nested:
                     raise ValueError(f"{field_name}[{index}] contains unknown field(s): {', '.join(unknown_nested)}")
+        for target in self.network_targets:
+            for key, minimum, maximum in (("latencyMs", 0, 60000), ("lossPercent", 0, 100), ("tcpPort", 1, 65535), ("dnsPort", 1, 65535)):
+                if key in target:
+                    value = target[key]
+                    if type(value) not in {int, float} or not math.isfinite(value) or not minimum <= value <= maximum or key.endswith("Port") and value != int(value):
+                        raise ValueError("Invalid network target policy")
+            if "dnsPort" in target:
+                ipaddress.ip_address(target.get("address", ""))
+                name = target.get("dnsName", "example.com")
+                if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", name) or any(not 1 <= len(part) <= 63 for part in name.split(".")):
+                    raise ValueError("Invalid DNS probe name")
         for index, account in enumerate(self.managed_accounts):
             identities = account.get("trafficIdentities", {})
             if identities in (None, []):
