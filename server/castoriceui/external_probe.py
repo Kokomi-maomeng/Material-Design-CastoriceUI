@@ -71,8 +71,10 @@ def service_evidence(config, storage, active_ids: set[str], *, now: float | None
             tail = relevant[-2:]
             def matching(status):
                 return len(tail) == 2 and all(item.get("agentHealthy") is True and fresh_report(item) and item["protocols"][protocol].get("status") == status for item in tail)
-            confirmed = observer and (matching("failed") or key in active_ids and not matching("passed"))
+            business_incident = (key in active_ids or observer and matching("failed")) and not (observer and matching("passed"))
+            confirmed = observer and business_incident
             unknown = not observer or measured.get("status") == "unavailable"
             reason = "external_observer_unavailable" if unknown else "external_business_failure" if not passed or confirmed else "external_business_passed"
             services.append({"id": key, "name": f"{label} external · {agent}", "nameEn": f"{label} external · {agent}", "nameZh": f"{label} 外部业务 · {agent}", "icon": "travel_explore", "kind": "monitor", "status": "running" if passed and not confirmed else "warning", "version": "synthetic probe", "detail": "External forwarding verified" if passed and not confirmed else "External observer evidence unavailable" if unknown else "External business path requires attention", "detailEn": "External forwarding verified" if passed and not confirmed else "External observer evidence unavailable" if unknown else "External business path requires attention", "detailZh": "外部认证与转发验证通过" if passed and not confirmed else "外部观测点证据不可用，无法判断 VPS 业务" if unknown else "外部业务验证失败或等待连续正常确认", "stateReason": reason, "alertConfirmed": bool(confirmed or unknown and (bool(latest) or startup_age >= 180)), "evidence": {"agentId": agent, "protocol": protocol, "observedAt": latest.get("observedAt"), "ageSeconds": round(now - latest["observedAt"], 1) if latest else None, "observerHealthy": bool(observer), "fresh": fresh, "result": measured}})
+            services[-1]["evidence"]["businessIncidentActive"] = bool(business_incident)
     return services

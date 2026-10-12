@@ -180,6 +180,34 @@ class SupplementalEvidenceTests(unittest.TestCase):
             report("passed", now, now - 181)
             self.assertEqual(get()["stateReason"], "external_observer_unavailable")
 
+    def test_real_external_recovery_keeps_observer_and_business_incidents_distinct(self):
+        with tempfile.TemporaryDirectory() as folder:
+            storage = Storage(str(Path(folder) / "qa.sqlite"))
+            config = AppConfig(external_probe_secret="s" * 40, external_probe_agents=["qa"])
+            dashboard = DashboardService(config, storage)
+            dashboard.system_cache = {"trafficUsedBytes": 0, "trafficLimitBytes": 100}
+            def report(status, healthy=True):
+                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": int(time.time()), "agentHealthy": healthy, "protocols": {"anytls": {"status": status}}})
+                dashboard.refresh_services()
+                return next(item for item in dashboard.runtime_cache["services"] if item["id"] == "external-qa-anytls")
+            with patch("castoriceui.dashboard.service_snapshots", side_effect=lambda *_: []), patch.object(dashboard, "runtime_integrations", return_value=[]), patch("castoriceui.dashboard.maintenance_info", return_value={}):
+                unknown = report("unavailable", False)
+                self.assertFalse(unknown["evidence"]["businessIncidentActive"])
+                healthy = report("passed")
+                self.assertEqual(healthy["status"], "running", healthy)
+                self.assertFalse(any(item["id"].startswith("monitor-external-qa-anytls") for item in storage.active_alerts()))
+                report("failed")
+                failed = report("failed")
+                self.assertTrue(failed["evidence"]["businessIncidentActive"])
+                unknown = report("unavailable", False)
+                self.assertTrue(unknown["evidence"]["businessIncidentActive"])
+                self.assertEqual(unknown["stateReason"], "external_observer_unavailable")
+                self.assertTrue(report("passed")["alertConfirmed"])
+                recovered = report("passed")
+                self.assertFalse(recovered["alertConfirmed"])
+                self.assertFalse(recovered["evidence"]["businessIncidentActive"])
+                self.assertEqual(recovered["status"], "running")
+
     def test_external_agent_failure_categories_and_no_private_log_in_result(self):
         path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
         spec = importlib.util.spec_from_file_location("external_agent_qa", path)
