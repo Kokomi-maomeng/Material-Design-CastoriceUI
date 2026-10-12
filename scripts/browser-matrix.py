@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from browser_fixture import empty_dashboard
 
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
@@ -18,11 +19,7 @@ PAGES = ("overview", "traffic", "connections", "accounts", "network", "services"
 
 def synthetic_dashboard(page) -> dict[str, object]:
     """Load the typed empty payload and add only synthetic, publishable QA data."""
-    page.context.route("**/api/v2/bootstrap", lambda route: route.fulfill(json={"setupRequired": True, "bootstrapAvailable": False}))
-    page.goto(BASE_URL, wait_until="domcontentloaded")
-    dashboard = page.evaluate(
-        "async () => structuredClone((await import('/lib/empty-dashboard.ts')).emptyDashboard)"
-    )
+    dashboard = empty_dashboard(page.context, page, BASE_URL)
     now = datetime(2026, 1, 15, 4, 0, tzinfo=timezone.utc)
     points = [
         {

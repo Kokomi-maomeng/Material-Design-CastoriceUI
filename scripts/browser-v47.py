@@ -5,6 +5,7 @@ import sys
 import time
 from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import expect, sync_playwright
+from browser_fixture import empty_dashboard
 
 base = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173")
 with sync_playwright() as playwright:
@@ -15,9 +16,7 @@ with sync_playwright() as playwright:
         page = context.new_page()
         errors, mutations = [], []
         page.on("pageerror", lambda error: errors.append(type(error).__name__))
-        context.route("**/api/v2/bootstrap", lambda route: route.fulfill(json={"setupRequired": True, "bootstrapAvailable": False}))
-        page.goto(base, wait_until="domcontentloaded")
-        dashboard = page.evaluate("async()=>structuredClone((await import('/lib/empty-dashboard.ts')).emptyDashboard)")
+        dashboard = empty_dashboard(context, page, base)
         dashboard.update(mode="live", generatedAt="2026-01-01T00:00:00Z")
         dashboard["uiSettings"]["visiblePanels"] = ["network", "alerts", "services"]
         dashboard["integrations"] = [{"id": key, "enabled": True, "configured": True, "ready": True, "status": "ready", "summary": "Synthetic integration"} for key in ("network", "alerts")]
@@ -51,7 +50,7 @@ with sync_playwright() as playwright:
             route.fulfill(json=data)
 
         context.route("**/api/v2/**", route_api)
-        page.reload(wait_until="networkidle")
+        page.goto(base, wait_until="networkidle")
         cases = 0
         for width, height in ((1440, 1000), (390, 844), (320, 700)):
             page.set_viewport_size({"width": width, "height": height})

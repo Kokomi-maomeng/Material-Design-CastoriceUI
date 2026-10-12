@@ -79,6 +79,7 @@ def replace(source: Path, destination: Path) -> None:
 
 def tls_probe(config: dict, expected: str) -> bool:
     context = ssl.create_default_context(cafile=config.get("caFile"))
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     with socket.create_connection((config.get("tlsAddress", "127.0.0.1"), int(config.get("tlsPort", 443))), timeout=2) as stream:
         with context.wrap_socket(stream, server_hostname=config["hostname"]) as tls:
             return hashlib.sha256(tls.getpeercert(binary_form=True)).hexdigest() == expected

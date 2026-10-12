@@ -93,7 +93,9 @@ def direct_fetch(config: dict, url: str, payload: bytes | None = None, headers: 
             self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
     class BoundHTTPSHandler(HTTPSHandler):
         def https_open(self, request):
-            return self.do_open(BoundHTTPSConnection, request, context=ssl.create_default_context())
+            context = ssl.create_default_context()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            return self.do_open(BoundHTTPSConnection, request, context=context)
     with build_opener(ProxyHandler({}), BoundHTTPSHandler()).open(Request(url, data=payload, headers=headers or {}), timeout=5) as response:
         if not 200 <= response.status < 400:
             raise ValueError("unexpected_response")
@@ -127,7 +129,9 @@ def open_tunnel(port: int, target: str, evidence: dict | None = None):
         read_exact(stream, 6 if response[3] == 1 else 18 if response[3] == 4 else read_exact(stream, 1)[0] + 2)
         if evidence is not None:
             evidence["failedStage"] = "forwarding"
-        return ssl.create_default_context().wrap_socket(stream, server_hostname=parsed.hostname)
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        return context.wrap_socket(stream, server_hostname=parsed.hostname)
     except BaseException:
         stream.close()
         raise
@@ -168,7 +172,9 @@ def probe(config: dict, protocol: str, proxy: dict) -> dict:
         if protocol == "anytls":
             with direct_socket(proxy["server"], int(proxy["port"]), config, timeout=3) as tcp:
                 result["failedStage"] = "tls"
-                with ssl.create_default_context().wrap_socket(tcp, server_hostname=proxy.get("sni") or proxy["server"]) as tls:
+                context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
+                with context.wrap_socket(tcp, server_hostname=proxy.get("sni") or proxy["server"]) as tls:
                     result["certificateSha256"] = hashlib.sha256(tls.getpeercert(binary_form=True)).hexdigest()
         result["failedStage"] = "transport"
         with tempfile.TemporaryDirectory(prefix="castorice-monitor-") as directory:

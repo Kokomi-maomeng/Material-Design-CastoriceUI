@@ -36,6 +36,21 @@ THRESHOLDS = {"latencyMs": 150., "lossPercent": 5.}
 
 
 class SupplementalEvidenceTests(unittest.TestCase):
+    def test_real_network_alert_path_retains_first_and_worst_sample_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            storage = Storage(str(Path(folder) / "qa.sqlite"))
+            dashboard = DashboardService(AppConfig(), storage)
+            dashboard.collection_state["network"] = {"observedAt": datetime.now(timezone.utc).isoformat()}
+            for loss in (10, 30, 15):
+                target = {**sample(loss), "alertConfirmed": True, "observedAt": "2026-01-01T00:00:00Z", "effectivePolicy": THRESHOLDS, "layers": {"tcp": {"status": "passed"}}}
+                dashboard.alerts({"trafficUsedBytes": 0, "trafficLimitBytes": 100}, [], [target])
+            with storage.connect() as connection:
+                row = connection.execute("SELECT * FROM alert_evidence").fetchone()
+            first, worst, last = [json.loads(row[key])["evidence"] for key in ("first_json", "worst_json", "last_json")]
+            self.assertEqual((first["loss"], worst["loss"], last["loss"]), (10, 30, 15))
+            self.assertEqual(worst["effectivePolicy"], THRESHOLDS)
+            self.assertEqual(worst["layers"]["tcp"]["status"], "passed")
+
     def test_core_group_preserves_independent_errors_and_business_failure_title(self):
         with tempfile.TemporaryDirectory() as folder:
             storage = Storage(str(Path(folder) / "qa.sqlite"))

@@ -8,7 +8,8 @@ import sys
 import time
 from urllib.parse import parse_qs, urlsplit
 
-from playwright.sync_api import TimeoutError as BrowserTimeout, expect, sync_playwright
+from playwright.sync_api import expect, sync_playwright
+from browser_fixture import empty_dashboard
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
@@ -23,17 +24,7 @@ def run(engine, timezone, browser):
     page.add_init_script("window.qaScrollEvents=[];for(const event of ['scroll','pointerdown','click'])addEventListener(event,e=>{window.qaScrollEvents.push({event,y:scrollY,lock:document.documentElement.classList.contains('has-dialog'),target:e.target?.className});window.qaScrollEvents=window.qaScrollEvents.slice(-20)},true)")
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    # Install bootstrap evidence before loading the app. Its first request must
-    # not escape to Vite's real backend proxy while fixtures are being prepared.
-    context.route("**/api/v2/bootstrap", lambda route: route.fulfill(json={"setupRequired": True, "bootstrapAvailable": False}))
-    for attempt in range(3):
-        try:
-            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15_000)
-            break
-        except BrowserTimeout:
-            if attempt == 2:
-                raise
-    dashboard = page.evaluate("async()=>structuredClone((await import('/lib/empty-dashboard.ts')).emptyDashboard)")
+    dashboard = empty_dashboard(context, page, BASE_URL)
     dashboard.update(mode="live", generatedAt=TIME)
     dashboard["uiSettings"]["visiblePanels"] = list(PAGES)
     history = [{"id": "same-condition", "episodeId": f"episode-{i}", "title": f"Synthetic alert {i}", "description": "QA condition", "source": "Synthetic QA", "severity": "warning", "acknowledged": False, "status": "resolved", "time": "now", "startedAt": TIME, "resolvedAt": TIME, "acknowledgedAt": None} for i in range(135)]
@@ -72,7 +63,7 @@ def run(engine, timezone, browser):
         route.fulfill(json=data)
 
     context.route("**/api/v2/**", route_api)
-    page.reload(wait_until="networkidle")
+    page.goto(BASE_URL, wait_until="networkidle")
     page.locator(".traffic-hero").wait_for()
 
     def open_page(section):
