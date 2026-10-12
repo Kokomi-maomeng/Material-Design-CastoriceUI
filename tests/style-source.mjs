@@ -10,6 +10,7 @@ const styleModules = [
   "app/styles/quota.css",
   "app/styles/setup.css",
   "app/styles/services.css",
+  "app/styles/auth-glass.css",
 ];
 
 export async function readStyles(root) {

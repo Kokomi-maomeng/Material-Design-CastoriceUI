@@ -253,8 +253,13 @@ export interface LoginAppearance {
   type: "default" | "url" | "server";
   url: string;
   fit: "cover" | "contain";
-  position: "center" | "top" | "bottom" | "left" | "right";
+  cacheSeconds?: 0 | 2 | 5 | 10 | 30 | 60 | 120 | 300 | 600;
+  glass?: "clear" | "default" | "tinted";
+  glassEnabled?: boolean;
+  revision?: string;
 }
+
+export type LoginBackgroundSettings = Omit<LoginAppearance, "url" | "revision"> & { value: string };
 
 export interface BootstrapState {
   setupRequired: boolean;

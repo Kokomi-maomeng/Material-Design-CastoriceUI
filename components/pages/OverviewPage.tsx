@@ -359,7 +359,6 @@ function RangeControl({
   value: TrafficRange;
   onChange: (value: TrafficRange) => void;
 }) {
-  const { t } = useI18n();
   return (
     <div className="segmented-control traffic-range-control">
       {(["1h", "6h", "24h", "3day", "7day"] as const).map((item) => (
@@ -369,9 +368,9 @@ function RangeControl({
           onClick={() => onChange(item)}
         >
           {item === "3day"
-            ? t("3天", "3 days")
+            ? "3d"
             : item === "7day"
-              ? t("7天", "7 days")
+              ? "7d"
               : item}
         </button>
       ))}

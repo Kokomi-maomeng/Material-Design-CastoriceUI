@@ -33,6 +33,24 @@ def system_state(unit: str) -> dict[str, str]:
     return state
 
 
+def allow_login_image_blobs(site_text: str) -> str:
+    """Extend only explicit image sources in the project's quoted CSP headers.
+
+    Decoded images use local object URLs. Do not enable blob scripts, remote
+    sources, unsafe-eval, or change any other directive/operator setting.
+    """
+    def policy(header: re.Match) -> str:
+        def images(directive: re.Match) -> str:
+            sources = directive[3].split()
+            if "blob:" in sources:
+                return directive[0]
+            sources = [source for source in sources if source != "'none'"]
+            return directive[1] + directive[2] + " ".join([*sources, "blob:"])
+        value = re.sub(r"(^|;)(\s*img-src\s+)([^;]*)", images, header[2], flags=re.IGNORECASE)
+        return header[1] + value + header[3]
+    return re.sub(r'(\badd_header\s+Content-Security-Policy\s+")([^"\r\n]*)(")', policy, site_text, flags=re.IGNORECASE)
+
+
 def backup_database(source: Path, target: Path) -> None:
     with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as incoming, sqlite3.connect(target) as outgoing:
         incoming.backup(outgoing)
@@ -179,6 +197,7 @@ def install(archive: Path, config_path: Path) -> dict:
         updated_site, count = re.subn(r"proxy_pass\s+http://(?:127\.[0-9.]+|\[::1\]):\d+\s*;", f"proxy_pass http://{address}:{config.listen_port};", site_text)
         if count != 1:
             raise ValueError("Panel site must have one unambiguous loopback upstream")
+        updated_site = allow_login_image_blobs(updated_site)
         shutil.copytree(source, backend_release)
         shutil.copytree(source / "frontend", frontend_release)
         record("prepared")

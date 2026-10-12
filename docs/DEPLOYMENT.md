@@ -94,6 +94,8 @@ CPU, memory and traffic history accumulate from real samples. Fresh installation
 
 ## 7. Accept the deployment
 
+Login image recovery uses decoded `blob:` object URLs. The v5.0 template permits them only in `img-src`; the transactional installer extends existing explicit image directives in quoted CSP headers and reloads Nginx only when its site changes. Custom CSP configurations must permit these local image URLs. Script sources remain restricted and `unsafe-eval` is not required. Check the actual HTTPS page and image after upgrading, since development rendering alone does not validate production CSP.
+
 - Check loopback/public health reports `ok / 4.5.0`, static frontend HTTP 200, unauthenticated dashboard/session HTTP 401, login/logout/CSRF, settings persistence and audit records.
 - Check live and backup SQLite `PRAGMA integrity_check`, writable storage, fresh collector times, historical coverage, alerts and recovery. Confirm missing probe targets do not produce an overall excellent grade.
 - Check Nginx syntax, required units enabled/active, failed units and recent backend logs. Compare HY2/sing-box/Nginx PIDs to the recorded baseline.

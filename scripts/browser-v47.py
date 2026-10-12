@@ -33,7 +33,7 @@ with sync_playwright() as playwright:
             if path == "dashboard":
                 data = {**dashboard, "alerts": [active, recovered], "alertSummary": summary}
             elif path == "bootstrap":
-                data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover", "position": "center"}}
+                data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover"}}
             elif path.startswith("auth/"):
                 data = {"username": "QA", "csrfToken": "synthetic-csrf", "expiresAt": int(time.time()) + 3600, "setupComplete": True}
             elif path == "alerts":

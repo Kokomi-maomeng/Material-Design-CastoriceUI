@@ -22,6 +22,7 @@ import {
   updateUiSettings,
 } from "../lib/api";
 import { emptyDashboard } from "../lib/empty-dashboard";
+import { pendingCriticalAlerts } from "../lib/login-background";
 import { useI18n } from "../lib/i18n";
 import { navigation, PANEL_IDS } from "../lib/navigation";
 import { readBooleanPreference, readPreference, writePreference } from "../lib/preferences";
@@ -139,7 +140,6 @@ export function CastoriceApp() {
   const start = useCallback(async () => {
     try {
       const state = await fetchBootstrap();
-      setBootstrap(state);
       if (!state.setupRequired) {
         try {
           setSession(await fetchSession());
@@ -147,6 +147,7 @@ export function CastoriceApp() {
           if (!(error instanceof ApiError && error.status === 401)) throw error;
         }
       }
+      setBootstrap(state);
     } catch {
       setBootError(true);
     }
@@ -216,6 +217,11 @@ export function CastoriceApp() {
         return;
       }
     }
+    try {
+      setBootstrap(await fetchBootstrap());
+    } catch {
+      setBootError(true);
+    }
     setSigningOut(false);
     setSession(null);
     setDashboard(emptyDashboard);
@@ -223,11 +229,6 @@ export function CastoriceApp() {
     setConnections([]);
     hasLiveData.current = false;
     setUserMenuOpen(false);
-    try {
-      setBootstrap(await fetchBootstrap());
-    } catch {
-      setBootError(true);
-    }
     window.history.replaceState(null, "", "#/overview");
   }, [t]);
   const loadDashboard = useCallback(async () => {
@@ -334,6 +335,7 @@ export function CastoriceApp() {
   );
   const pageTitle = labelFor(page);
   const unacknowledgedAlerts = dashboard.alertSummary?.pending ?? alerts.filter((item) => !item.acknowledged).length;
+  const criticalAlerts = pendingCriticalAlerts(dashboard.alertSummary, alerts);
   const navigate = useCallback((id: PageId) => {
     setPage(id);
     setDrawerOpen(false);
@@ -699,7 +701,7 @@ export function CastoriceApp() {
               <div className={`snapshot-date floating-surface ${dateOpen ? "is-open" : ""}`} role="status" aria-hidden={!dateOpen}>{new Date(now).toLocaleDateString("en-CA").replaceAll("-", "")}</div>
             </div>
             <button
-              className="notification-button"
+              className={`notification-button ${criticalAlerts > 0 ? "has-critical" : ""}`}
               onClick={() => navigate("alerts")}
               aria-label={t(
                 `${unacknowledgedAlerts} 条未确认告警`,

@@ -1,9 +1,10 @@
 /* Interaction and Material consistency. */
-/* Keep the viewport scrollbar and its width through every page and overlay. */
-html { overflow-y: scroll; scrollbar-gutter: stable; }
+/* Allocate a scroll track only when content actually overflows. Dialogs keep
+   the background's existing geometry through event-based scroll locking. */
+html { overflow-y: auto; scrollbar-gutter: auto; }
 html.has-dialog { overscroll-behavior: none; scroll-behavior: auto !important; }
-.md-dialog__content { overflow-y: scroll; scrollbar-gutter: stable; }
-.md-select-list, .md-date-picker, .md-date-picker__year-grid, .md-anchored-popover { scrollbar-gutter: stable; }
+.md-dialog__content { overflow-y: auto; scrollbar-gutter: auto; }
+.md-select-list, .md-date-picker, .md-date-picker__year-grid, .md-anchored-popover { scrollbar-gutter: auto; }
 @media (min-width: 901px) { .drawer-scrim { display: none; } }
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--primary) 42%, var(--outline-variant)) transparent; }
 *::-webkit-scrollbar { width: 11px; height: 11px; }

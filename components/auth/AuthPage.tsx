@@ -5,6 +5,7 @@ import { useI18n } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
+import { useLoginBackground } from "./useLoginBackground";
 
 export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void }) {
   const { preference, setPreference, t } = useI18n();
@@ -14,7 +15,8 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const initialize = bootstrap.setupRequired;
-  const style = bootstrap.appearance.url ? { backgroundImage: `linear-gradient(135deg, rgb(22 18 39 / .62), rgb(48 33 82 / .48)), url("${bootstrap.appearance.url.replace(/["\\]/g, "")}")`, backgroundSize: bootstrap.appearance.fit, backgroundPosition: bootstrap.appearance.position, backgroundRepeat: "no-repeat" } : undefined;
+  const background = useLoginBackground(bootstrap.appearance);
+  const style = background ? { backgroundImage: `linear-gradient(135deg, rgb(22 18 39 / .34), rgb(48 33 82 / .24)), url("${background}")`, backgroundSize: bootstrap.appearance.fit, backgroundRepeat: "no-repeat" } : undefined;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -45,8 +47,8 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
     }
   };
 
-  return <main className={`auth-page ${bootstrap.appearance.url ? "auth-page--custom" : ""}`} style={style}>
-    <section className="auth-card" aria-labelledby="auth-title">
+  return <main className={`auth-page ${background ? "auth-page--custom" : ""}`} style={style}>
+    <section className="auth-card" data-glass={bootstrap.appearance.glassEnabled === false ? "solid" : bootstrap.appearance.glass ?? "default"} aria-labelledby="auth-title">
       <div className="auth-brand"><span className="brand-mark"><Icon name="ac_unit" size={28} filled /></span><div><strong>CastoriceUI</strong><span>Material Design VPS Console</span></div></div>
       <div className="auth-heading"><span className="auth-heading__icon"><Icon name={initialize ? "rocket_launch" : "shield_person"} filled /></span><div><p>{initialize ? t("安全初始化", "Secure setup") : t("管理员登录", "Administrator sign in")}</p><h1 id="auth-title">{initialize ? t("创建第一个管理员", "Create the first administrator") : t("欢迎回来", "Welcome back")}</h1>{initialize ? <span>{t("验证服务器的一次性引导码后创建本地账号。", "Verify the server's one-time bootstrap token to create a local account.")}</span> : null}</div></div>
       {initialize && !bootstrap.bootstrapAvailable ? <div className="auth-warning" role="alert"><Icon name="warning" /><span>{t("服务器缺少一次性引导码。请先在服务器执行部署文档中的生成命令。", "The server is missing a bootstrap token. Run the generation command in the deployment guide first.")}</span></div> : null}
@@ -57,7 +59,7 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
         {error ? <div className="auth-error" role="alert"><Icon name="error" size={20} /><span>{error}</span></div> : null}
         <Button type="submit" icon={initialize ? "arrow_forward" : "login"} disabled={busy || (initialize && !bootstrap.bootstrapAvailable)}>{busy ? t("正在验证…", "Verifying…") : initialize ? t("创建并继续", "Create and continue") : t("登录", "Sign in")}</Button>
       </form>
-      <div className="auth-footer auth-footer--language"><div className="auth-language-select"><span className="sr-only">{t("语言", "Language")}</span><MaterialSelect ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "System") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as "system" | "zh" | "en")} /></div></div>
+      <div className="auth-footer auth-footer--language"><div className="auth-language-select"><span className="sr-only">{t("语言", "Language")}</span><MaterialSelect popupClassName="md-select-menu--auth" ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "System") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as "system" | "zh" | "en")} /></div></div>
     </section>
   </main>;
 }

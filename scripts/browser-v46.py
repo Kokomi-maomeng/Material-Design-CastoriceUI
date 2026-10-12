@@ -42,7 +42,7 @@ def run(engine, timezone, browser):
             dashboard.update(alerts=history[:30], alertSummary=summary())
             data = dashboard
         elif path == "bootstrap":
-            data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover", "position": "center"}}
+            data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover"}}
         elif path.startswith("auth/"):
             data = {"username": "QA", "csrfToken": "synthetic-csrf", "expiresAt": int(time.time())+3600, "setupComplete": True}
         elif path in ("alerts", "audits"):
@@ -57,7 +57,7 @@ def run(engine, timezone, browser):
                     item.update(acknowledged=True, acknowledgedAt=TIME)
             data = {"ok": True}
         elif path == "settings/background-options":
-            data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover", "position": "center"}, "configured": {"type": "default", "value": ""}}
+            data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover"}, "configured": {"type": "default", "value": ""}}
         else:
             data = {"ok": True}
         route.fulfill(json=data)
@@ -78,7 +78,7 @@ def run(engine, timezone, browser):
         after = geometry()
         assert abs(before["x"]-after["x"]) < 0.5 and abs(before["width"]-after["width"]) < 0.5, (engine, timezone, before, after)
         assert before["scroll"] == after["scroll"], ("background scroll changed", before, after, page.evaluate("window.qaScrollEvents"))
-        assert after["overflow"] == "scroll"
+        assert after["overflow"] == "auto"
 
     def close_dialog():
         page.get_by_role("button", name="Close", exact=True).click()
@@ -103,7 +103,7 @@ def run(engine, timezone, browser):
             page.locator(".settings-dialog").wait_for()
             stable(before)
             scrollbar = page.locator(".md-dialog__content").evaluate("e=>{let s=getComputedStyle(e);return {overflow:s.overflowY,width:s.getPropertyValue('scrollbar-width'),gutter:s.getPropertyValue('scrollbar-gutter')}}")
-            assert scrollbar["overflow"] == "scroll" and scrollbar["width"] != "none", (engine, timezone, section, scrollbar)
+            assert scrollbar["overflow"] == "auto" and scrollbar["gutter"] == "auto" and scrollbar["width"] != "none", (engine, timezone, section, scrollbar)
             page.mouse.move(2, 200)
             page.mouse.wheel(0, 400)
             page.wait_for_timeout(80)

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
 import ipaddress
 import json
+import os
 import socket
 import threading
 import time
@@ -16,7 +18,8 @@ from urllib.parse import parse_qs, urlparse
 from . import __version__
 from .config import AppConfig
 from .dashboard import DashboardService, VISIBLE_PANEL_ORDER, ordered_visible_panels
-from .security import fetch_https_image_api, list_background_images, normalize_https_image_url, safe_background_image
+from .security import _image_mime, list_background_images, normalize_https_image_url, safe_background_image
+from .background import BackgroundCache, BackgroundUnavailable, CACHE_SECONDS, DEFAULT_PROFILE, PROFILES, background_setting
 from .storage import Storage
 
 
@@ -104,10 +107,29 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def send_image(self, path: Path, mime: str) -> None:
-        self.send_image_bytes(path.read_bytes(), mime)
+        self.stream_image(path, mime)
 
-    def send_image_bytes(self, body: bytes, mime: str) -> None:
-        self.write_response(HTTPStatus.OK, body, {"Content-Type": mime, "Cache-Control": "private, max-age=300", "Content-Security-Policy": "default-src 'none'; sandbox"})
+    def stream_image(self, path: Path, mime: str, stale: bool = False, retry_after: int = 0) -> None:
+        try:
+            with path.open("rb") as stream:
+                # An atomic refresh may replace this path between get() and
+                # open(). Describe the actual opened file, not older metadata.
+                mime = _image_mime(stream.read(16))
+                stream.seek(0)
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(os.fstat(stream.fileno()).st_size))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+                if stale:
+                    self.send_header("X-Background-Stale", "1")
+                    self.send_header("Retry-After", str(retry_after))
+                self.end_headers()
+                while chunk := stream.read(65_536):
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
 
     def read_json(self) -> dict[str, Any]:
         try:
@@ -203,24 +225,21 @@ class ApiHandler(BaseHTTPRequestHandler):
             parts.append("Secure")
         return "; ".join(parts)
 
-    def login_appearance(self) -> dict[str, str]:
-        value = self.app.storage.get_setting("login_background", {"type": "default", "value": ""})
-        if not isinstance(value, dict):
-            return {"type": "default", "url": "", "fit": "cover", "position": "center"}
-        background_type = str(value.get("type", "default"))
-        background_value = str(value.get("value", ""))
-        fit = str(value.get("fit", "cover")) if value.get("fit") in {"cover", "contain"} else "cover"
-        position = str(value.get("position", "center")) if value.get("position") in {"center", "top", "bottom", "left", "right"} else "center"
+    def login_appearance(self) -> dict[str, Any]:
+        value = background_setting(self.app.storage.get_setting("login_background", {}))
+        appearance = {key: item for key, item in value.items() if key != "value"}
+        appearance["url"] = ""
+        appearance["revision"] = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:20]
         try:
-            if background_type == "url":
-                normalize_https_image_url(background_value, self.app.config.external_background_hosts)
-                return {"type": "url", "url": "/api/v2/auth/background", "fit": fit, "position": position}
-            if background_type == "server":
-                safe_background_image(self.app.config.login_background_directory, background_value)
-                return {"type": "server", "url": "/api/v2/auth/background", "fit": fit, "position": position}
+            if value["type"] == "url":
+                normalize_https_image_url(value["value"], self.app.config.external_background_hosts)
+                appearance["url"] = "/api/v2/auth/background"
+            elif value["type"] == "server":
+                safe_background_image(self.app.config.login_background_directory, value["value"])
+                appearance["url"] = "/api/v2/auth/background"
         except ValueError:
-            return {"type": "default", "url": "", "fit": "cover", "position": "center"}
-        return {"type": "default", "url": "", "fit": "cover", "position": "center"}
+            appearance["type"] = "default"
+        return appearance
 
     def do_GET(self) -> None:
         parsed_request = urlparse(self.path)
@@ -236,20 +255,28 @@ class ApiHandler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/v2/auth/background":
-            setting = self.app.storage.get_setting("login_background", {})
+            setting = background_setting(self.app.storage.get_setting("login_background", {}))
             try:
-                if not isinstance(setting, dict):
-                    raise ValueError("No server background is selected")
+                profile = parse_qs(parsed_request.query).get("profile", [DEFAULT_PROFILE])[0]
+                if profile not in PROFILES:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_background_profile"})
+                    return
                 if setting.get("type") == "server":
                     image_path, mime = safe_background_image(self.app.config.login_background_directory, str(setting.get("value", "")))
                     self.send_image(image_path, mime)
                     return
                 if setting.get("type") == "url":
-                    body, mime = self.app.remote_background(str(setting.get("value", "")))
-                    self.send_image_bytes(body, mime)
+                    # A failed browser decode may retry a corrupt cached image;
+                    # this uses the same global fetch/byte/concurrency budgets.
+                    seconds = 0 if parse_qs(parsed_request.query).get("retry") == ["1"] else setting["cacheSeconds"]
+                    image = self.app.backgrounds.get(setting["value"], self.app.config.external_background_hosts, profile, seconds)
+                    self.stream_image(image.path, image.mime, image.stale, image.retry_after)
                     return
                 raise ValueError("No background is selected")
-            except ValueError:
+            except BackgroundUnavailable as error:
+                self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "background_temporarily_unavailable"}, {"Retry-After": str(error.retry_after)})
+                return
+            except (ValueError, OSError):
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "background_not_found"})
                 return
         if path == "/api/v2/auth/session":
@@ -307,7 +334,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             else:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "subscription_not_found"})
         elif path == "/api/v2/settings/background-options":
-            configured = self.app.storage.get_setting("login_background", {"type": "default", "value": ""})
+            configured = background_setting(self.app.storage.get_setting("login_background", {}))
             self.send_json(HTTPStatus.OK, {"files": list_background_images(self.app.config.login_background_directory), "directory": self.app.config.login_background_directory, "selected": self.login_appearance(), "configured": configured if isinstance(configured, dict) else {"type": "default", "value": ""}})
         else:
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
@@ -366,9 +393,13 @@ class ApiHandler(BaseHTTPRequestHandler):
                 background_type = text(payload.get("type", "default"), "type")
                 background_value = text(payload.get("value", ""), "value")
                 fit = text(payload.get("fit", "cover"), "fit")
-                position = text(payload.get("position", "center"), "position")
-                if fit not in {"cover", "contain"} or position not in {"center", "top", "bottom", "left", "right"}:
-                    raise ValueError("Invalid background fit or position")
+                seconds = payload.get("cacheSeconds", 0)
+                if type(seconds) is not int:
+                    raise ValueError("cacheSeconds must be an integer")
+                glass = text(payload.get("glass", "default"), "glass")
+                glass_enabled = boolean(payload.get("glassEnabled", True), "glassEnabled")
+                if fit not in {"cover", "contain"} or seconds not in CACHE_SECONDS or glass not in {"clear", "default", "tinted"}:
+                    raise ValueError("Invalid background appearance")
                 if background_type == "url":
                     background_value = normalize_https_image_url(background_value, self.app.config.external_background_hosts)
                 elif background_type == "server":
@@ -377,7 +408,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     background_value = ""
                 else:
                     raise ValueError("Unknown background type")
-                setting = {"type": background_type, "value": background_value, "fit": fit, "position": position}
+                setting = {"type": background_type, "value": background_value, "fit": fit, "cacheSeconds": seconds, "glass": glass, "glassEnabled": glass_enabled}
                 self.app.storage.set_setting("login_background", setting)
                 self.app.storage.add_audit("更新登录背景", "配置", f"登录背景类型已设为 {background_type}", self.source_ip(), actor=str(session["username"]))
                 self.send_json(HTTPStatus.OK, self.login_appearance())
@@ -514,9 +545,11 @@ class ApiServer(ThreadingHTTPServer):
         self.storage = storage
         self.dashboard = dashboard
         self.authentication_lock = threading.Lock()
-        self.background_cache_lock = threading.Lock()
-        self.background_cache: tuple[str, float, bytes, str] | None = None
-        self.background_failure: tuple[str, float] | None = None
+        self.backgrounds = BackgroundCache(Path(config.database_path).parent / "background-cache")
+        old_background = storage.get_setting("login_background", {})
+        migrated_background = background_setting(old_background)
+        if old_background != migrated_background:
+            storage.set_setting("login_background", migrated_background)
         self.request_slots = threading.BoundedSemaphore(self.max_request_workers)
         try:
             if ipaddress.ip_address(config.listen_host).version == 6:
@@ -572,19 +605,3 @@ class ApiServer(ThreadingHTTPServer):
 
     def clear_login_failures(self, source_ip: str) -> None:
         self.storage.clear_login_failures(source_ip)
-
-    def remote_background(self, url: str) -> tuple[bytes, str]:
-        normalized = normalize_https_image_url(url, self.config.external_background_hosts)
-        with self.background_cache_lock:
-            if self.background_cache and self.background_cache[0] == normalized and self.background_cache[1] > time.monotonic():
-                return self.background_cache[2], self.background_cache[3]
-            if self.background_failure and self.background_failure[0] == normalized and self.background_failure[1] > time.monotonic():
-                raise ValueError("Background image is temporarily unavailable")
-            try:
-                body, mime, _ = fetch_https_image_api(normalized, self.config.external_background_hosts)
-            except ValueError:
-                self.background_failure = (normalized, time.monotonic() + 30)
-                raise
-            self.background_cache = (normalized, time.monotonic() + 900, body, mime)
-            self.background_failure = None
-            return body, mime

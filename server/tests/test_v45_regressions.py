@@ -309,18 +309,20 @@ class AuditRegressions(unittest.TestCase):
 
     def test_background_parallel_requests_share_one_download_and_backoff(self) -> None:
         self.start_api()
-        def image(*_args):
+        def image(*_args, **_kwargs):
             time.sleep(0.03)
-            return b"synthetic-image", "image/png", "https://example.com/image"
-        with patch("castoriceui.api.fetch_https_image_api", side_effect=image) as fetch:
+            return b"\x89PNG\r\n\x1a\nsynthetic-image", "image/png", "https://example.com/image"
+        with patch("castoriceui.background.fetch_https_image_api", side_effect=image) as fetch:
+            self.server.backgrounds.get("https://example.com/image", [], seconds=60)
             with ThreadPoolExecutor(max_workers=8) as pool:
-                values = list(pool.map(lambda _: self.server.remote_background("https://example.com/image"), range(8)))
+                values = list(pool.map(lambda _: self.server.backgrounds.get("https://example.com/image", [], seconds=60), range(8)))
             self.assertEqual(fetch.call_count, 1)
             self.assertEqual(len(set(values)), 1)
-        with patch("castoriceui.api.fetch_https_image_api", side_effect=ValueError("synthetic")) as fetch:
+        self.server.backgrounds.next_fetch = 0
+        with patch("castoriceui.background.fetch_https_image_api", side_effect=ValueError("synthetic")) as fetch:
             for _ in range(4):
                 with self.assertRaises(ValueError):
-                    self.server.remote_background("https://example.com/failure")
+                    self.server.backgrounds.get("https://example.com/failure", [])
             self.assertEqual(fetch.call_count, 1)
 
 

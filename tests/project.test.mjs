@@ -446,6 +446,8 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(vite, /CASTORICEUI_DEV_API_TARGET/);
   const spaLocation = nginx.match(/location \/ \{([^]*?)\n {4}\}/)?.[1] ?? "";
   for (const header of ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]) assert.match(spaLocation, new RegExp(header));
+  assert.match(spaLocation, /img-src 'self' data: blob:/);
+  assert.doesNotMatch(nginx, /script-src[^;"]*(?:blob:|unsafe-eval)/);
   for (const asset of ["public/og.png", "CONTRIBUTING.md", "docs/BROWSER_SUPPORT.md"]) assert.match(packager, new RegExp(asset.replaceAll("/", "\\/")));
   assert.doesNotMatch(packager, /docs\/images\/dashboard-mobile\.png/);
   assert.match(dependabot, /github\/codeql-action\/\*/);
