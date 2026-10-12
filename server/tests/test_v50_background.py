@@ -2,6 +2,7 @@
 import http.client
 from http import HTTPStatus
 import json
+import runpy
 from pathlib import Path
 import sys
 import tempfile
@@ -177,6 +178,19 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual((setting["value"], setting["fit"], setting["cacheSeconds"], setting["glass"], setting["glassEnabled"]), (URL, "contain", 0, "default", True))
         for value in (None, [], {"type": [], "glass": {}, "fit": [], "cacheSeconds": True}):
             self.assertEqual(background_setting(value)["cacheSeconds"], 0)
+
+    def test_upgrade_adds_only_blob_image_permission_and_is_idempotent(self):
+        rewrite = runpy.run_path(str(Path(__file__).resolve().parents[2] / "deploy/install_release.py"))["allow_login_image_blobs"]
+        old = 'add_header Content-Security-Policy "default-src \'self\'; script-src \'self\'; img-src \'self\' data:; object-src \'none\'" always;\n'
+        old += 'add_header Content-Security-Policy "img-src \'none\'; frame-ancestors \'none\'" always;\n'
+        old += 'proxy_pass http://127.0.0.1:18080; # operator setting\n'
+        updated = rewrite(old)
+        self.assertIn("img-src 'self' data: blob:;", updated)
+        self.assertIn('"img-src blob:;', updated)
+        self.assertIn("script-src 'self';", updated)
+        self.assertIn("object-src 'none'", updated)
+        self.assertIn("# operator setting", updated)
+        self.assertEqual(rewrite(updated), updated)
 
     def test_30mb_boundary_and_synthetic_layout_headers(self):
         headers = http.client.HTTPMessage(); headers["Content-Type"] = "image/png"

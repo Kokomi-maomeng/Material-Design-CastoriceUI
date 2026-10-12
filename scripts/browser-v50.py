@@ -71,6 +71,10 @@ def run(engine, context):
         route.fulfill(json=data)
 
     context.route("**/api/v2/**", route_api)
+    def document_policy(route):
+        response = route.fetch()
+        route.fulfill(response=response, headers={**response.headers, "Content-Security-Policy": "img-src 'self' data: blob:"})
+    context.route(BASE + "/", document_policy)
     # A synthetic existing authentication cookie must still be omitted for images.
     context.add_cookies([{"name": "castorice_session", "value": "synthetic-browser-session", "url": BASE}])
     page.goto(BASE, wait_until="networkidle")
