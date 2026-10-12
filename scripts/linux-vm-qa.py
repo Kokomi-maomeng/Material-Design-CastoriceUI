@@ -70,7 +70,21 @@ def main() -> None:
                 raise RuntimeError("QA VM did not become ready")
             try:
                 ready()
-                run(*ssh, "cloud-init status --wait", timeout=600)
+                # Debian cloud-init can restart ssh after the first successful
+                # connection. Retry only transport loss during this boot stage.
+                deadline = time.monotonic() + 600
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or vm.poll() is not None:
+                        raise RuntimeError("QA VM cloud-init did not become ready")
+                    initialized = run(*ssh, "cloud-init status --wait", check=False, timeout=max(1, int(remaining)))
+                    if initialized.returncode == 0:
+                        break
+                    if initialized.returncode != 255:
+                        print(initialized.stdout, flush=True)
+                        print(initialized.stderr, flush=True)
+                        raise subprocess.CalledProcessError(initialized.returncode, initialized.args)
+                    time.sleep(2)
                 run(*ssh, "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-yaml nginx openssl iproute2 iputils-ping", timeout=900)
                 run(*scp, str(args.archive.resolve()), str(root / "scripts/linux-install-acceptance.py"), "root@127.0.0.1:/root/")
                 first = run(*ssh, f"python3 /root/linux-install-acceptance.py --archive /root/{args.archive.name} --phase install", timeout=900)
