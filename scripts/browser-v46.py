@@ -23,6 +23,9 @@ def run(engine, timezone, browser):
     page.add_init_script("window.qaScrollEvents=[];for(const event of ['scroll','pointerdown','click'])addEventListener(event,e=>{window.qaScrollEvents.push({event,y:scrollY,lock:document.documentElement.classList.contains('has-dialog'),target:e.target?.className});window.qaScrollEvents=window.qaScrollEvents.slice(-20)},true)")
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    # Install bootstrap evidence before loading the app. Its first request must
+    # not escape to Vite's real backend proxy while fixtures are being prepared.
+    context.route("**/api/v2/bootstrap", lambda route: route.fulfill(json={"setupRequired": True, "bootstrapAvailable": False}))
     for attempt in range(3):
         try:
             page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15_000)

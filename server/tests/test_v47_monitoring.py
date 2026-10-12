@@ -36,6 +36,23 @@ THRESHOLDS = {"latencyMs": 150., "lossPercent": 5.}
 
 
 class SupplementalEvidenceTests(unittest.TestCase):
+    def test_core_group_preserves_independent_errors_and_business_failure_title(self):
+        with tempfile.TemporaryDirectory() as folder:
+            storage = Storage(str(Path(folder) / "qa.sqlite"))
+            dashboard = DashboardService(AppConfig(), storage)
+            services = [
+                {"id": "singbox", "name": "sing-box", "status": "stopped", "detail": "Core inactive"},
+                {"id": "anytls", "name": "AnyTLS", "status": "stopped", "detail": "Core inactive", "stateReason": "core_offline"},
+                {"id": "vless", "name": "VLESS", "status": "warning", "detail": "Independent mapping error", "stateReason": "configuration_unverified"},
+                {"id": "external-qa-anytls", "name": "AnyTLS external", "status": "warning", "detail": "Forwarding failed", "stateReason": "external_business_failure", "alertConfirmed": True},
+            ]
+            alerts = {x["id"]: x for x in dashboard.alerts({"trafficUsedBytes": 0, "trafficLimitBytes": 100}, services, [])}
+            self.assertNotIn("service-anytls", alerts)
+            self.assertEqual(alerts["service-singbox"]["affectedServices"], ["anytls"])
+            self.assertIn("AnyTLS", alerts["service-singbox"]["descriptionZh"])
+            self.assertIn("monitor-vless", alerts)
+            self.assertIn("business check failed", alerts["monitor-external-qa-anytls"]["titleEn"])
+
     def test_confirmed_core_stop_overrides_stale_successful_statistics(self):
         with patch("castoriceui.collectors.service_state", return_value=("failed", 0)), patch("castoriceui.collectors.run", return_value="1.13.19"):
             services = service_snapshots(health.config(), health.SYSTEM, {"available": True}, {"available": True, "inventory": health.inventory()})
@@ -65,10 +82,12 @@ class SupplementalEvidenceTests(unittest.TestCase):
             initial = {x["id"]: x["episodeId"] for x in storage.active_alerts()}
             service.update(status="warning", stateReason="inventory_stale")
             target.update(status="unavailable", complete=False, loss=None, latency=None, probeReason="timeout")
-            dashboard.alerts(system, [service], [target])
-            continued = {x["id"]: x["episodeId"] for x in storage.active_alerts()}
-            self.assertEqual(continued["service-anytls"], initial["service-anytls"])
-            self.assertEqual(continued["network-one"], initial["network-one"])
+            for reason in ("inventory_stale", "statistics_unavailable", "core_state_unconfirmed", "configuration_unverified"):
+                service["stateReason"] = reason
+                dashboard.alerts(system, [service], [target])
+                continued = {x["id"]: x["episodeId"] for x in storage.active_alerts()}
+                self.assertEqual(continued["service-anytls"], initial["service-anytls"])
+                self.assertEqual(continued["network-one"], initial["network-one"])
             service.update(status="running", stateReason="verified")
             target.update(status="healthy", complete=True, loss=0, latency=10, alertConfirmed=False)
             dashboard.alerts(system, [service], [target])

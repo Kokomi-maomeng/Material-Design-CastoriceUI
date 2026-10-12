@@ -18,6 +18,7 @@ PAGES = ("overview", "traffic", "connections", "accounts", "network", "services"
 
 def synthetic_dashboard(page) -> dict[str, object]:
     """Load the typed empty payload and add only synthetic, publishable QA data."""
+    page.context.route("**/api/v2/bootstrap", lambda route: route.fulfill(json={"setupRequired": True, "bootstrapAvailable": False}))
     page.goto(BASE_URL, wait_until="domcontentloaded")
     dashboard = page.evaluate(
         "async () => structuredClone((await import('/lib/empty-dashboard.ts')).emptyDashboard)"

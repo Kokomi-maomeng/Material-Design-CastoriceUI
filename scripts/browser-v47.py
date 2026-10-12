@@ -15,6 +15,7 @@ with sync_playwright() as playwright:
         page = context.new_page()
         errors, mutations = [], []
         page.on("pageerror", lambda error: errors.append(type(error).__name__))
+        context.route("**/api/v2/bootstrap", lambda route: route.fulfill(json={"setupRequired": True, "bootstrapAvailable": False}))
         page.goto(base, wait_until="domcontentloaded")
         dashboard = page.evaluate("async()=>structuredClone((await import('/lib/empty-dashboard.ts')).emptyDashboard)")
         dashboard.update(mode="live", generatedAt="2026-01-01T00:00:00Z")

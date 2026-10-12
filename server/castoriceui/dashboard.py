@@ -942,7 +942,13 @@ class DashboardService:
             if service["status"] == "stopped":
                 if service.get("stateReason") == "core_offline" and any(item["id"] == "singbox" and item["status"] == "stopped" for item in services):
                     continue
-                alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "titleEn": f"{service.get('nameEn', service['name'])} is offline", "titleZh": f"{service.get('nameZh', service['name'])} 已离线", "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Service monitor", "sourceEn": "Service monitor", "sourceZh": "服务监控"})
+                affected = [item for item in services if service["id"] == "singbox" and item.get("stateReason") == "core_offline"]
+                detail_en = service.get("detailEn", service["detail"])
+                detail_zh = service.get("detailZh", service["detail"])
+                if affected:
+                    detail_en += " · Affected protocols: " + ", ".join(item.get("nameEn", item["name"]) for item in affected)
+                    detail_zh += "；受影响协议：" + "、".join(item.get("nameZh", item["name"]) for item in affected)
+                alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "titleEn": f"{service.get('nameEn', service['name'])} is offline", "titleZh": f"{service.get('nameZh', service['name'])} 已离线", "description": detail_en, "descriptionEn": detail_en, "descriptionZh": detail_zh, "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Service monitor", "sourceEn": "Service monitor", "sourceZh": "服务监控", "affectedServices": [item["id"] for item in affected], "evidence": service.get("evidence", {})})
             elif service["status"] == "warning" and service.get("id") not in {"certificate", "kernel"}:
                 if str(service["id"]).startswith("external-") and not service.get("alertConfirmed"):
                     continue
@@ -955,7 +961,9 @@ class DashboardService:
                     continue
                 if any(item["id"] == "monitor-" + key for item in alerts):
                     continue
-                alerts.append({"id": "monitor-" + key, "severity": "warning", "title": f"{service['name']} monitoring evidence unavailable", "titleEn": f"{service['name']} monitoring evidence unavailable", "titleZh": f"{service['name']} 状态证据无法确认", "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "source": "Monitor evidence", "sourceEn": "Monitor evidence", "sourceZh": "监控证据", "time": "now", "acknowledged": False, "reason": reason, "evidence": service.get("evidence", {}), "affectedServices": [item["id"] for item in services if item.get("rootCauseId") == key]})
+                title_en = f"{service['name']} external business check failed" if reason == "external_business_failure" else f"{service['name']} monitoring evidence unavailable"
+                title_zh = f"{service['name']} 外部业务验证异常" if reason == "external_business_failure" else f"{service['name']} 状态证据无法确认"
+                alerts.append({"id": "monitor-" + key, "severity": "warning", "title": title_en, "titleEn": title_en, "titleZh": title_zh, "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "source": "Monitor evidence", "sourceEn": "Monitor evidence", "sourceZh": "监控证据", "time": "now", "acknowledged": False, "reason": reason, "evidence": service.get("evidence", {}), "affectedServices": [item["id"] for item in services if item.get("rootCauseId") == key]})
             else:
                 self.unknown_since.pop(str(service.get("rootCauseId") or service["id"]), None)
         for target in network:
@@ -971,7 +979,7 @@ class DashboardService:
         present = {str(item["id"]) for item in alerts}
         for previous in self.storage.active_alerts():
             service = next((item for item in services if "service-" + item["id"] == previous["id"]), None)
-            if service and previous["id"] not in present and service.get("status") == "warning" and service.get("stateReason") in {"inventory_missing", "inventory_stale", "inventory_invalid", "inventory_permission_denied", "core_generation_changed", "config_not_loaded", "probe_unavailable", "collector_stale"}:
+            if service and previous["id"] not in present and service.get("status") == "warning" and service.get("stateReason") in {"inventory_missing", "inventory_stale", "inventory_invalid", "inventory_permission_denied", "core_generation_changed", "config_not_loaded", "probe_unavailable", "collector_stale", "statistics_unavailable", "core_state_unconfirmed", "configuration_unverified"}:
                 retained = dict(previous)
                 retained.update(severity="warning", title=f"{service['name']} recovery is unconfirmed", titleEn=f"{service['name']} recovery is unconfirmed", titleZh=f"{service['name']} 尚不能确认恢复", description=service["detail"], descriptionEn=service.get("detailEn", service["detail"]), descriptionZh=service.get("detailZh", service["detail"]), reason="recovery_unconfirmed", evidence=service.get("evidence", {}))
                 alerts.append(retained)
