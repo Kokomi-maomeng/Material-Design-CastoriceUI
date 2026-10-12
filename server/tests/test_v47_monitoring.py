@@ -155,6 +155,31 @@ class SupplementalEvidenceTests(unittest.TestCase):
             path.write_text(json.dumps(data))
             self.assertEqual(maintenance_info(path)["state"], "invalid")
 
+    def test_external_clock_skew_uses_server_receipt_without_extending_expiry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            storage = Storage(str(Path(folder) / "qa.sqlite"))
+            config = AppConfig(external_probe_secret="s" * 40, external_probe_agents=["qa"])
+            now = int(time.time())
+            def report(status, observed, received):
+                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": observed, "agentHealthy": True, "protocols": {"anytls": {"status": status}}}, now=received)
+            def get(at=now):
+                return service_evidence(config, storage, {"external-qa-anytls"}, now=at, startup_age=200)[0]
+            report("passed", now + .3, now)
+            report("passed", now + .3, now)
+            self.assertEqual(get()["stateReason"], "external_business_passed")
+            self.assertFalse(get()["alertConfirmed"])
+            self.assertEqual(get(now+181)["stateReason"], "external_observer_unavailable")
+            report("failed", now + .3, now)
+            report("failed", now + .3, now)
+            self.assertEqual(get()["stateReason"], "external_business_failure")
+            self.assertTrue(get()["alertConfirmed"])
+            report("passed", now + 61, now)
+            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
+            report("passed", now - 181, now)
+            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
+            report("passed", now, now - 181)
+            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
+
     def test_external_agent_failure_categories_and_no_private_log_in_result(self):
         path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
         spec = importlib.util.spec_from_file_location("external_agent_qa", path)
