@@ -124,7 +124,8 @@ class SupplementalEvidenceTests(unittest.TestCase):
             config = AppConfig(external_probe_secret="s" * 40, external_probe_agents=["qa"])
             now = int(time.time())
             def report(status, at, healthy=True):
-                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": at, "agentHealthy": healthy, "protocols": {"anytls": {"status": status, "failedStage": "authentication" if status == "failed" else ""}}})
+                # Receipt and evaluation share the fixture clock even on a slow VM.
+                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": at, "agentHealthy": healthy, "protocols": {"anytls": {"status": status, "failedStage": "authentication" if status == "failed" else ""}}}, now=now)
             def get(active=set(), at=now):
                 return service_evidence(config, storage, active, now=at, startup_age=200)[0]
             report("failed", now - 60)
