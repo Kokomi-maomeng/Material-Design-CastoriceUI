@@ -43,6 +43,9 @@ def run(engine, context):
         if path == "auth/background":
             state["images"] += 1; state["profiles"].append(parse_qs(parsed.query)["profile"][0])
             assert "cookie" not in route.request.headers, "background sent a visitor cookie"
+            if state.get("hold"):
+                state["held"] = route
+                return
             if state["failed"]: route.fulfill(status=503, json={"error": "background_temporarily_unavailable"}, headers={"Retry-After": "2"}); return
             route.fulfill(body=b"invalid" if state["corrupt"] else image(state["images"]), content_type="image/png", headers={"Cache-Control": "no-store"}); return
         if path == "bootstrap": data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": appearance}
@@ -117,6 +120,23 @@ def run(engine, context):
     page.wait_for_timeout(2300)
     count = state["images"]; page.wait_for_timeout(2300)
     assert state["images"] == count, "background polls without an entry/resize event"
+
+    # Keep the visible image while a different, uncached viewport is pending
+    # or unavailable; publish that viewport's image only after it decodes.
+    previous = page.locator(".auth-page").get_attribute("style")
+    state["hold"] = True
+    with page.expect_request(lambda request: "profile=landscape-2560" in request.url):
+        page.set_viewport_size({"width": 2560, "height": 1440})
+    page.wait_for_timeout(200)
+    assert page.locator(".auth-page").get_attribute("style") == previous, "pending viewport cleared the decoded background"
+    with page.expect_response(lambda response: "profile=landscape-2560" in response.url):
+        state.pop("held").fulfill(status=503, json={"error": "background_temporarily_unavailable"}, headers={"Retry-After": "2"})
+    state["hold"] = False
+    page.wait_for_timeout(200)
+    assert page.locator(".auth-page").get_attribute("style") == previous, "failed viewport cleared the decoded background"
+    page.wait_for_function("previous=>document.querySelector('.auth-page').getAttribute('style')!==previous", arg=previous)
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.wait_for_timeout(500)
 
     cases = 0
     shots = Path(os.environ["CASTORICEUI_QA_SHOTS"]) if os.environ.get("CASTORICEUI_QA_SHOTS") else None

@@ -157,6 +157,8 @@ One upstream chain runs at a time; at most 12 starts per rolling 60s, at least 1
 
 The browser decodes before replacing an image, retains the previous successful image in bounded Cache Storage, and makes at most two retries per entry. Background fetch uses `credentials: omit`; application authentication cookies remain part of the separate login/session mechanism. The server keeps at most eight files, 30 MB each, next to the configured database, plus one temporary download; bodies stream to clients in 64 KiB chunks. The browser keeps at most three image variants (90 MB) and one in-memory fallback. Disabled/unavailable Cache Storage falls back to current-tab memory and server files. These limits protect the background fetcher; they are not a claim of infrastructure-wide DDoS protection.
 
+Changing viewport class or background settings also keeps the currently decoded image visible until a replacement succeeds. This temporary fallback is never saved under the new class's cache key.
+
 ## Protocol service health (v4.1)
 
 `services` includes a `kind` field (`protocol` or `core`) for monitored proxy components. Protocol IDs are `hysteria2`, `anytls`, `vless`, `socks5`, `shadowsocks`, `vmess`, `trojan`, and `tuic`. Presence follows effective protected configuration, persisted setup overrides, or a submitted first-setup attempt. Untouched optional integrations remain absent. The shared sing-box core has ID `singbox` and is listed independently.

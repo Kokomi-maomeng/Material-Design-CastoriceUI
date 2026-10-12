@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { backgroundCacheKey, backgroundProfile } from "../../lib/login-background";
 import type { LoginAppearance } from "../../lib/types";
 
@@ -8,7 +8,8 @@ const MAX_IMAGE_BYTES = 30_000_000;
 let lastImage: { key: string; blob: Blob } | undefined;
 
 export function useLoginBackground(appearance: LoginAppearance): string {
-  const [source, setSource] = useState({ key: "", url: "" });
+  const [source, setSource] = useState("");
+  const activeUrl = useRef("");
   const [profile, setProfile] = useState(() => backgroundProfile(innerWidth, innerHeight));
   const key = appearance.url ? backgroundCacheKey(appearance, profile) : "";
 
@@ -22,10 +23,13 @@ export function useLoginBackground(appearance: LoginAppearance): string {
     return () => { window.clearTimeout(timer); window.removeEventListener("resize", resize); };
   }, []);
 
+  useEffect(() => () => {
+    if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
+  }, []);
+
   useEffect(() => {
     if (!key) return;
     let disposed = false;
-    let activeUrl = "";
     let retryTimer = 0;
     let retryDecode = false;
     let controller: AbortController | undefined;
@@ -36,9 +40,9 @@ export function useLoginBackground(appearance: LoginAppearance): string {
       image.src = url;
       try { await image.decode(); } catch { URL.revokeObjectURL(url); return false; }
       if (disposed) { URL.revokeObjectURL(url); return false; }
-      const previous = activeUrl;
-      activeUrl = url;
-      setSource({ key, url });
+      const previous = activeUrl.current;
+      activeUrl.current = url;
+      setSource(url);
       if (previous) URL.revokeObjectURL(previous);
       return true;
     };
@@ -88,9 +92,10 @@ export function useLoginBackground(appearance: LoginAppearance): string {
       disposed = true;
       controller?.abort();
       window.clearTimeout(retryTimer);
-      if (activeUrl) URL.revokeObjectURL(activeUrl);
+      // A cold viewport/source variant may fail. Keep the decoded current
+      // image until its replacement succeeds, while caches remain per key.
     };
   }, [key]);
 
-  return source.key === key ? source.url : "";
+  return key ? source : "";
 }
