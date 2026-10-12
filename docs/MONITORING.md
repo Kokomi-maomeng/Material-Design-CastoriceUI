@@ -36,6 +36,8 @@ On a Windows observer already using a TUN client, optionally set `interfaceName`
 
 Optionally configure `observerUrls` with one or two independent HTTPS targets for observer health. They run concurrently and at least one must succeed before proxy business checks run. Both failing produces unavailable observer evidence. Without this setting, `testUrl` is the health target. Use targets on separate providers and keep them independent of the monitored server; a target failure alone must not prevent otherwise valid proxy tests. The separate `testUrl` still determines the actual forwarded business request.
 
+Report freshness uses the server's receipt time together with the signed observation time. Up to 60 seconds of future clock skew matches submission validation; neither a receipt nor an observation older than 180 seconds stays fresh. A small positive observer clock offset must not create a transient unavailable alert or prevent the two-report business confirmation/recovery policy.
+
 Adding a dedicated server identity is conditional on the existing authentication mode. A single shared-password core cannot gain a separate identity through this monitoring API. Keep an existing protected identity until an independently planned safe authentication migration is possible; never restart a live proxy merely to claim dedicated-identity acceptance. This limitation must be included in site acceptance evidence.
 
 ## Certificate delivery

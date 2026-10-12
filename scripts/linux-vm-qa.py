@@ -70,7 +70,21 @@ def main() -> None:
                 raise RuntimeError("QA VM did not become ready")
             try:
                 ready()
-                run(*ssh, "cloud-init status --wait", timeout=600)
+                # Debian cloud-init can restart ssh after the first successful
+                # connection. Retry only transport loss during this boot stage.
+                deadline = time.monotonic() + 600
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or vm.poll() is not None:
+                        raise RuntimeError("QA VM cloud-init did not become ready")
+                    initialized = run(*ssh, "cloud-init status --wait", check=False, timeout=max(1, int(remaining)))
+                    if initialized.returncode == 0:
+                        break
+                    if initialized.returncode != 255:
+                        print(initialized.stdout, flush=True)
+                        print(initialized.stderr, flush=True)
+                        raise subprocess.CalledProcessError(initialized.returncode, initialized.args)
+                    time.sleep(2)
                 run(*ssh, "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-yaml nginx openssl iproute2 iputils-ping", timeout=900)
                 run(*scp, str(args.archive.resolve()), str(root / "scripts/linux-install-acceptance.py"), "root@127.0.0.1:/root/")
                 first = run(*ssh, f"python3 /root/linux-install-acceptance.py --archive /root/{args.archive.name} --phase install", timeout=900)
@@ -85,6 +99,13 @@ def main() -> None:
                 print(final.stdout)
                 print(json.dumps({"debian": args.debian, "officialImageChecksum": True, "actualVmReboot": True, "acceleration": acceleration}))
             except BaseException:
+                # Only the isolated VM has synthetic configuration and test data.
+                # The production installer keeps these logs private in its backup.
+                try:
+                    diagnostics = run(*ssh, "python3 -c \"from pathlib import Path; assert Path('/etc/hostname').read_text().strip() == 'castorice-ci'; logs=sorted(Path('/var/backups').glob('castoriceui-v*/backend-tests.log'), key=lambda p:p.stat().st_mtime_ns); print(logs[-1].read_text(errors='replace')[-16000:] if logs else 'No staged backend test log')\"", check=False, timeout=20)
+                    print(diagnostics.stdout, flush=True)
+                except (OSError, subprocess.SubprocessError):
+                    print("Isolated VM diagnostics unavailable", flush=True)
                 print((work / "console.log").read_text(errors="replace")[-6000:])
                 raise
             finally:

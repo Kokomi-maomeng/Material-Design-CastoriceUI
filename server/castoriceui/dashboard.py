@@ -1411,7 +1411,10 @@ class DashboardService:
                 if key == "singbox":
                     runtime[key]["inventory"] = {"available": False, "reason": "collector_stale"}
         services = service_snapshots(self.config, system, runtime["hy2"], runtime["singbox"])
-        services.extend(service_evidence(self.config, self.storage, {str(item["id"])[8:] for item in self.storage.active_alerts() if str(item["id"]).startswith("monitor-external-")}, startup_age=time.monotonic() - self.started_monotonic))
+        active_business = {str(item["id"])[8:] for item in self.storage.active_alerts()
+                           if str(item["id"]).startswith("monitor-external-") and
+                           (item.get("reason") == "external_business_failure" or item.get("evidence", {}).get("businessIncidentActive") is True)}
+        services.extend(service_evidence(self.config, self.storage, active_business, startup_age=time.monotonic() - self.started_monotonic))
         maintenance = maintenance_info()
         if maintenance.get("id"):
             for item in services:
