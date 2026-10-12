@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useLayoutEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../lib/i18n";
 import { Icon } from "./Icon";
@@ -20,6 +20,7 @@ export function MaterialSelect({
   placeholder,
   searchable = false,
   disabled = false,
+  popupClassName = "",
 }: {
   value: string;
   options: MaterialSelectOption[];
@@ -28,6 +29,7 @@ export function MaterialSelect({
   placeholder?: string;
   searchable?: boolean;
   disabled?: boolean;
+  popupClassName?: string;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -47,7 +49,7 @@ export function MaterialSelect({
       : options;
   }, [options, query]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !present) return;
     const place = () => {
       const rect = buttonRef.current?.getBoundingClientRect();
@@ -55,17 +57,24 @@ export function MaterialSelect({
       if (!rect || !popup) return;
       const gap = 6;
       const edge = 12;
-      const roomBelow = Math.max(0, window.innerHeight - rect.bottom - gap - edge);
-      const roomAbove = Math.max(0, rect.top - gap - edge);
-      const width = Math.max(1, Math.min(Math.max(rect.width, 240), window.innerWidth - 24));
-      const desiredHeight = Math.min(420, Math.max(46, popup.scrollHeight));
+      const viewport = window.visualViewport;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const viewportLeft = viewport?.offsetLeft ?? 0;
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const viewportWidth = viewport?.width ?? window.innerWidth;
+      const roomBelow = Math.max(0, viewportTop + viewportHeight - rect.bottom - gap - edge);
+      const roomAbove = Math.max(0, rect.top - viewportTop - gap - edge);
+      const width = Math.max(1, Math.min(Math.max(rect.width, 240), viewportWidth - 24));
+      const list = popup.querySelector<HTMLElement>(".md-select-list");
+      const search = popup.querySelector<HTMLElement>(".md-select-search");
+      const desiredHeight = Math.min(420, Math.max(46, (list?.scrollHeight ?? popup.scrollHeight) + (search ? search.offsetHeight + 9 : 0) + 14));
       const placement = roomBelow >= desiredHeight || roomBelow >= roomAbove ? "bottom" : "top";
       const available = placement === "bottom" ? roomBelow : roomAbove;
       const maxHeight = Math.max(1, Math.min(420, available));
       const height = Math.min(desiredHeight, maxHeight);
       const unclampedTop = placement === "bottom" ? rect.bottom + gap : rect.top - gap - height;
-      const top = Math.min(Math.max(edge, unclampedTop), Math.max(edge, window.innerHeight - height - edge));
-      const left = Math.min(Math.max(edge, rect.left), Math.max(edge, window.innerWidth - width - edge));
+      const top = Math.min(Math.max(viewportTop + edge, unclampedTop), Math.max(viewportTop + edge, viewportTop + viewportHeight - height - edge));
+      const left = Math.min(Math.max(viewportLeft + edge, rect.left), Math.max(viewportLeft + edge, viewportLeft + viewportWidth - width - edge));
       setPosition({ left, top, width, maxHeight, placement, ready: true });
     };
     const closeOnOutside = (event: PointerEvent) => {
@@ -79,24 +88,34 @@ export function MaterialSelect({
       setOpen(false);
       buttonRef.current?.focus();
     };
+    place();
     const placementFrame = window.requestAnimationFrame(place);
     document.addEventListener("pointerdown", closeOnOutside, true);
     document.addEventListener("keydown", closeOnEscape, true);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
-    const focusTimer = window.setTimeout(() => {
-      if (searchable) searchRef.current?.focus();
-      else (popupRef.current?.querySelector<HTMLElement>("[aria-selected='true']") ?? popupRef.current?.querySelector<HTMLElement>("[role='option']"))?.focus();
-    });
-  return () => {
-      window.clearTimeout(focusTimer);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(place) : null;
+    if (popupRef.current) observer?.observe(popupRef.current);
+    return () => {
       window.cancelAnimationFrame(placementFrame);
       document.removeEventListener("pointerdown", closeOnOutside, true);
       document.removeEventListener("keydown", closeOnEscape, true);
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+      observer?.disconnect();
     };
   }, [open, present, searchable]);
+
+  useLayoutEffect(() => {
+    if (!open || !position.ready) return;
+    const target = searchable ? searchRef.current : popupRef.current?.querySelector<HTMLElement>("[aria-selected='true']") ?? popupRef.current?.querySelector<HTMLElement>("[role='option']");
+    target?.focus({ preventScroll: true });
+    if (!searchable) target?.scrollIntoView?.({ block: "nearest" });
+  }, [open, position.ready, searchable]);
 
     const navigateOptions = (event: ReactKeyboardEvent<HTMLElement>) => {
             const buttons = Array.from(popupRef.current?.querySelectorAll<HTMLButtonElement>("[role='option']") ?? []);
@@ -152,7 +171,7 @@ export function MaterialSelect({
       {present ? createPortal(
         <div
           ref={popupRef}
-          className={`md-select-menu md-floating-panel ${open ? "is-open" : "is-closing"}`}
+          className={`md-select-menu md-floating-panel ${popupClassName} ${open ? "is-open" : "is-closing"}`}
           data-placement={position.placement}
           aria-hidden={!open}
           role="group"

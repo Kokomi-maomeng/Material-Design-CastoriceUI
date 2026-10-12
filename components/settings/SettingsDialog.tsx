@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, changePassword, fetchBackgroundOptions, updateLoginBackground } from "../../lib/api";
-import { formatDecimalBytes } from "../../lib/format";
+import { formatDecimalBytes, formatTimeSpan } from "../../lib/format";
+import { BACKGROUND_TIMES, GLASS_PRESETS } from "../../lib/login-background";
 import { useI18n, type LanguagePreference } from "../../lib/i18n";
 import { navigation, PANEL_IDS } from "../../lib/navigation";
 import { PROJECT_AUTHOR, PROJECT_NAME, PROJECT_URL, PROJECT_VERSION } from "../../lib/project";
 import { THEME_MODES, type ThemeColor, type ThemeMode } from "../../lib/theme";
-import type { UiSettings } from "../../lib/types";
+import type { LoginAppearance, UiSettings } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
@@ -52,7 +53,9 @@ export function SettingsDialog({
   const [backgroundFiles, setBackgroundFiles] = useState<string[]>([]);
   const [backgroundDirectory, setBackgroundDirectory] = useState("");
   const [backgroundFit, setBackgroundFit] = useState<"cover" | "contain">("cover");
-  const [backgroundPosition, setBackgroundPosition] = useState<"center" | "top" | "bottom" | "left" | "right">("center");
+  const [backgroundSeconds, setBackgroundSeconds] = useState<NonNullable<LoginAppearance["cacheSeconds"]>>(0);
+  const [glass, setGlass] = useState<NonNullable<LoginAppearance["glass"]>>("default");
+  const [glassEnabled, setGlassEnabled] = useState(true);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -76,7 +79,9 @@ export function SettingsDialog({
         setBackgroundType(result.configured.type);
         setBackgroundValue(result.configured.value);
         setBackgroundFit(result.configured.fit ?? "cover");
-        setBackgroundPosition(result.configured.position ?? "center");
+        setBackgroundSeconds(result.configured.cacheSeconds ?? 0);
+        setGlass(result.configured.glass ?? "default");
+        setGlassEnabled(result.configured.glassEnabled ?? true);
       })
       .catch(() => undefined);
   }, [open]);
@@ -181,9 +186,9 @@ export function SettingsDialog({
           </div>
         </details>
         <details className="settings-disclosure general-setting-item">
-          <summary><span><Icon name="timer" /><span><strong>{t("在线超时时长", "Inactivity timeout")}</strong><small>{t(`${draftUiSettings.idleTimeoutMinutes} 分钟`, `${draftUiSettings.idleTimeoutMinutes} minutes`)}</small></span></span><Icon name="expand_more" /></summary>
+          <summary><span><Icon name="timer" /><span><strong>{t("在线超时时长", "Inactivity timeout")}</strong><small>{`${draftUiSettings.idleTimeoutMinutes}min`}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
-            <div className="field"><span>{t("在线超时时长", "Inactivity timeout")}</span><MaterialSelect ariaLabel={t("在线超时时长", "Inactivity timeout")} value={String(draftUiSettings.idleTimeoutMinutes)} options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: t(`${minutes} 分钟`, `${minutes} minutes`) }))} onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })} /></div>
+            <div className="field"><span>{t("在线超时时长", "Inactivity timeout")}</span><MaterialSelect ariaLabel={t("在线超时时长", "Inactivity timeout")} value={String(draftUiSettings.idleTimeoutMinutes)} options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: `${minutes}min` }))} onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })} /></div>
           </div>
         </details>
       </section>
@@ -287,13 +292,24 @@ export function SettingsDialog({
               />
               <small className="field-hint">
                 {t(
-                  "支持直接图片、HTTP 重定向，以及返回 url、image、imageUrl 或 image_url 字段的 JSON；后端只允许公网 HTTPS，限制 5 MB 并缓存 15 分钟。",
-                  "Supports direct images, HTTP redirects, and JSON containing url, image, imageUrl, or image_url. The backend accepts public HTTPS only, limits images to 5 MB, and caches for 15 minutes.",
+                  "支持图片、重定向或图片链接 JSON，单张最大 30 MB。按屏幕尺寸分组，背景时间到期后再次访问时更新；请求失败时保留上一张图片。",
+                  "Supports images, redirects, or image-link JSON, up to 30 MB per image. Screen sizes have separate caches. The next visit after expiry refreshes the image; failures retain the last image.",
                 )}
               </small>
             </label>
           ) : null}
-          {backgroundType !== "default" ? <div className="form-grid background-layout-controls"><div className="field"><span>{t("缩放方式", "Image fit")}</span><MaterialSelect ariaLabel={t("缩放方式", "Image fit")} value={backgroundFit} options={[{ value: "cover", label: t("填满并裁切", "Cover and crop") }, { value: "contain", label: t("完整显示", "Contain") }]} onChange={(value) => setBackgroundFit(value as typeof backgroundFit)} /></div><div className="field"><span>{t("图片位置", "Image position")}</span><MaterialSelect ariaLabel={t("图片位置", "Image position")} value={backgroundPosition} options={[{ value: "center", label: t("居中", "Center") }, { value: "top", label: t("顶部", "Top") }, { value: "bottom", label: t("底部", "Bottom") }, { value: "left", label: t("左侧", "Left") }, { value: "right", label: t("右侧", "Right") }]} onChange={(value) => setBackgroundPosition(value as typeof backgroundPosition)} /></div></div> : null}
+          {backgroundType !== "default" ? <div className="form-grid background-layout-controls">
+            <div className="field"><span>{t("缩放方式", "Image fit")}</span><MaterialSelect ariaLabel={t("缩放方式", "Image fit")} value={backgroundFit} options={[{ value: "cover", label: t("填满并裁切", "Cover and crop") }, { value: "contain", label: t("完整显示", "Contain") }]} onChange={(value) => setBackgroundFit(value as typeof backgroundFit)} /></div>
+            <div className="field"><span>{t("背景时间", "Background duration")}</span><MaterialSelect ariaLabel={t("背景时间", "Background duration")} value={String(backgroundSeconds)} options={BACKGROUND_TIMES.map((seconds) => ({ value: String(seconds), label: seconds ? formatTimeSpan(seconds) : t("立即刷新", "Refresh immediately") }))} disabled={backgroundType === "server"} onChange={(value) => setBackgroundSeconds(Number(value) as typeof backgroundSeconds)} /></div>
+          </div> : null}
+          <details className="glass-settings settings-disclosure">
+            <summary><span><Icon name="blur_on" /><span><strong>{t("液态玻璃", "Liquid Glass")}</strong><small>{glassEnabled ? glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default") : t("卡片显示", "Card appearance")}</small></span></span><Icon name="expand_more" /></summary>
+            <label className="glass-card-toggle"><input type="checkbox" checked={!glassEnabled} onChange={(event) => setGlassEnabled(!event.target.checked)} /><span>{t("使用卡片显示", "Use card appearance")}</span></label>
+            <div className={`glass-slider ${glassEnabled ? "" : "is-disabled"}`}>
+              <input type="range" min="0" max="2" step="1" value={GLASS_PRESETS.indexOf(glass)} disabled={!glassEnabled} aria-label={t("玻璃透明效果", "Glass transparency")} aria-valuetext={glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default")} onChange={(event) => setGlass(GLASS_PRESETS[Number(event.target.value)])} />
+              <div aria-hidden="true"><span>{t("透明", "Clear")}</span><span>{t("默认", "Default")}</span><span>{t("色调", "Tinted")}</span></div>
+            </div>
+          </details>
           <Button
             variant="tonal"
             disabled={
@@ -301,7 +317,7 @@ export function SettingsDialog({
             }
             onClick={() => {
               setSaving(true);
-              void updateLoginBackground(backgroundType, backgroundValue, backgroundFit, backgroundPosition)
+              void updateLoginBackground({ type: backgroundType, value: backgroundValue, fit: backgroundFit, cacheSeconds: backgroundSeconds, glass, glassEnabled })
                 .then(() => onToast(t("登录背景已保存", "Sign-in background saved")))
                 .catch(() => onToast(t("登录背景保存失败，请检查图片地址或服务器目录", "Unable to save the sign-in background. Check the image URL or server directory.")))
                 .finally(() => setSaving(false));

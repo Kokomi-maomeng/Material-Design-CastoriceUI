@@ -68,7 +68,7 @@ describe("P2 truthfulness and interaction regressions", () => {
       status: 400,
       json: async () => ({ error: "invalid_username", field: "username" }),
     }));
-    renderEnglish(<AuthPage bootstrap={{ setupRequired: true, bootstrapAvailable: true, appearance: { type: "default", url: "", fit: "cover", position: "center" } }} onAuthenticated={vi.fn()} />);
+    renderEnglish(<AuthPage bootstrap={{ setupRequired: true, bootstrapAvailable: true, appearance: { type: "default", url: "", fit: "cover" } }} onAuthenticated={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Username" }), { target: { value: "中文用户" } });
     const password = screen.getByLabelText("Password");
     fireEvent.change(password, { target: { value: "Valid-Password-123" } });

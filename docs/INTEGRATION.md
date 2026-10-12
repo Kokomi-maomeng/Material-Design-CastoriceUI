@@ -126,8 +126,8 @@ Changing the list clears the probe cache so old values are not attributed to new
 - Embedded credentials, query strings, fragments, remote/private hostnames, and metadata addresses are rejected before requests.
 - Strict authenticated probes use short timeouts and do not follow redirects.
 - Subscription validation URLs and image API login backgrounds require HTTPS.
-- Image API backgrounds are fetched through a bounded same-origin proxy. Every hop must resolve only to public IP addresses; credentials and fragments are rejected, responses are limited to 5 MB, and image magic bytes are verified.
-- Server images must remain in the configured directory, be no larger than 5 MB, and have PNG/JPEG/WebP magic bytes.
+- Image API backgrounds are fetched through a bounded same-origin proxy. Every hop must resolve only to public IP addresses; credentials and fragments are rejected, responses are limited to 30 MB, and image magic bytes are verified.
+- Server images must remain in the configured directory, be no larger than 5 MiB, and have PNG/JPEG/WebP magic bytes.
 
 ## Initialization requirements
 
@@ -144,6 +144,18 @@ Protocol adapters are optional and remain visibly unconfigured when skipped. The
 ## Legacy compatibility
 
 v1 endpoint aliases remain for dashboard, traffic-limit, integration, subscription URL, alert acknowledgement, and health requests during a staged frontend/backend switch. New authentication, first-run, UI settings, structured network targets, and background functions are v2-only. v2 startup still removes legacy v1.2 Secrets from SQLite overrides and disables invalid non-loopback legacy endpoints.
+
+## Login background lifecycle
+
+`PUT /api/v2/settings/login-background` accepts `type` (`default`, `server`, `url`), `value`, `fit` (`cover` or `contain`), `cacheSeconds` (0, 2, 5, 10, 30, 60, 120, 300, 600), `glass` (`clear`, `default`, `tinted`) and `glassEnabled` (boolean). Defaults are 0, `default`, true. Legacy `position` is removed during startup migration; placement is centered. Bootstrap exposes these appearance fields, a same-origin image path and a source/settings revision hash, never the protected upstream URL.
+
+Sign-in entry, browser reload and logout request `/api/v2/auth/background?profile=CLASS`. Only these eight classes are accepted: portrait-640/1280/1920 and landscape-960/1280/1920/2560/3840. They come from viewport CSS width and orientation, without precise screen dimensions, device identifiers, IPs, real user agents or background cookies. Equal classes intentionally share an image; providers may independently return duplicate random images. Resizing is debounced and only a class change reloads the image.
+
+Each profile retains its own successful-fetch timestamp. A positive duration returns that image until expiry; expiry does not run a timer or clear an image. The next entry after expiry requests a replacement. Zero requests a replacement on each entry, subject to global protective limits. API sources can optionally contain `{width}` and `{height}` placeholders, replaced with canonical dimensions. Public providers receive fixed coarse Mobile/portrait or Desktop/landscape hints and canonical width headers; automatic adaptation still depends on the provider supporting those hints or URL parameters.
+
+One upstream chain runs at a time; at most 12 starts per rolling 60s, at least 1s between starts, with a reserved 90 MB image-response budget per rolling 60s. Failed transfers reserve 30 MB conservatively; JSON/redirect envelopes are separately bounded to 64 KiB. A chain has a 15s total deadline and at most five hops. Last successful files are returned on failure/throttling with `X-Background-Stale: 1` and `Retry-After`; a cold unavailable profile returns 503 and `Retry-After`. Server responses use `no-store` so ordinary and forced reloads respect this lifecycle. A browser decode failure can request `retry=1` to bypass a corrupt image's TTL while retaining all global limits.
+
+The browser decodes before replacing an image, retains the previous successful image in bounded Cache Storage, and makes at most two retries per entry. Background fetch uses `credentials: omit`; application authentication cookies remain part of the separate login/session mechanism. The server keeps at most eight files, 30 MB each, next to the configured database, plus one temporary download; bodies stream to clients in 64 KiB chunks. The browser keeps at most three image variants (90 MB) and one in-memory fallback. Disabled/unavailable Cache Storage falls back to current-tab memory and server files. These limits protect the background fetcher; they are not a claim of infrastructure-wide DDoS protection.
 
 ## Protocol service health (v4.1)
 

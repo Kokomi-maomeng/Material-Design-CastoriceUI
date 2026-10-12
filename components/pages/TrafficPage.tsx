@@ -60,7 +60,7 @@ export function TrafficPage({ traffic, integration, onConfigure }: { traffic: Da
     </section>
     <section className="content-grid content-grid--traffic-main">
       <Card variant="outlined" className="traffic-trend-panel">
-        <CardHeader title={t("流量趋势", "Traffic trend")} action={<div className="segmented-control traffic-range-control">{(["1h", "6h", "24h", "3day", "7day"] as const).map((item) => <button key={item} className={range === item ? "is-selected" : ""} onClick={() => setRange(item)}>{item === "3day" ? t("3天", "3 days") : item === "7day" ? t("7天", "7 days") : item}</button>)}</div>} />
+        <CardHeader title={t("流量趋势", "Traffic trend")} action={<div className="segmented-control traffic-range-control">{(["1h", "6h", "24h", "3day", "7day"] as const).map((item) => <button key={item} className={range === item ? "is-selected" : ""} onClick={() => setRange(item)}>{item === "3day" ? "3d" : item === "7day" ? "7d" : item}</button>)}</div>} />
         <div className="legend-inline legend-inline--chart"><span className="dot dot--primary" />{t("下载", "Download")}<span className="dot dot--secondary" />{t("上传", "Upload")}</div>
         <TrafficChart data={selectedTraffic} />
       </Card>

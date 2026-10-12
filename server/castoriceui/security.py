@@ -395,16 +395,20 @@ def _public_https_get_before(value: str, headers: dict[str, str], max_bytes: int
         try:
             connection.request("GET", target, headers=headers)
             response = connection.getresponse()
+            # Redirect/JSON envelopes are small; do not read 30 MB at every
+            # hop before discovering that this was not the final image.
+            image_envelope = headers.get("Accept", "").startswith("image/") and (response.status in {301, 302, 303, 307, 308} or response.headers.get_content_type() == "application/json")
+            response_limit = min(max_bytes, 65_536) if image_envelope else max_bytes
             chunks = []
             total = 0
             reader = getattr(response, "read1", response.read)
-            while total <= max_bytes:
+            while total <= response_limit:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or cancelled.is_set():
                     raise TimeoutError("Public fetch exceeded the total deadline")
                 if getattr(connection, "sock", None) is not None:
                     connection.sock.settimeout(max(0.001, remaining))
-                chunk = reader(min(65_536, max_bytes + 1 - total))
+                chunk = reader(min(65_536, response_limit + 1 - total))
                 if not chunk:
                     break
                 chunks.append(chunk)
@@ -429,21 +433,30 @@ def _image_mime(body: bytes) -> str:
     raise ValueError("Background API did not return PNG, JPEG, or WebP content")
 
 
-def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, max_bytes: int = 5 * 1024 * 1024) -> tuple[bytes, str, str]:
+def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, max_bytes: int = 30_000_000, viewport: tuple[int, int] | None = None) -> tuple[bytes, str, str]:
     """Fetch a bounded public image response, redirect, or small JSON object containing an image URL."""
     current = normalize_https_image_url(value, allowed_hosts)
-    deadline = time.monotonic() + 8
+    deadline = time.monotonic() + 15
+    request_headers = {"Accept": "image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": f"CastoriceUI/{__version__}", "Cache-Control": "no-cache"}
+    if viewport:
+        width, height = viewport
+        request_headers.update({"Viewport-Width": str(width), "Sec-CH-Viewport-Width": str(width), "Width": str(width), "DPR": "1"})
+        # A fixed coarse hint lets auto-layout providers distinguish portrait
+        # without forwarding the visitor's real user agent or any identity.
+        request_headers["User-Agent"] += " (Mobile; portrait)" if height > width else " (Desktop; landscape)"
     for _ in range(5):
         try:
             status, headers, body = _public_https_get(
                 current,
-                {"Accept": "image/avif,image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": f"CastoriceUI/{__version__}"},
+                request_headers,
                 max_bytes,
                 max(0, deadline - time.monotonic()),
             )
         except (TimeoutError, OSError, ssl.SSLError, http.client.HTTPException) as error:
             raise ValueError("Background image API is unreachable") from error
         if status in {301, 302, 303, 307, 308} and headers.get("Location"):
+            if len(body) > 65_536:
+                raise ValueError("Background redirect response exceeds 64 KiB")
             from urllib.parse import urljoin
             current = normalize_https_image_url(urljoin(current, headers["Location"]), allowed_hosts)
             continue
@@ -456,9 +469,9 @@ def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, ma
             except (TypeError, ValueError):
                 declared_length = 0
             if declared_length > max_bytes:
-                raise ValueError("Background image exceeds 5 MB")
+                raise ValueError("Background image exceeds the byte limit")
         if not body or len(body) > max_bytes:
-            raise ValueError("Background image is empty or exceeds 5 MB")
+            raise ValueError("Background image is empty or exceeds the byte limit")
         content_type = headers.get_content_type().lower()
         if content_type == "application/json":
             if len(body) > 64 * 1024:
@@ -479,7 +492,7 @@ def _validated_background_candidate(root_path: Path, candidate: Path, max_bytes:
     if resolved_candidate.parent != root_path or resolved_candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
         raise ValueError("Background image is outside the allowed image directory")
     if not resolved_candidate.is_file() or not 0 < resolved_candidate.stat().st_size <= max_bytes:
-        raise ValueError("Background image is unavailable or exceeds 5 MB")
+        raise ValueError("Background image is unavailable or exceeds 5 MiB")
     with resolved_candidate.open("rb") as image:
         header = image.read(16)
     mime = _image_mime(header)
@@ -496,7 +509,7 @@ def safe_background_image(root: str | Path, filename: str, max_bytes: int = 5 * 
     # caller-controlled text into a filesystem path.
     candidate = next((entry for entry in root_path.iterdir() if entry.name == filename), None)
     if candidate is None:
-        raise ValueError("Background image is unavailable or exceeds 5 MB")
+        raise ValueError("Background image is unavailable or exceeds 5 MiB")
     return _validated_background_candidate(root_path, candidate, max_bytes)
 
 

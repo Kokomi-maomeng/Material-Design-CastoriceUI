@@ -1,4 +1,4 @@
-import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { validDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -139,9 +139,9 @@ export function updateUiSettings(settings: Partial<UiSettings>) {
 }
 
 export function fetchBackgroundOptions() {
-  return request<{ files: string[]; directory: string; selected: LoginAppearance; configured: { type: "default" | "url" | "server"; value: string; fit?: "cover" | "contain"; position?: "center" | "top" | "bottom" | "left" | "right" } }>("/api/v2/settings/background-options");
+  return request<{ files: string[]; directory: string; selected: LoginAppearance; configured: LoginBackgroundSettings }>("/api/v2/settings/background-options");
 }
 
-export function updateLoginBackground(type: "default" | "url" | "server", value: string, fit: "cover" | "contain", position: "center" | "top" | "bottom" | "left" | "right") {
-  return request<LoginAppearance>("/api/v2/settings/login-background", { method: "PUT", body: JSON.stringify({ type, value, fit, position }) }, true);
+export function updateLoginBackground(settings: LoginBackgroundSettings) {
+  return request<LoginAppearance>("/api/v2/settings/login-background", { method: "PUT", body: JSON.stringify(settings) }, true);
 }

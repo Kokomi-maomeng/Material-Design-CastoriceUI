@@ -158,7 +158,7 @@ with sync_playwright() as playwright:
     def route_api(route) -> None:
         request_path = route.request.url.split("/api/v2/", 1)[1].split("?", 1)[0]
         if request_path == "bootstrap":
-            data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover", "position": "center"}}
+            data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover"}}
         elif request_path == "auth/session":
             data = {"username": "QA operator", "csrfToken": "synthetic-csrf", "expiresAt": int(time.time()) + 3600, "setupComplete": True}
         elif request_path == "dashboard":
@@ -171,7 +171,7 @@ with sync_playwright() as playwright:
             quota_writes.append(payload)
             data = {"ok": True, **payload}
         elif request_path == "settings/background-options":
-            data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover", "position": "center"}, "configured": {"type": "default", "value": ""}}
+            data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover"}, "configured": {"type": "default", "value": ""}}
         elif request_path == "alerts":
             data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1, "summary": {"pending": 0, "critical": 0, "warning": 0, "info": 0}}
         elif request_path == "audits":
