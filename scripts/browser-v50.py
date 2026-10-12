@@ -29,7 +29,7 @@ def run(engine, context):
     page.on("pageerror", lambda error: errors.append(str(error)))
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode="live", generatedAt="2026-01-01T00:00:00Z")
-    state = {"authenticated": False, "failed": False, "corrupt": False, "images": 0, "profiles": [], "saved": None}
+    state = {"authenticated": False, "failed": False, "corrupt": False, "images": 0, "profiles": [], "saved": None, "server_images": {}}
     appearance = {"type": "url", "url": "/api/v2/auth/background", "fit": "cover", "cacheSeconds": 0, "glass": "default", "glassEnabled": True, "revision": "synthetic-v50"}
     critical = [{"id": "critical", "episodeId": f"critical-{i}", "severity": "critical", "title": f"Critical episode {i}", "description": "Synthetic", "source": "QA", "time": "now", "startedAt": "2026-01-01T00:00:00Z", "resolvedAt": "2026-01-01T01:00:00Z", "status": "resolved", "acknowledged": False} for i in range(2)]
     warnings = [{**critical[0], "id": "warning", "episodeId": f"warning-{i}", "severity": "warning", "title": f"Warning {i}"} for i in range(35)]
@@ -41,13 +41,19 @@ def run(engine, context):
     def route_api(route):
         parsed = urlsplit(route.request.url); path = parsed.path.removeprefix("/api/v2/")
         if path == "auth/background":
-            state["images"] += 1; state["profiles"].append(parse_qs(parsed.query)["profile"][0])
+            profile = parse_qs(parsed.query)["profile"][0]
+            state["images"] += 1; state["profiles"].append(profile)
             assert "cookie" not in route.request.headers, "background sent a visitor cookie"
             if state.get("hold"):
                 state["held"] = route
                 return
-            if state["failed"]: route.fulfill(status=503, json={"error": "background_temporarily_unavailable"}, headers={"Retry-After": "2"}); return
-            route.fulfill(body=b"invalid" if state["corrupt"] else image(state["images"]), content_type="image/png", headers={"Cache-Control": "no-store"}); return
+            if state["failed"]:
+                if state.get("server_fallback"):
+                    route.fulfill(body=state["server_images"][profile], content_type="image/png", headers={"X-Background-Stale": "1", "Retry-After": "2"}); return
+                route.fulfill(status=503, json={"error": "background_temporarily_unavailable"}, headers={"Retry-After": "2"}); return
+            body = b"\x89PNG\r\n\x1a\ninvalid" if state["corrupt"] else image(state["images"])
+            if not state["corrupt"]: state["server_images"][profile] = body
+            route.fulfill(body=body, content_type="image/png", headers={"Cache-Control": "no-store"}); return
         if path == "bootstrap": data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": appearance}
         elif path == "auth/session" and not state["authenticated"]:
             route.fulfill(status=401, json={"error": "authentication_required"}); return
@@ -105,19 +111,39 @@ def run(engine, context):
             page.screenshot(path=str(Path(os.environ["CASTORICEUI_QA_SHOTS"]) / "chromium-auth-autofill.png"))
         cdp.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": []})
 
-    # Reload failures and decode failures preserve a decoded image from Cache Storage.
+    # Independently probe persistence: some WebKit test runtimes expose Cache
+    # API but discard every entry on navigation, even in a temporary profile.
+    # Such browsers use the server's last-image fallback on reload (backend
+    # coverage verifies that path), and current-tab memory on decode failures.
     page.wait_for_function("async()=> (await (await caches.open('castorice-login-background-v5')).keys()).length>0", timeout=5000)
+    page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v5');await c.put('/__qa_cache_probe',new Response('independent-persistence-probe'))}")
+    page.reload(wait_until="networkidle")
+    page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
+    persistent_cache = page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v5');const r=await c.match('/__qa_cache_probe');const persisted=r&&await r.text()==='independent-persistence-probe';await c.delete('/__qa_cache_probe');return !!persisted}")
+    print(json.dumps({"engine": engine, "independentCachePersistence": persistent_cache}), flush=True)
+    state["server_fallback"] = not persistent_cache
+    count = state["images"]
     state["failed"] = True
     page.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     state["failed"] = False
     page.wait_for_timeout(2300)
-    assert state["images"] >= 3
+    assert state["images"] >= count + 2, "failed background did not retry"
     state["corrupt"] = True
-    page.reload(wait_until="networkidle")
+    if persistent_cache:
+        page.reload(wait_until="networkidle")
+    else:
+        # A fresh profile forces decoding without relying on broken storage.
+        previous = page.locator(".auth-page").get_attribute("style")
+        with page.expect_response(lambda response: "profile=landscape-1280" in response.url):
+            page.set_viewport_size({"width": 1200, "height": 1000})
+        assert page.locator(".auth-page").get_attribute("style") == previous, "decode failure cleared the current image"
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     state["corrupt"] = False
     page.wait_for_timeout(2300)
+    if not persistent_cache:
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        page.wait_for_timeout(500)
     count = state["images"]; page.wait_for_timeout(2300)
     assert state["images"] == count, "background polls without an entry/resize event"
 
@@ -227,7 +253,7 @@ def run(engine, context):
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     assert state["images"] == logout_images + 1, "logout fetched once using an outdated appearance"
     assert not errors, errors
-    print(json.dumps({"engine": engine, "glassThemeViewportCases": cases, "backgroundRequests": state["images"], "distinctProfiles": len(set(state["profiles"])), "pageErrors": len(errors), "synthetic": True}))
+    print(json.dumps({"engine": engine, "glassThemeViewportCases": cases, "backgroundRequests": state["images"], "distinctProfiles": len(set(state["profiles"])), "pageErrors": len(errors), "cachePersistence": persistent_cache, "reloadFallback": "browser-cache" if persistent_cache else "server-cache", "synthetic": True}))
 
 
 if __name__ == "__main__":
