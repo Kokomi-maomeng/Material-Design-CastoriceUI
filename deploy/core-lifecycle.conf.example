@@ -1,0 +1,4 @@
+# Install per core only after the panel probe service is installed. This
+# read-only event hook applies at the NEXT natural start; do not restart proxies.
+[Service]
+ExecStartPost=-+/usr/bin/python3 /usr/local/libexec/castoriceui-core-event.py %n

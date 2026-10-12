@@ -137,7 +137,7 @@ class BackendTests(unittest.TestCase):
             services = service_snapshots(config, system, {"available": True}, {"available": True})
         proxy_services = {item["id"]: item for item in services if item["id"] in {"hysteria2", "singbox"}}
         self.assertEqual(proxy_services["singbox"]["name"], "sing-box")
-        self.assertEqual(proxy_services["singbox"]["status"], "warning")
+        self.assertEqual(proxy_services["singbox"]["status"], "stopped")
 
     def test_connections_group_by_source_and_calculate_rates_from_consecutive_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -537,7 +537,7 @@ class BackendTests(unittest.TestCase):
             services = [{"id": "nginx", "name": "Nginx", "status": "stopped", "detail": "offline"}]
             network = [{"id": "edge", "name": "Edge", "status": "down", "latency": 999, "loss": 100}]
             alerts = dashboard.alerts(system, services, network)
-            self.assertEqual({item["id"] for item in alerts}, {"traffic-threshold", "service-nginx", "network-edge", "collector-system", "collector-runtime", "collector-network"})
+            self.assertEqual({item["id"] for item in alerts}, {"traffic-threshold", "service-nginx", "network-edge"})
             self.assertTrue(storage.acknowledge("service-nginx"))
             refreshed = dashboard.alerts(system, services, network)
             self.assertTrue(next(item for item in refreshed if item["id"] == "service-nginx")["acknowledged"])

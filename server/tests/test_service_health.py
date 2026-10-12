@@ -59,7 +59,7 @@ class ProtocolHealthTests(unittest.TestCase):
                 if change == "wrong-api": state["apiPort"] = 19092
                 services = {s["id"]: s for s in self.services(cfg, {"available": True, "inventory": state})}
                 self.assertEqual(services["singbox"]["status"], "running")
-                self.assertEqual(services["vless"]["status"], "stopped")
+                self.assertEqual(services["vless"]["status"], "stopped" if change == "not-listening" else "warning")
                 self.assertEqual(services["vless"]["version"], "unknown")
                 self.assertNotIn("uptimeSeconds", services["vless"])
                 if change not in {"unavailable", "wrong-api"}: self.assertEqual(services["anytls"]["status"], "running")
@@ -73,7 +73,7 @@ class ProtocolHealthTests(unittest.TestCase):
         cfg = AppConfig(integrations={"socks5": {"enabled": True}, "hysteria2": {"configured": True}})
         services = {s["id"]: s for s in self.services(cfg)}
         for key in ("socks5", "hysteria2"):
-            self.assertEqual(services[key]["status"], "stopped")
+            self.assertEqual(services[key]["status"], "warning")
             self.assertNotIn("uptimeSeconds", services[key])
         self.assertNotIn("anytls", services)
 
@@ -93,7 +93,7 @@ class ProtocolHealthTests(unittest.TestCase):
             DashboardService(cfg, store)
             self.assertEqual(cfg.singbox_api, original)
             self.assertEqual(cfg.protocol_adapters, {"anytls": {"inboundTags": ["anytls-in"]}})
-            self.assertEqual(next(s for s in self.services(cfg) if s["id"] == "socks5")["status"], "stopped")
+            self.assertEqual(next(s for s in self.services(cfg) if s["id"] == "socks5")["status"], "warning")
             states = {s["id"]: s for s in dashboard.runtime_integrations({"available": True}, {"available": True, "inventory": inventory()}, [])}
             self.assertEqual(states["socks5"]["status"], "error")
             self.assertEqual(states["anytls"]["status"], "ready")
@@ -143,7 +143,7 @@ class ProtocolHealthTests(unittest.TestCase):
         for now, pid, expected in ((120, "123", True), (200, "123", False), (120, "124", False), (90, "123", False)):
             with patch("castoriceui.collectors.Path.stat") as stat, patch("castoriceui.collectors.Path.read_text", return_value=json.dumps(payload)), patch("castoriceui.collectors.time.time", return_value=now), patch("castoriceui.collectors.run", return_value=pid):
                 stat.return_value.st_size = 100
-                self.assertEqual(bool(read_protocol_inventory()), expected)
+                self.assertEqual(bool(read_protocol_inventory().get("available")), expected)
 
     def test_probe_allowlist_excludes_secrets_and_matches_owned_sockets(self):
         data = {"inbounds": [{"type": "vless", "tag": "vless-in", "listen_port": 443, "password": "never-export", "users": [{"uuid": "never-export", "flow": "xtls-rprx-vision"}], "tls": {"enabled": True, "reality": {"enabled": True, "private_key": "never-export"}}}]}

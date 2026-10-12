@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Inspect source and full Git metadata before dependency installation
+        run: npm run scan:sensitive
       - run: npm ci
       - run: python3 -m pip install -r server/requirements.txt
       - run: npm run check
@@ -99,6 +101,7 @@ jobs:
             python3 scripts/browser-v46.py '${{ matrix.engine }}'
           fi
           python3 scripts/browser-first-run.py '${{ matrix.engine }}'
+          python3 scripts/browser-v47.py '${{ matrix.engine }}'
 
   linux-install:
     name: Linux install (Debian ${{ matrix.debian }})
@@ -110,6 +113,8 @@ jobs:
         debian: ["12", "13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22

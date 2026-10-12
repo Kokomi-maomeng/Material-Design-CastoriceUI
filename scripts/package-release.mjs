@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+execFileSync(process.execPath, [path.join(root, "scripts", "sensitive-scan.mjs")], { cwd: root, stdio: "inherit" });
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const version = String(packageJson.version);
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Invalid release version: ${version}`);
@@ -40,8 +41,11 @@ await Promise.all([
   copy("docs/DEPLOYMENT.md", "docs/DEPLOYMENT.md"),
   copy("docs/BROWSER_SUPPORT.md", "docs/BROWSER_SUPPORT.md"),
   copy("docs/INTEGRATION.md", "docs/INTEGRATION.md"),
+  copy("docs/PRIVACY_RELEASE_GATE.md", "docs/PRIVACY_RELEASE_GATE.md"),
   copy("docs/V4.5_FIX_SUMMARY.md", "docs/V4.5_FIX_SUMMARY.md"),
   copy("docs/V4.6_FIX_SUMMARY.md", "docs/V4.6_FIX_SUMMARY.md"),
+  copy("docs/V4.7_FIX_SUMMARY.md", "docs/V4.7_FIX_SUMMARY.md"),
+  copy("docs/MONITORING.md", "docs/MONITORING.md"),
   cp(releaseNotes, path.join(stageDirectory, "docs", `RELEASE_NOTES_v${version}.md`)),
   copy("public/og.png", "public/og.png"),
   copy("README.md", "README.md"),
@@ -93,6 +97,8 @@ for (const asset of assets) {
 
 await removePythonCaches(stageDirectory);
 
+execFileSync(process.execPath, [path.join(root, "scripts", "privacy-guard.mjs"), "directory", stageDirectory], { cwd: root, stdio: "inherit" });
+
 const stagedEntries = await collectEntries(stageDirectory);
 for (const entry of stagedEntries) {
   if ((await lstat(entry)).isSymbolicLink()) throw new Error(`Release staging must not contain symlinks: ${entry}`);
@@ -121,6 +127,12 @@ execFileSync(
   { env: { ...process.env, COPYFILE_DISABLE: "1", TZ: "UTC" }, stdio: "inherit" },
 );
 await writeFile(archivePath, gzipSync(await readFile(uncompressedArchive), { level: 9, mtime: 0 }));
+try {
+  execFileSync(process.execPath, [path.join(root, "scripts", "privacy-guard.mjs"), "archive", archivePath], { cwd: root, stdio: "inherit" });
+} catch {
+  await rm(archivePath, { force: true });
+  throw new Error("Release archive rejected by privacy checks; no eligible archive was retained");
+}
 const digest = createHash("sha256").update(await readFile(archivePath)).digest("hex");
 await writeFile(path.join(releaseDirectory, "SHA256SUMS.txt"), `${digest}  ${archiveName}\n`, "utf8");
 await rm(stageDirectory, { recursive: true, force: true });

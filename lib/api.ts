@@ -105,7 +105,7 @@ export function fetchAudits(options: { page: number; pageSize: 30 | 50; search?:
   return request<AuditPageResponse>(`/api/v2/audits?${query}`, { signal: options.signal });
 }
 
-export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: "pending" | "all"; signal?: AbortSignal }) {
+export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: "pending" | "all" | "active" | "recovered"; signal?: AbortSignal }) {
   const query = new URLSearchParams({ page: String(options.page), pageSize: String(options.pageSize), filter: options.filter });
   return request<AlertPageResponse>(`/api/v2/alerts?${query}`, { signal: options.signal });
 }

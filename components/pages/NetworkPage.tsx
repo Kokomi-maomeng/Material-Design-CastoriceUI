@@ -19,6 +19,11 @@ interface TargetDraft {
   name: string;
   address: string;
   order: number;
+  latencyMs?: number;
+  lossPercent?: number;
+  tcpPort?: number;
+  dnsPort?: number;
+  dnsName?: string;
 }
 
 export function NetworkPage({
@@ -60,11 +65,9 @@ export function NetworkPage({
         ? t("较差", "Poor")
       : filtered.some((target) => target.status === "unavailable") || avgLoss === null || avgLatency === null
         ? t("部分不可用", "Partially unavailable")
-      : avgLoss >= 5 || avgLatency >= 150
+      : filtered.some((target) => target.status === "degraded")
         ? t("较差", "Poor")
-        : avgLoss >= 1 || avgLatency >= 80
-          ? t("一般", "Fair")
-          : t("优秀", "Excellent");
+        : t("优秀", "Excellent");
   const grade =
     filtered.length === 0
       ? "—"
@@ -72,14 +75,14 @@ export function NetworkPage({
         ? "C"
       : filtered.some((target) => target.status === "unavailable") || avgLoss === null || avgLatency === null
         ? "—"
-      : avgLoss >= 5 || avgLatency >= 150
+      : filtered.some((target) => target.status === "degraded")
         ? "C"
-        : avgLoss >= 1 || avgLatency >= 80
-          ? "B"
-          : "A";
+        : "A";
   const openEditor = () => {
     setDrafts(
       targets.map((target, index) => ({
+        ...Object.fromEntries(Object.entries(target).filter(([key]) => ["tcpPort", "dnsPort", "dnsName"].includes(key))),
+        ...target.thresholdOverrides,
         ipVersion: target.ipVersion,
         name: target.name,
         address: target.address,
@@ -92,7 +95,7 @@ export function NetworkPage({
     setDrafts((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
-          ? { ...item, [key]: (key === "order" || key === "ipVersion") ? Number(value) : value }
+          ? { ...item, [key]: ["order", "ipVersion", "latencyMs", "lossPercent", "tcpPort", "dnsPort"].includes(key) ? (value === "" ? undefined : Number(value)) : value }
           : item,
       ),
     );
@@ -128,8 +131,8 @@ export function NetworkPage({
         status={integration}
         name="网络探测"
         nameEn="Network probes"
-        description="设置 IPv4 / IPv6 目标后，后端独立监控任务约每 15 秒更新一次；浏览器不负责触发探测。"
-        descriptionEn="After targets are configured, an independent backend monitor refreshes them about every 15 seconds; the browser does not trigger probes."
+        description="设置 IPv4 / IPv6 目标后，后端独立监控任务约每 20 秒更新一次；浏览器不负责触发探测。"
+        descriptionEn="After targets are configured, an independent backend monitor refreshes them about every 20 seconds; the browser does not trigger probes."
         onConfigure={onConfigure}
       />
       <FeatureIntro
@@ -243,14 +246,20 @@ export function NetworkPage({
               <div className="network-target-card__metrics">
                 <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency === null ? "—" : `${target.latency.toFixed(1)} ms`}</b></div>
                 <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter === null ? "—" : `${target.jitter.toFixed(1)} ms`}</b></div>
-                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={(target.loss ?? 0) > 1 ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
+                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.status === "degraded" || target.status === "down" ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
               </div>
+              <div className="network-target-card__evidence">
               {target.probeReason === "insufficientSamples" ? <small>{t("仅有一个成功样本；抖动需要至少两个样本。", "Only one successful sample; jitter requires at least two samples.")}</small> : null}
+              {target.complete === false ? <small>{t("本轮未完成；不计为健康或用于确认恢复。", "Incomplete round; excluded from healthy recovery.")}</small> : null}
+              {target.effectivePolicy ? <small>{t(`阈值 ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · 窗口 ${target.qualityWindow?.sent ?? 0} 包 · ${target.alertConfirmed ? "已确认异常" : target.status === "healthy" ? "正常" : "观察中"}`, `Thresholds ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · ${target.qualityWindow?.sent ?? 0} packets · ${target.alertConfirmed ? "confirmed" : target.status === "healthy" ? "normal" : "observing"}`)}</small> : null}
+              {target.layers && Object.values(target.layers).some((item) => item.configured) ? <small>{Object.entries(target.layers).filter(([, item]) => item.configured).map(([method, item]) => `${method.toUpperCase()}: ${item.status === "passed" ? t("正常", "passed") : t("失败", "failed")} · ${item.durationMs ?? "—"} ms${item.observedAt ? ` · ${new Date(item.observedAt).toLocaleTimeString()}` : ""}`).join(" / ")}</small> : null}
               <div className="network-target-card__chart">
-                <div className="network-target-card__chart-title"><span>{t("延迟趋势", "Latency trend")}</span><b>{target.latency === null ? t("无有效样本", "No valid sample") : `${target.latency.toFixed(1)} ms`}</b></div>
-                <div className="sparkline" aria-label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)}>
-                  <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 延迟趋势`, `${target.name} latency trend`)} />
+                <div className="network-target-card__chart-title"><span>{t("本轮回包分布", "Replies this round")}</span><b>{target.latency === null ? t("无有效样本", "No valid sample") : `${target.latency.toFixed(1)} ms`}</b></div>
+                <div className="sparkline" aria-label={t(`${target.name} 本轮回包`, `${target.name} replies this round`)}>
+                  <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 本轮回包`, `${target.name} replies this round`)} />
                 </div>
+              </div>
+              {target.timeHistory?.length ? <div className="network-target-card__chart"><div className="network-target-card__chart-title"><span>{t("最近一小时真实趋势 · 缺测处断开", "Measured hour · gaps preserved")}</span></div><TimeTrend samples={target.timeHistory} label={t(`${target.name} 时间趋势`, `${target.name} time trend`)} /></div> : null}
               </div>
               </div>
             </Card>
@@ -327,6 +336,7 @@ export function NetworkPage({
                 <span>{t("解析协议族", "Address family")}</span>
                 <MaterialSelect ariaLabel={t("解析协议族", "Address family")} value={String(item.ipVersion)} onChange={(value) => change(index, "ipVersion", value)} options={[{ value: "0", label: t("自动", "Automatic") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }]} />
               </label>
+              <details style={{ gridColumn: "1 / -1" }}><summary>{t("阈值与业务验证", "Thresholds and service checks")}</summary><div className="form-grid">{(["latencyMs", "lossPercent", "tcpPort", "dnsPort"] as const).map((key) => <label key={key}><span>{key === "latencyMs" ? t("延迟阈值 (ms)", "Latency threshold (ms)") : key === "lossPercent" ? t("丢包阈值 (%)", "Loss threshold (%)") : key === "tcpPort" ? t("TCP 服务端口", "TCP service port") : t("DNS 服务端口", "DNS resolver port")}</span><input type="number" min={key.endsWith("Port") ? 1 : 0} max={key === "lossPercent" ? 100 : key.endsWith("Port") ? 65535 : 60000} value={item[key] ?? ""} onChange={(event) => change(index, key, event.target.value)} placeholder={key.endsWith("Port") ? t("未启用", "Disabled") : t("沿用全局阈值", "Use global threshold")} /></label>)}<label><span>{t("DNS 验证名称", "DNS check name")}</span><input value={item.dnsName ?? ""} onChange={(event) => change(index, "dnsName", event.target.value)} placeholder="example.com" /></label></div></details>
               <button
                 className="icon-button"
                 aria-label={t("删除目标", "Remove target")}
@@ -357,6 +367,25 @@ export function NetworkPage({
       </Dialog>
     </div>
   );
+}
+
+function TimeTrend({ samples, label }: { samples: NonNullable<NetworkTarget["timeHistory"]>; label: string }) {
+  const start = samples[0].capturedAt;
+  const end = samples[samples.length - 1].capturedAt;
+  const maximum = Math.max(1, ...samples.map((item) => item.latency ?? 0));
+  const segments: string[] = [];
+  let segment: string[] = [];
+  let previous: number | undefined;
+  for (const sample of samples) {
+    if (sample.latency === null || !sample.complete || (previous !== undefined && sample.capturedAt - previous > 30)) {
+      if (segment.length) segments.push(segment.join(" "));
+      segment = [];
+    }
+    if (sample.latency !== null && sample.complete) segment.push(`${4 + 292 * (sample.capturedAt - start) / Math.max(1, end - start)},${46 - sample.latency / maximum * 40}`);
+    previous = sample.capturedAt;
+  }
+  if (segment.length) segments.push(segment.join(" "));
+  return <div><svg viewBox="0 0 300 50" role="img" aria-label={label} style={{ width: "100%", height: 64 }}><title>{label}</title>{segments.map((points, index) => <polyline key={index} points={points} fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" />)}</svg><small>{new Date(start * 1000).toLocaleTimeString()} – {new Date(end * 1000).toLocaleTimeString()} · {maximum.toFixed(1)} ms</small></div>;
 }
 
 function NetworkMetric({

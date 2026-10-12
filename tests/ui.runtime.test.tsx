@@ -142,7 +142,7 @@ describe("v4.1 navigation and protocol inspection", () => {
     expect(screen.getByText("Memory usage").nextElementSibling?.textContent).toContain("20.0%");
     expect(screen.getByText("1 of 2 data sources online")).toBeTruthy();
     const socks = screen.getByText("SOCKS5").closest('.service-card')!;
-    expect(socks.querySelector('.is-error')?.textContent).toBe("Abnormal");
+    expect(socks.querySelector('.is-error')?.textContent).toBe("Offline");
     expect(socks.textContent).toContain("Unavailable");
     expect(container.querySelector('.service-health-card.is-warning')).toBeTruthy();
   });
@@ -150,10 +150,10 @@ describe("v4.1 navigation and protocol inspection", () => {
 
 describe("v4.0 service health and dialog layers", () => {
   const service = { id: "hysteria2", name: "Hysteria2", status: "running", detail: "systemd active", version: "1.0.0", icon: "bolt" } as const;
-  it("shows every service and makes warnings and storage failures red", () => {
+  it("shows warning services separately from red storage failures", () => {
     const { container, rerender } = renderEnglish(<ServiceCards services={[service, { ...service, id: "certificate", name: "TLS", status: "warning" }]} metrics={metrics} compact />);
     expect(container.querySelectorAll(".service-card")).toHaveLength(3);
-    expect(screen.getByText("Abnormal").className).toContain("is-error");
+    expect(screen.getByText("Needs attention").className).toContain("is-warning");
     expect(screen.getByText("Healthy").className).toContain("is-healthy");
     expect(screen.queryByText("systemd active")).toBeNull();
     rerender(<I18nProvider><ServiceCards services={[service]} metrics={{ ...metrics, databaseWritable: false }} compact /></I18nProvider>);
@@ -163,7 +163,7 @@ describe("v4.0 service health and dialog layers", () => {
   it("keeps storage health independent from an optional stopped protocol", () => {
     renderEnglish(<ServiceCards services={[{ ...service, status: "stopped", kind: "protocol" }]} metrics={metrics} compact />);
     expect(screen.getByText("Healthy")).toBeTruthy();
-    expect(screen.getByText("Abnormal")).toBeTruthy();
+    expect(screen.getByText("Offline")).toBeTruthy();
   });
   it("includes storage failure in the service-page health summary", () => {
     renderEnglish(<ServicesPage services={[service]} metrics={{ ...metrics, diskPercent: 95 }} onRefresh={vi.fn()} />);

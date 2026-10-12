@@ -4,6 +4,8 @@
 .service-state { display: inline-flex; align-items: center; gap: 6px; font-size: clamp(.875rem, .8rem + .15vw, 1rem); font-weight: 700; }
 .service-state.is-healthy { color: var(--success); }
 .service-state.is-error { color: var(--error); }
+.service-state.is-warning { color: var(--warning); }
+.service-card--warning .service-card__body p { color: var(--warning); }
 .service-card__body h3 { font-size: clamp(1.0625rem, 1rem + .15vw, 1.25rem); margin: 16px 0 8px; overflow-wrap: anywhere; }
 .service-card__body p, .service-card dt, .service-card dd { font-size: clamp(.875rem, .8rem + .15vw, 1rem); line-height: 1.6; overflow-wrap: anywhere; }
 .service-card dl { margin: auto 0 0; padding-top: 20px; gap: 10px; }
@@ -32,6 +34,8 @@
 .network-page .segmented-control button { font-size: 13px; }
 .network-target-card__content { display: grid; grid-template-columns: minmax(110px, .28fr) minmax(0, 1fr); gap: 14px; margin-top: 18px; align-items: stretch; }
 .network-target-card__metrics { grid-template-columns: 1fr; gap: 8px; }
+.network-target-card__evidence { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.network-target-card__evidence > small { overflow-wrap: anywhere; color: var(--on-surface-variant); }
 .network-target-card__chart { min-width: 0; margin: 0; padding: 14px; }
 .network-target-card__chart-title { font-size: 13px; flex-wrap: wrap; }
 .network-measure { justify-content: center; padding: 10px 12px; }

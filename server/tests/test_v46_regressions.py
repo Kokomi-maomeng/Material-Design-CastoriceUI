@@ -44,7 +44,7 @@ class AlertStorageRegressions(unittest.TestCase):
         self.storage.reconcile_alerts([item(f"condition-{i}") for i in range(265)])
         self.storage.reconcile_alerts([])
         summary = self.storage.alert_summary()
-        self.assertEqual(summary, {"pending": 265, "critical": 0, "warning": 265, "info": 0})
+        self.assertEqual(summary, {"pending": 265, "critical": 0, "warning": 265, "info": 0, "active": 0, "recoveredPending": 265, "total": 265})
         self.assertEqual(len(self.storage.alert_page(page_size=30)["items"]), 30)
         episodes = [event["episodeId"] for page in range(1, 7) for event in self.storage.alert_page(page, 50)["items"]]
         self.assertEqual(len(episodes), 265)
@@ -92,7 +92,7 @@ class AlertApiRegressions(unittest.TestCase):
         status, page = self.call("GET", "/api/v2/alerts?filter=pending&pageSize=50")
         self.assertEqual(status, 200)
         self.assertEqual(page["total"], 1)
-        for query in ("page=0", "pageSize=200", "filter=active", "page=bad"):
+        for query in ("page=0", "pageSize=200", "filter=invalid", "page=bad"):
             self.assertEqual(self.call("GET", "/api/v2/alerts?" + query)[0], 400)
         original = self.csrf
         self.csrf = "wrong"

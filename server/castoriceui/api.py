@@ -226,7 +226,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed_request = urlparse(self.path)
         path = parsed_request.path.rstrip("/")
         if path in {"/api/v1/health", "/api/v2/health"}:
-            self.send_json(HTTPStatus.OK, {"status": "ok", "version": __version__, "setupRequired": not self.app.storage.has_users()})
+            self.send_json(HTTPStatus.OK, {"status": "ok", "version": __version__, "setupRequired": not self.app.storage.has_users(), "scope": "panel-liveness"})
             return
         if path == "/api/v2/bootstrap":
             self.send_json(HTTPStatus.OK, {
@@ -277,11 +277,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                 page = int(query.get("page", ["1"])[0])
                 page_size = int(query.get("pageSize", ["30"])[0])
                 alert_filter = query.get("filter", ["all"])[0]
-                if page < 1 or page > 100_000 or page_size not in {30, 50} or alert_filter not in {"pending", "all"}:
+                if page < 1 or page > 100_000 or page_size not in {30, 50} or alert_filter not in {"pending", "all", "active", "recovered"}:
                     raise ValueError("Invalid alert pagination or filter")
-                self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending"))
+                self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending", alert_filter))
             except (TypeError, ValueError) as error:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+        elif path == "/api/v2/monitoring":
+            runtime = self.app.dashboard.runtime_cache
+            self.send_json(HTTPStatus.OK, {"freshness": self.app.dashboard.collection_freshness(), "services": runtime.get("services", []), "maintenance": runtime.get("maintenance", {"state": "unavailable"}), "networkCorrelation": runtime.get("networkCorrelation", {}), "officialStatus": runtime.get("officialStatus", {"status": "not_checked"}), "external": self.app.storage.monitoring_history("external", limit=12), "resource": self.app.storage.monitoring_history("resource", limit=12), "scope": {"panel": "liveness", "core": "systemd and owned listeners", "statistics": "local APIs", "business": "external authenticated samples only"}})
         elif path == "/api/v2/audits":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)
@@ -387,6 +390,12 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
         try:
+            if path == "/api/v2/monitoring/probe":
+                from .external_probe import accept
+                payload = self.read_json()
+                accepted = accept(self.app.config, self.app.storage, payload, self.headers.get("X-Castorice-Signature", ""))
+                self.send_json(HTTPStatus.OK if accepted else HTTPStatus.FORBIDDEN, {"ok": accepted})
+                return
             if path == "/api/v2/auth/initialize":
                 payload = self.read_json()
                 with self.app.authentication_lock:

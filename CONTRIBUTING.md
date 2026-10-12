@@ -6,6 +6,7 @@ Thank you for helping improve CastoriceUI.
 
 1. Create a focused branch.
 2. Install the locked dependencies with `npm ci`.
+   Install the local privacy hooks with `npm run privacy:install` and verify `npm run privacy:identity` before committing.
 3. Keep protocol-specific logic behind the shared types and provider boundary.
 4. Run `npm run check` before opening a pull request.
 5. Include screenshots for meaningful visual changes and test desktop and mobile widths.
@@ -25,3 +26,5 @@ Thank you for helping improve CastoriceUI.
 Before every commit, inspect the staged diff and scan for credentials. Never commit real IP inventory, passwords, private keys, access Tokens, cookies, subscription links, `.env` files, or exported production data. Use RFC 5737/3849 documentation addresses and `example.test` in examples.
 
 Security vulnerabilities should be reported privately as described in `SECURITY.md`.
+
+Follow [the privacy gate](docs/PRIVACY_RELEASE_GATE.md) for staged objects, pushed history, Git identities, web merges and final release archives. Keep private-value lists outside this repository. Never bypass failed checks; inspect the actual remote merge metadata before tagging or publishing.

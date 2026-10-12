@@ -149,6 +149,14 @@ def install(archive: Path, config_path: Path) -> dict:
                 old_version = health(old_config).get("version")
         for unit in units:
             save(Path("/etc/systemd/system") / unit, unit)
+        event_helper = Path("/usr/local/libexec/castoriceui-core-event.py")
+        save(event_helper, "core-event.py")
+        lifecycle_hooks = []
+        for core in (config.singbox_unit, config.hysteria_unit):
+            if core.removesuffix(".service") in {"sing-box", "hysteria-server"}:
+                hook = Path("/etc/systemd/system") / (core.removesuffix(".service") + ".service.d") / "90-castoriceui-lifecycle.conf"
+                save(hook, core.removesuffix(".service") + "-lifecycle.conf")
+                lifecycle_hooks.append(hook)
         probe_environment = Path("/etc/castoriceui/protocol-probe.env")
         save(probe_environment, "protocol-probe.env")
         shutil.copy2(config_path, backup / "config.json")
@@ -175,6 +183,13 @@ def install(archive: Path, config_path: Path) -> dict:
         shutil.copytree(source / "frontend", frontend_release)
         record("prepared")
         modified = True
+        event_helper.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backend_release / "deploy/core-event.py", event_helper)
+        os.chmod(event_helper, 0o755)
+        for hook in lifecycle_hooks:
+            hook.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backend_release / "deploy/core-lifecycle.conf.example", hook)
+            os.chmod(hook, 0o644)
         for unit in units:
             text = (backend_release / "deploy" / unit).read_text()
             if unit == units[0]:
