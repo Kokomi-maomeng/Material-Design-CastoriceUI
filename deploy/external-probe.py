@@ -6,6 +6,7 @@ panelUrl, secret, agentId, clientBinary, testUrl, proxies (anytls/hysteria2).
 The client never changes TUN, routing, system proxy or an existing client.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import hmac
 import http.client
@@ -100,6 +101,27 @@ def direct_fetch(config: dict, url: str, payload: bytes | None = None, headers: 
         if not 200 <= response.status < 400:
             raise ValueError("unexpected_response")
         return response.read(4096)
+
+
+def observer_healthy(config: dict) -> bool:
+    urls = config.get("observerUrls", [config["testUrl"]])
+    if not isinstance(urls, list) or not 1 <= len(urls) <= 2:
+        return False
+
+    def reachable(url):
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                return False
+            direct_fetch(config, url)
+            return True
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False
+
+    # At most two bounded requests; a single target failure is insufficient
+    # evidence that the observer itself cannot test either proxy.
+    with ThreadPoolExecutor(max_workers=len(urls)) as workers:
+        return any(workers.map(reachable, urls))
 
 
 def read_exact(stream, count: int) -> bytes:
@@ -244,11 +266,7 @@ def main():
     config = json.loads(args.config.read_text(encoding="utf-8"))
     if urlparse(config["panelUrl"]).scheme != "https" or len(config["secret"]) < 32:
         raise ValueError("protected_https_configuration_required")
-    try:
-        direct_fetch(config, config["testUrl"])
-        healthy = True
-    except (OSError, ValueError):
-        healthy = False
+    healthy = observer_healthy(config)
     results = {key: probe(config, key, value) if healthy else {"status": "unavailable", "failedStage": "observer", "durationMs": 0} for key, value in config["proxies"].items() if key in {"anytls", "hysteria2"}}
     payload = {"agentId": config["agentId"], "nonce": secrets.token_urlsafe(24), "observedAt": int(time.time()), "agentHealthy": healthy, "protocols": results}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()

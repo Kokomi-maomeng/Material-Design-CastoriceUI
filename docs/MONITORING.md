@@ -34,6 +34,8 @@ Use a dedicated low-privilege test identity when the core's authentication mecha
 
 On a Windows observer already using a TUN client, optionally set `interfaceName`, numeric `interfaceIndex` and numeric IPv4 `resolverAddress` from the active physical adapter. The isolated client binds that adapter; observer HTTPS/TLS and explicit DNS bind only their own sockets with Winsock `IP_UNICAST_IF`. This avoids circular dependence on the monitored tunnel and system fake-IP DNS. It changes no global route, DNS setting or existing client. A changed/offline adapter produces observer evidence failure; refresh its private configuration after a network change. See [Microsoft's socket option contract](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options).
 
+Optionally configure `observerUrls` with one or two independent HTTPS targets for observer health. They run concurrently and at least one must succeed before proxy business checks run. Both failing produces unavailable observer evidence. Without this setting, `testUrl` is the health target. Use targets on separate providers and keep them independent of the monitored server; a target failure alone must not prevent otherwise valid proxy tests. The separate `testUrl` still determines the actual forwarded business request.
+
 Adding a dedicated server identity is conditional on the existing authentication mode. A single shared-password core cannot gain a separate identity through this monitoring API. Keep an existing protected identity until an independently planned safe authentication migration is possible; never restart a live proxy merely to claim dedicated-identity acceptance. This limitation must be included in site acceptance evidence.
 
 ## Certificate delivery

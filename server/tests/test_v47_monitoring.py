@@ -165,6 +165,34 @@ class SupplementalEvidenceTests(unittest.TestCase):
         self.assertEqual(agent.failure_stage(b"x509 validation failed", "anytls", "authentication"), "tls")
         self.assertEqual(agent.failure_stage(b"remote dial connection refused", "anytls", "authentication"), "forwarding")
 
+    def test_observer_target_failure_does_not_hide_healthy_alternate_path(self):
+        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
+        spec = importlib.util.spec_from_file_location("observer_alternate_qa", path)
+        agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        config = {"testUrl": "https://example.com", "observerUrls": ["https://one.example.com", "https://two.example.com"]}
+        def fetch(_config, url):
+            if url == config["observerUrls"][0]:
+                raise OSError("synthetic target unavailable")
+            return b"healthy"
+        with patch.object(agent, "direct_fetch", side_effect=fetch):
+            self.assertTrue(agent.observer_healthy(config))
+        with patch.object(agent, "direct_fetch", side_effect=OSError("both unavailable")):
+            self.assertFalse(agent.observer_healthy(config))
+
+    def test_observer_health_targets_are_https_and_bounded(self):
+        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
+        spec = importlib.util.spec_from_file_location("observer_validation_qa", path)
+        agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        with patch.object(agent, "direct_fetch", return_value=b"healthy") as fetch:
+            self.assertTrue(agent.observer_healthy({"testUrl": "https://example.com"}))
+            fetch.assert_called_once()
+            fetch.reset_mock()
+            for urls in ([], ["https://example.com"] * 3, "https://example.com", ["http://example.com"], ["https://user:password@example.com"]):
+                self.assertFalse(agent.observer_healthy({"testUrl": "https://example.com", "observerUrls": urls}))
+            fetch.assert_not_called()
+
     def test_upstream_tls_failure_after_socks_success_is_forwarding_evidence(self):
         from unittest.mock import MagicMock
         import ssl
