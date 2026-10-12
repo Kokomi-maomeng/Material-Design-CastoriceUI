@@ -85,6 +85,13 @@ def main() -> None:
                 print(final.stdout)
                 print(json.dumps({"debian": args.debian, "officialImageChecksum": True, "actualVmReboot": True, "acceleration": acceleration}))
             except BaseException:
+                # Only the isolated VM has synthetic configuration and test data.
+                # The production installer keeps these logs private in its backup.
+                try:
+                    diagnostics = run(*ssh, "python3 -c \"from pathlib import Path; assert Path('/etc/hostname').read_text().strip() == 'castorice-ci'; logs=sorted(Path('/var/backups').glob('castoriceui-v*/backend-tests.log'), key=lambda p:p.stat().st_mtime_ns); print(logs[-1].read_text(errors='replace')[-16000:] if logs else 'No staged backend test log')\"", check=False, timeout=20)
+                    print(diagnostics.stdout, flush=True)
+                except (OSError, subprocess.SubprocessError):
+                    print("Isolated VM diagnostics unavailable", flush=True)
                 print((work / "console.log").read_text(errors="replace")[-6000:])
                 raise
             finally:
