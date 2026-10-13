@@ -1,4 +1,4 @@
-import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import type { AlertEvidenceResponse, AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, MonitoringContext, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { validDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -53,6 +53,18 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
     window.clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abortFromCaller);
   }
+}
+
+export function fetchAlertEvidence(episodeId: string, signal?: AbortSignal) {
+  return request<AlertEvidenceResponse>(`/api/v2/alerts/${encodeURIComponent(episodeId)}/evidence`, { signal });
+}
+
+export function fetchNetworkHistory(targetId: string, hours: 6 | 24, ipVersion: number, signal?: AbortSignal) {
+  return request<NetworkHistoryResponse>(`/api/v2/network/${encodeURIComponent(targetId)}/history?hours=${hours}&ipVersion=${ipVersion}`, { signal });
+}
+
+export function fetchMonitoringContext(signal?: AbortSignal) {
+  return request<MonitoringContext>("/api/v2/monitoring", { signal });
 }
 
 export function reportActivity() {

@@ -11,6 +11,7 @@ const styleModules = [
   "app/styles/setup.css",
   "app/styles/services.css",
   "app/styles/auth-glass.css",
+  "app/styles/monitoring.css",
 ];
 
 export async function readStyles(root) {

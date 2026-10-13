@@ -309,6 +309,26 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending", alert_filter))
             except (TypeError, ValueError) as error:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+        elif path.startswith("/api/v2/alerts/") and path.endswith("/evidence"):
+            episode_id = path.removeprefix("/api/v2/alerts/").removesuffix("/evidence")
+            if not episode_id or len(episode_id) > 80 or not all(c.isascii() and (c.isalnum() or c in "-_") for c in episode_id):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_episode_id"})
+            else:
+                evidence = self.app.storage.episode_evidence(episode_id)
+                self.send_json(HTTPStatus.OK if evidence else HTTPStatus.NOT_FOUND, evidence or {"error": "episode_not_found"})
+        elif path.startswith("/api/v2/network/") and path.endswith("/history"):
+            target_id = path.removeprefix("/api/v2/network/").removesuffix("/history")
+            with self.app.dashboard.lock:
+                known = any(item["id"] == target_id for item in self.app.dashboard.runtime_cache.get("network", []))
+            if not known:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "target_not_found"})
+                return
+            try:
+                query = parse_qs(parsed_request.query)
+                history = self.app.storage.network_time_history(target_id, int(query.get("hours", ["1"])[0]), int(query.get("ipVersion", ["0"])[0]))
+                self.send_json(HTTPStatus.OK, history)
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_history_range"})
         elif path == "/api/v2/monitoring":
             runtime = self.app.dashboard.runtime_cache
             self.send_json(HTTPStatus.OK, {"freshness": self.app.dashboard.collection_freshness(), "services": runtime.get("services", []), "maintenance": runtime.get("maintenance", {"state": "unavailable"}), "networkCorrelation": runtime.get("networkCorrelation", {}), "officialStatus": runtime.get("officialStatus", {"status": "not_checked"}), "external": self.app.storage.monitoring_history("external", limit=12), "resource": self.app.storage.monitoring_history("resource", limit=12), "scope": {"panel": "liveness", "core": "systemd and owned listeners", "statistics": "local APIs", "business": "external authenticated samples only"}})

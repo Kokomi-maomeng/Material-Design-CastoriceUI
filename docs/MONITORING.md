@@ -51,3 +51,9 @@ Before production use, verify certificate-only changes, key rotation, delay betw
 ## Conditional high availability decision
 
 First use verified hot loading for ordinary renewal. A second instance/node is justified when a real requirement exceeds that capability or process upgrades require planned draining. TCP needs new-flow allocation with old sockets drained on the original instance. UDP/QUIC also needs connection-ID/state-aware allocation; simple NAT swaps or same-port processes cannot migrate established sessions. Capacity, authentication consistency, failure detection and rollback must be designed and tested separately. The current monitoring release installs neither another node nor a same-port instance. Client fallback improves reconnect experience but cannot preserve an old session by itself.
+
+## On-demand evidence views
+
+Authenticated `GET /api/v2/alerts/{episodeId}/evidence` returns immutable first/worst/latest episode samples. Legacy records without samples return `available: false`. Viewing never acknowledges an alert.
+
+Authenticated `GET /api/v2/network/{targetId}/history?hours=24&ipVersion=4` supports 1/6/24 hours and families 0/4/6 for a current target. It reads at most 5,000 source rows; 6h and 24h views use 2min and 5min bucket maxima with partial/missing markers. Capacity limits can shorten retention. Unknown targets and invalid ranges are rejected. The UI loads longer history on selection and refresh, without multiplying probe work. Expand correlation diagnostics for official component/time context and resource counters; retrieval failure remains unknown.

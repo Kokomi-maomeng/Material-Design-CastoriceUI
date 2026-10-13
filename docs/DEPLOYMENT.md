@@ -10,17 +10,17 @@ Supported server baseline: Debian 12/13, Python 3.11+, Nginx with TLS, systemd, 
 | --- | --- | --- |
 | Minimal panel | Complete steps 1–4 below, then install and initialize | None; optional protocols stay unconfigured |
 | Existing proxy host | Same panel prerequisites; register actual loopback API endpoints/secrets, units and inbound tags in protected config | The panel installer never restarts or reconfigures cores |
-| Upgrade | Existing healthy panel, known live unit/config/database/site, verified archive and rollback media | Only the panel backend restarts; Nginx reloads only if its upstream changes |
+| Upgrade | Existing healthy panel, known live unit/config/database/site, verified archive and rollback media | Only the panel backend restarts; Nginx reloads only if its site configuration changes |
 
 新主机按下面顺序执行，已有代理主机在相同前提下配置真实回环 API；升级走第 5 节。不要在服务账号、受保护配置和已启用 TLS 站点准备好之前运行安装器。
 
 ## 1. Obtain and verify the release
 
-Download `CastoriceUI-v4.6.0.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v4.6.0), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
+Download `CastoriceUI-v5.0.1.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v5.0.1), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
 
 ```sh
-tar -xzf CastoriceUI-v4.6.0.tar.gz
-cd CastoriceUI-v4.6.0
+tar -xzf CastoriceUI-v5.0.1.tar.gz
+cd CastoriceUI-v5.0.1
 ```
 
 A source checkout uses `npm ci`, `python3 -m pip install -r server/requirements.txt`, `npm run check`, then `npm run release:package`. The package includes the built frontend, backend, tests, templates and installer. Never include protected config, bootstrap tokens, databases or personal subscriptions in a public release.
@@ -73,14 +73,14 @@ Preflight is read-only. It checks actual loaded/active required units, optional 
 Before upgrading, record public/loopback health, enabled/active units, live symlink targets and HY2/sing-box/Nginx PIDs. Verify config and SQLite rollback media. The database backup uses SQLite's online backup API rather than copying a live `state.db` independently of WAL/SHM.
 
 ```sh
-sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v4.6.0.tar.gz --config /etc/castoriceui/config.json
+sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v5.0.1.tar.gz --config /etc/castoriceui/config.json
 ```
 
 The installer validates the archive, runs staged backend regressions and preflight, records config/units/site/links and a consistent SQLite backup, then installs into paired unique release directories. It atomically replaces each frontend/backend link. These are separate filesystem operations, so a brief panel-only mismatch can occur during the switch. It restarts only `castoriceui-backend`; proxy-core continuity is checked through PIDs. The probe timer is installed/enabled and runs a read-only inventory probe. Its custom unit/output settings are read from `/etc/castoriceui/protocol-probe.env`; start with [`protocol-probe.env.example`](../deploy/protocol-probe.env.example) when needed.
 
 A fresh backend is enabled for boot. An upgrade preserves the existing backend enable policy; an intentionally disabled service stays disabled. The upgrade starts the panel for acceptance but does not promise it will start after reboot if the operator intentionally disabled it.
 
-Failure produces a retained `/var/backups/castoriceui-v4.6.0-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
+Failure produces a retained `/var/backups/castoriceui-v5.0.1-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
 
 ## 6. Bootstrap and complete first use
 
@@ -107,3 +107,7 @@ Login image recovery uses decoded `blob:` object URLs. The v5.0 template permits
 If automatic recovery fails, use the retained `transaction.json`, previous-target files, unit copies, `config.json`, `nginx-site.conf`, consistent `state.db`, staged test log and preflight report. Stop only the panel backend before database restoration. Restore a complete compatible backend/frontend/config/database/unit/site set, reload systemd, restore enable state, validate Nginx and old health, and compare proxy PIDs. Use the SQLite backup API to restore rather than ignoring WAL/SHM or writing into an actively served database.
 
 Retain the prior release, checksums and rollback directory until acceptance is complete. This panel does not automatically repair operating-system networking, firewall rules, proxy services or external certificates.
+
+## HTML upgrade validation
+
+Deterministic archives normalize file times. Nginx default ETags use timestamp and size, which can collide across different HTML builds. The installer applies `etag off`, `if_modified_since off` and `Cache-Control: no-store` to the HTML fallback location. Hashed assets retain immutable caching. Verify an ordinary existing-browser reload and requests carrying the old ETag or Last-Modified value: each must return the current HTML with HTTP 200. A successful health API response alone does not verify the frontend version.

@@ -925,6 +925,8 @@ class DashboardService:
 
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]], integrations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
+        previous_alerts = self.storage.active_alerts()
+        unresolved_ids = {str(item["id"]) for item in previous_alerts}
         usage = 100 * system["trafficUsedBytes"] / max(1, system["trafficLimitBytes"])
         traffic_threshold = float(self.config.alert_thresholds.get("trafficPercent", 80))
         latency_threshold = float(self.config.alert_thresholds.get("latencyMs", 150))
@@ -940,9 +942,9 @@ class DashboardService:
                 alerts.append({"id": "certificate-evidence", "severity": "warning", "title": "TLS certificate evidence requires attention", "titleEn": "TLS certificate evidence requires attention", "titleZh": "TLS 证书证据需要检查", "description": f"Endpoint: {service.get('endpointEvidence', 'unknown')} · renewal: {service.get('renewalEvidence', 'unknown')}", "descriptionEn": f"Endpoint: {service.get('endpointEvidence', 'unknown')} · renewal: {service.get('renewalEvidence', 'unknown')}", "descriptionZh": f"站点证据：{service.get('endpointEvidence', 'unknown')} · 续期证据：{service.get('renewalEvidence', 'unknown')}", "time": "latest check", "timeEn": "latest check", "timeZh": "最近检查", "acknowledged": False, "source": "Certificate monitor", "sourceEn": "Certificate monitor", "sourceZh": "证书监控"})
                 continue
             if service["status"] == "stopped":
-                if service.get("stateReason") == "core_offline" and any(item["id"] == "singbox" and item["status"] == "stopped" for item in services):
+                if service.get("stateReason") == "core_offline" and service["id"] in PROTOCOLS and any(item["id"] == "singbox" and item["status"] == "stopped" for item in services):
                     continue
-                affected = [item for item in services if service["id"] == "singbox" and item.get("stateReason") == "core_offline"]
+                affected = [item for item in services if service["id"] == "singbox" and item["id"] in PROTOCOLS and item.get("stateReason") == "core_offline"]
                 detail_en = service.get("detailEn", service["detail"])
                 detail_zh = service.get("detailZh", service["detail"])
                 if affected:
@@ -954,6 +956,10 @@ class DashboardService:
                     continue
                 key = str(service.get("rootCauseId") or service["id"])
                 reason = service.get("stateReason", "statistics_unavailable")
+                # Keep the original outage episode while its recovery is unknown;
+                # shared statistics failures must not create duplicate root events.
+                if "service-" + service["id"] in unresolved_ids or key.startswith("singbox-") and "service-singbox" in unresolved_ids:
+                    continue
                 now = time.monotonic()
                 first = self.unknown_since.setdefault(key, now)
                 transitional = reason in {"inventory_missing", "inventory_stale", "core_generation_changed", "probe_unavailable"}
@@ -978,7 +984,7 @@ class DashboardService:
         # Keep that episode open with an uncertainty warning until a fresh
         # service sample proves a running listener or a confirmed stop.
         present = {str(item["id"]) for item in alerts}
-        for previous in self.storage.active_alerts():
+        for previous in previous_alerts:
             service = next((item for item in services if "service-" + item["id"] == previous["id"]), None)
             if service and previous["id"] not in present and service.get("status") == "warning" and service.get("stateReason") in {"inventory_missing", "inventory_stale", "inventory_invalid", "inventory_permission_denied", "core_generation_changed", "config_not_loaded", "probe_unavailable", "collector_stale", "statistics_unavailable", "core_state_unconfirmed", "configuration_unverified"}:
                 retained = dict(previous)
@@ -1015,7 +1021,7 @@ class DashboardService:
                 if matching:
                     alert["evidence"] = {key: matching.get(key) for key in ("latency", "loss", "sent", "received", "complete", "observedAt", "probeReason", "effectivePolicy", "qualityWindow", "layers")}
             elif str(alert["id"]) == "service-singbox":
-                alert["affectedServices"] = [item["id"] for item in services if item.get("stateReason") == "core_offline"]
+                alert["affectedServices"] = [item["id"] for item in services if item["id"] in PROTOCOLS and item.get("stateReason") == "core_offline"]
         alerts.extend(self.collection_alerts())
         episodes = self.storage.reconcile_alerts(alerts)
         for alert in alerts:
@@ -1364,9 +1370,9 @@ class DashboardService:
         import shutil
         import subprocess
         official = http_json("https://www.cloudflarestatus.com/api/v2/incidents.json", timeout=2, max_bytes=262144)
-        incidents = official.get("incidents", []) if isinstance(official, dict) else []
+        incidents = official["incidents"] if isinstance(official, dict) and isinstance(official.get("incidents"), list) else []
         context = {"observedAt": timestamp(), "status": "retrieved" if isinstance(official, dict) and isinstance(official.get("incidents"), list) else "unavailable",
-                   "source": "Cloudflare official status", "incidents": [{key: item.get(key) for key in ("id", "status", "started_at", "resolved_at", "impact")} for item in incidents[:20] if isinstance(item, dict)],
+                   "source": "Cloudflare official status", "incidents": [{**{key: item.get(key) for key in ("id", "name", "status", "started_at", "resolved_at", "impact")}, "components": [{"name": part.get("name"), "status": part.get("status")} for part in (item["components"] if isinstance(item.get("components"), list) else [])[:12] if isinstance(part, dict)]} for item in incidents[:20] if isinstance(item, dict)],
                    "interpretation": "candidate_time_overlap_only", "historicalRoute": "unavailable"}
         self.storage.record_monitoring("official", "cloudflare", context)
         with self.lock:

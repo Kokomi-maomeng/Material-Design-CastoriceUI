@@ -12,6 +12,7 @@ import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
+import { AlertEvidenceDialog } from "./AlertEvidenceDialog";
 
 export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, onSummaryChange, integration, onConfigure }: {
   alerts: AlertItem[];
@@ -31,6 +32,7 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
   const summaryCallback = useRef(onSummaryChange);
   useEffect(() => { summaryCallback.current = onSummaryChange; }, [onSummaryChange]);
   const paginated = filter !== "all" || expanded;
@@ -73,6 +75,7 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
             <span>{t("开始", "Started")}: <time dateTime={alert.startedAt}>{formatLocalDateTime(alert.startedAt, language)}</time></span>
             {alert.resolvedAt ? <span>{t("恢复", "Recovered")}: <time dateTime={alert.resolvedAt}>{formatLocalDateTime(alert.resolvedAt, language)}</time></span> : null}
             {alert.acknowledgedAt ? <span>{t("确认", "Acknowledged")}: <time dateTime={alert.acknowledgedAt}>{formatLocalDateTime(alert.acknowledgedAt, language)}</time></span> : null}
+            <Button variant="text" compact icon="fact_check" onClick={() => setSelectedAlert(alert)}>{t("查看证据", "View evidence")}</Button>
           </div>
           <div className="alert-row__actions">{alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : null}{!alert.acknowledged ? <Button variant="tonal" compact disabled={busy} onClick={() => void confirm(alert.episodeId)}>{t("确认", "Acknowledge")}</Button> : <Chip staticChip tone="success" icon="check">{t("已确认", "Acknowledged")}</Chip>}</div>
         </div>)}
@@ -81,5 +84,6 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
       {filter === "all" ? <RecordHistoryControls kind="alerts" expanded={expanded} loading={loading} total={result.total} page={result.page} totalPages={result.totalPages} onExpandedChange={(value) => { setExpanded(value); setPage(1); setLoading(true); }} /> : <div className="audit-controls"><div><strong>{t(`第 ${result.page}/${result.totalPages} 页`, `Page ${result.page} of ${result.totalPages}`)}</strong><span>{t(`当前筛选 ${result.total} 条`, `${result.total} matching alerts`)}</span></div></div>}
       {paginated && !loadError ? <RecordPagination page={result.page} totalPages={result.totalPages} onPageChange={(value) => { if (value !== page) { setPage(value); setLoading(true); } }} label={t("告警记录分页", "Alert record pagination")} /> : null}
     </Card>
+    <AlertEvidenceDialog key={selectedAlert?.episodeId ?? "closed"} alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
   </div>;
 }

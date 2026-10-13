@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates nginx openssl
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates nginx openssl python3
           install -d /etc/letsencrypt/live/panel.example.com /var/www/castorice-ui/current
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
             -subj '/CN=panel.example.com' \
@@ -57,6 +57,7 @@ jobs:
           }
           EOF
           nginx -t -c /tmp/castorice-nginx.conf
+          python3 scripts/nginx-cache-acceptance.py
 
   browser-matrix:
     name: Browser matrix (${{ matrix.engine }})

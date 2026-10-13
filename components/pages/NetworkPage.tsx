@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 import { updateNetworkTargets } from "../../lib/api";
+import { formatLocalDateTime } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
 import { FeatureIntro } from "../setup/FeatureIntro";
@@ -13,6 +14,8 @@ import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
 import { PageHeader } from "../ui/Page";
+import { NetworkHistory } from "./NetworkHistory";
+import { NetworkDiagnosis } from "./NetworkDiagnosis";
 
 interface TargetDraft {
   ipVersion: 0 | 4 | 6;
@@ -135,6 +138,7 @@ export function NetworkPage({
         descriptionEn="After targets are configured, an independent backend monitor refreshes them about every 20 seconds; the browser does not trigger probes."
         onConfigure={onConfigure}
       />
+      <NetworkDiagnosis targets={targets} />
       <FeatureIntro
         items={[
           {
@@ -259,7 +263,8 @@ export function NetworkPage({
                   <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 本轮回包`, `${target.name} replies this round`)} />
                 </div>
               </div>
-              {target.timeHistory?.length ? <div className="network-target-card__chart"><div className="network-target-card__chart-title"><span>{t("最近一小时真实趋势 · 缺测处断开", "Measured hour · gaps preserved")}</span></div><TimeTrend samples={target.timeHistory} label={t(`${target.name} 时间趋势`, `${target.name} time trend`)} /></div> : null}
+              <NetworkHistory key={target.id} target={target} />
+              <ProbeEvidence target={target} />
               </div>
               </div>
             </Card>
@@ -369,23 +374,16 @@ export function NetworkPage({
   );
 }
 
-function TimeTrend({ samples, label }: { samples: NonNullable<NetworkTarget["timeHistory"]>; label: string }) {
-  const start = samples[0].capturedAt;
-  const end = samples[samples.length - 1].capturedAt;
-  const maximum = Math.max(1, ...samples.map((item) => item.latency ?? 0));
-  const segments: string[] = [];
-  let segment: string[] = [];
-  let previous: number | undefined;
-  for (const sample of samples) {
-    if (sample.latency === null || !sample.complete || (previous !== undefined && sample.capturedAt - previous > 30)) {
-      if (segment.length) segments.push(segment.join(" "));
-      segment = [];
-    }
-    if (sample.latency !== null && sample.complete) segment.push(`${4 + 292 * (sample.capturedAt - start) / Math.max(1, end - start)},${46 - sample.latency / maximum * 40}`);
-    previous = sample.capturedAt;
-  }
-  if (segment.length) segments.push(segment.join(" "));
-  return <div><svg viewBox="0 0 300 50" role="img" aria-label={label} style={{ width: "100%", height: 64 }}><title>{label}</title>{segments.map((points, index) => <polyline key={index} points={points} fill="none" stroke="var(--md-sys-color-primary)" strokeWidth="2" />)}</svg><small>{new Date(start * 1000).toLocaleTimeString()} – {new Date(end * 1000).toLocaleTimeString()} · {maximum.toFixed(1)} ms</small></div>;
+function ProbeEvidence({ target }: { target: NetworkTarget }) {
+  const { language, t } = useI18n();
+  const status = (value: string | undefined, configured = true) => !configured ? t("未配置", "Not configured") : value === "passed" ? t("通过", "Passed") : value === "failed" ? t("失败", "Failed") : t("无法确认", "Unconfirmed");
+  return <details className="network-probe-evidence"><summary>{t("查看分层探测证据", "View probe layers")}</summary><dl className="monitoring-evidence-list">
+    <div><dt>{t("ICMP 采样", "ICMP sampled")}</dt><dd>{target.observedAt ? formatLocalDateTime(target.observedAt, language) : "—"}</dd></div>
+    <div><dt>{t("发包 / 回包", "Sent / received")}</dt><dd>{target.sent ?? "—"} / {target.received ?? "—"}</dd></div>
+    <div><dt>{t("本轮完整性", "Round completeness")}</dt><dd>{target.complete === true ? t("完整", "Complete") : target.complete === false ? t("未完成", "Incomplete") : "—"}</dd></div>
+    {(["tcp", "dns"] as const).map((key) => { const layer = target.layers?.[key]; return <div key={key}><dt>{key.toUpperCase()}</dt><dd>{status(layer?.status, layer?.configured === true)}{layer?.observedAt ? ` · ${formatLocalDateTime(layer.observedAt, language)}` : ""}{typeof layer?.durationMs === "number" ? ` · ${layer.durationMs} ms` : ""}</dd></div>; })}
+    {target.effectivePolicy ? <div><dt>{t("质量窗口", "Quality window")}</dt><dd>{target.effectivePolicy.windowSeconds}s · {target.qualityWindow?.sent ?? 0} {t("包", "packets")} · {target.qualityWindow?.loss ?? "—"}%</dd></div> : null}
+  </dl><p>{t("ICMP、TCP、DNS 分别判读；出站探测不能证明用户代理业务可用。", "ICMP, TCP and DNS are separate evidence. Outbound probes do not establish proxy business availability.")}</p></details>;
 }
 
 function NetworkMetric({

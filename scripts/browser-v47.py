@@ -40,6 +40,13 @@ with sync_playwright() as playwright:
                 selected = query.get("filter", ["pending"])[0]
                 items = [active] if selected == "active" else [recovered] if selected == "recovered" else [active, recovered]
                 data = {"items": items, "total": len(items), "page": 1, "pageSize": 50, "totalPages": 1, "summary": summary}
+            elif path.startswith("alerts/") and path.endswith("/evidence"):
+                data = {"episodeId": path.split("/")[1], "available": True, **{key: {"title": "Synthetic loss", "description": "Synthetic evidence", "evidence": {"loss": loss, "observedAt": "2026-01-01T00:00:00Z", "complete": True}} for key, loss in (("first", 10), ("worst", 30), ("last", 15))}}
+            elif path == "network/qa/history":
+                assert query["hours"] == ["24"] and query["ipVersion"] == ["4"]
+                data = {"targetId": "qa", "hours": 24, "ipVersion": 4, "start": 1700000000, "end": 1700086400, "granularitySeconds": 300, "aggregation": "maximum", "sourceSamples": 3, "truncated": False, "samples": [{"capturedAt": 1700000300, "latency": 900, "loss": 100, "complete": True, "hasGaps": True, "status": "down"}]}
+            elif path == "monitoring":
+                data = {"networkCorrelation": {"classification": "insufficient-evidence"}, "officialStatus": {"status": "unavailable"}, "resource": []}
             elif path == "settings/network-targets":
                 mutations.append(route.request.post_data_json)
                 data = {"ok": True}
@@ -61,10 +68,25 @@ with sync_playwright() as playwright:
             expect(page.get_by_text("Synthetic recovered", exact=True)).to_have_count(0)
             page.get_by_role("button", name="Recovered pending 1", exact=True).click()
             expect(page.get_by_text("Synthetic recovered", exact=True)).to_be_visible()
+            page.get_by_role("button", name="View evidence", exact=True).click()
+            expect(page.get_by_text("Worst reading", exact=True)).to_be_visible()
+            expect(page.get_by_text("30%", exact=True)).to_be_visible()
+            assert page.locator(".md-dialog").evaluate("element=>element.scrollWidth<=element.clientWidth+2")
+            page.get_by_label("Close", exact=True).click()
+            page.locator(".md-dialog-layer").wait_for(state="detached")
             page.evaluate("location.hash='/network'")
             expect(page.get_by_text("Poor", exact=True)).to_be_visible()
             expect(page.get_by_text("Replies this round", exact=True)).to_be_visible()
-            expect(page.locator('svg[aria-label="Synthetic target time trend"] polyline')).to_have_count(2)
+            expect(page.locator('svg[aria-label="Synthetic target time trend"] circle')).to_have_count(4)
+            page.get_by_role("button", name="24h", exact=True).click()
+            expect(page.get_by_text("900.0", exact=True)).to_be_visible()
+            expect(page.locator('svg[aria-label="Synthetic target time trend"] [data-gap]')).to_have_count(1)
+            page.get_by_role("button", name="1h", exact=True).click()
+            page.get_by_text("View probe layers", exact=True).click()
+            expect(page.get_by_text("Not configured", exact=True)).to_have_count(2)
+            page.get_by_text("Correlation and official incidents", exact=True).click()
+            expect(page.get_by_text("Official status unconfirmed", exact=False)).to_be_visible()
+            page.get_by_text("Correlation and official incidents", exact=True).click()
             page.get_by_role("button", name="Customize", exact=True).click()
             page.get_by_text("Thresholds and service checks", exact=True).click()
             page.get_by_label("Loss threshold (%)", exact=True).fill("20")

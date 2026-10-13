@@ -58,7 +58,11 @@ server {
     }
 
     location / {
-        add_header Cache-Control "no-cache" always;
+        # Archives normalize file times; Nginx's mtime/length validators can
+        # collide across releases. Old browser validators must receive new HTML.
+        etag off;
+        if_modified_since off;
+        add_header Cache-Control "no-store" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Strict-Transport-Security "max-age=31536000" always;
         add_header X-Frame-Options "DENY" always;
