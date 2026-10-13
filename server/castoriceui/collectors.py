@@ -406,8 +406,6 @@ def protocol_readiness(config: AppConfig, protocol: str, sb: dict[str, Any]) -> 
     tags = config.protocol_adapters.get(protocol, {}).get("inboundTags", [])
     if not str(config.singbox_api.get("url", "")).strip() or not tags:
         return False, "Configuration incomplete: API endpoint or inbound tags missing", "配置未完成：缺少 API 地址或入站标签"
-    if not sb.get("available"):
-        return False, "Statistics API unavailable or invalid", "统计 API 不可用或响应无效"
     inventory = sb.get("inventory", {})
     if not inventory.get("available"):
         if inventory.get("reason") == "config_not_loaded":
@@ -429,6 +427,8 @@ def protocol_readiness(config: AppConfig, protocol: str, sb: dict[str, Any]) -> 
             return False, "Listener transport is unsupported by the local verifier", "本地验证器不支持该监听传输方式"
         if not matches[0].get("listening"):
             return False, "Protocol listener is unavailable", "协议监听不可用"
+    if not sb.get("available"):
+        return False, "Statistics API unavailable or invalid", "统计 API 不可用或响应无效"
     return True, "Core active · inbound and statistics API verified", "核心正常 · 入站监听及统计 API 验证通过"
 
 
@@ -513,7 +513,11 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
             status, detail, detail_zh = "warning", "systemd active · statistics adapter unavailable", "systemd 正常 · 统计适配器当前不可用"
         if service_id == "hysteria2" and active == "active" and not str(config.hysteria_api.get("url", "")).strip():
             status, detail, detail_zh = "warning", "Configuration incomplete: statistics API endpoint missing", "配置未完成：缺少统计 API 地址"
-        record = {"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "version": version if status == "running" else "unknown", "icon": icon, "kind": "protocol" if service_id == "hysteria2" else "core"}
+        reason = "verified" if status == "running" else "core_offline" if status == "stopped" else "core_state_unconfirmed" if active != "active" else "statistics_unavailable"
+        record = {"id": service_id, "name": name, "nameZh": name, "nameEn": name, "detail": detail, "detailZh": detail_zh, "detailEn": detail, "status": status, "stateReason": reason, "version": version if status == "running" else "unknown", "icon": icon, "kind": "protocol" if service_id == "hysteria2" else "core", "evidence": {"systemdState": active, "statisticsAvailable": bool(adapter and adapter.get("available")) if adapter is not None else None}}
+        record["evidence"]["observedAt"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        if service_id == "singbox" and reason == "statistics_unavailable":
+            record["rootCauseId"] = "singbox-statistics"
         if status == "running":
             record["uptimeSeconds"] = uptime
         services.append(record)
@@ -534,7 +538,7 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
                 elif active not in {"active", "inactive", "failed"}:
                     reason = "core_state_unconfirmed"
                 inventory_problem = protocol_detail in {"Live inbound inventory unavailable; check the protocol probe", "Core configuration changed since startup; loaded inbounds cannot be verified"}
-                protocol_record = {"id": protocol, "name": label, "nameZh": label, "nameEn": label, "kind": "protocol", "detail": protocol_detail, "detailEn": protocol_detail, "detailZh": protocol_zh, "status": "running" if ready else "stopped" if confirmed_offline else "warning", "stateReason": "core_offline" if active in {"inactive", "failed"} else "listener_missing" if confirmed_offline else reason, "evidence": evidence, "rootCauseId": "singbox-core" if active in {"inactive", "failed"} else "singbox-inventory" if inventory_problem else protocol, "version": f"sing-box {version}" if ready and version != "unknown" else "unknown", "icon": protocol_icon}
+                protocol_record = {"id": protocol, "name": label, "nameZh": label, "nameEn": label, "kind": "protocol", "detail": protocol_detail, "detailEn": protocol_detail, "detailZh": protocol_zh, "status": "running" if ready else "stopped" if confirmed_offline else "warning", "stateReason": "core_offline" if active in {"inactive", "failed"} else "listener_missing" if confirmed_offline else reason, "evidence": evidence, "rootCauseId": "singbox-core" if active in {"inactive", "failed"} else "singbox-inventory" if inventory_problem else "singbox-statistics" if protocol_detail == "Statistics API unavailable or invalid" else protocol, "version": f"sing-box {version}" if ready and version != "unknown" else "unknown", "icon": protocol_icon}
                 if ready:
                     protocol_record["uptimeSeconds"] = uptime
                 services.append(protocol_record)

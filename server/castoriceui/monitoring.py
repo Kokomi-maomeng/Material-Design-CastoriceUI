@@ -126,7 +126,7 @@ def correlate(targets: list[dict[str, Any]]) -> dict[str, Any]:
     """Candidate correlation is never a provider or line root-cause claim."""
     bad = [item for item in targets if item.get("status") in {"down", "degraded"}]
     return {"observedAt": timestamp(), "scope": "outbound-icmp",
-            "classification": "multiple-targets" if len(bad) > 1 else "target-direction" if bad else "no-current-anomaly",
+            "classification": "multiple-targets" if len(bad) > 1 else "target-direction" if bad else "insufficient-evidence" if not targets or any(item.get("status") == "unavailable" or item.get("complete") is False for item in targets) else "no-current-anomaly",
             "affectedTargets": [item["id"] for item in bad],
             "ipVersions": sorted({int(item.get("resolvedIpVersion") or item.get("ipVersion", 0)) for item in bad}),
             "normalSamples": sum(item.get("status") == "healthy" and item.get("complete", True) for item in targets),

@@ -103,8 +103,16 @@ export interface NetworkTarget {
   alertConfirmed?: boolean;
   qualityWindow?: { sent: number; received: number; loss: number | null; ready: boolean; confirmation: string };
   layers?: Record<string, { configured: boolean; status: string; observedAt?: string; durationMs?: number }>;
-  timeHistory?: { capturedAt: number; latency: number | null; loss: number | null; complete: boolean; status: string }[];
+  timeHistory?: NetworkHistorySample[];
   order?: number;
+}
+
+export interface NetworkHistorySample { capturedAt: number; latency: number | null; loss: number | null; complete: boolean; status: string; hasGaps?: boolean; samples?: number }
+export interface NetworkHistoryResponse { targetId: string; hours: number; ipVersion: number; start: number; end: number; granularitySeconds: number; aggregation: "maximum"; sourceSamples: number; truncated: boolean; samples: NetworkHistorySample[] }
+export interface MonitoringContext {
+  networkCorrelation?: { observedAt?: string; classification?: string; affectedTargets?: string[]; ipVersions?: number[]; normalSamples?: number; rootCause?: string };
+  officialStatus?: { status?: string; observedAt?: string; incidents?: { id: string; name?: string; status?: string; started_at?: string; resolved_at?: string; components?: { name?: string; status?: string }[] }[] };
+  resource?: { observedAt?: string; memoryBytes?: number; memoryEventDelta?: Record<string, number>; available?: boolean }[];
 }
 
 export interface ServiceStatus {
@@ -295,6 +303,25 @@ export interface AlertItem {
   source: string;
   sourceZh?: string;
   sourceEn?: string;
+}
+
+export interface AlertEvidenceResponse {
+  episodeId: string;
+  available: boolean;
+  updatedAt: string | null;
+  first: AlertEvidenceSample | null;
+  last: AlertEvidenceSample | null;
+  worst: AlertEvidenceSample | null;
+}
+
+export interface AlertEvidenceSample {
+  title: string;
+  titleZh?: string;
+  titleEn?: string;
+  description: string;
+  descriptionZh?: string;
+  descriptionEn?: string;
+  evidence?: { observedAt?: string; sampledAt?: number; latency?: number | null; loss?: number | null; sent?: number | null; received?: number | null; complete?: boolean; service?: { observedAt?: string; sampledAt?: number }; effectivePolicy?: { latencyMs?: number; lossPercent?: number } };
 }
 
 export interface AuditEvent {

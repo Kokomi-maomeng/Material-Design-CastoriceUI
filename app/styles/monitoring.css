@@ -1,0 +1,24 @@
+.alert-evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.alert-evidence-sample { min-width: 0; padding: 16px; border: 1px solid var(--outline-variant); border-radius: 16px; background: var(--surface-container-low); overflow-wrap: anywhere; }
+.alert-evidence-sample h3 { margin: 0 0 8px; font-size: 14px; }
+.alert-evidence-sample time { display: block; margin-bottom: 12px; font-size: 12px; color: var(--on-surface-variant); }
+.alert-evidence-sample > strong { display: block; font-size: 14px; }
+.alert-evidence-sample p { font-size: 13px; line-height: 1.6; }
+.monitoring-evidence-list { margin: 12px 0 0; font-size: 12px; }
+.monitoring-evidence-list > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 6px 0; }
+.monitoring-evidence-list dt { color: var(--on-surface-variant); }
+.monitoring-evidence-list dd { margin: 0; overflow-wrap: anywhere; }
+.network-probe-evidence { margin-top: 12px; font-size: 12px; }
+.network-probe-evidence summary { cursor: pointer; padding: 8px 0; }
+.network-time-trend svg { display: block; width: 100%; height: 96px; overflow: visible; }
+.network-time-trend__legend { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 11px; }
+@media (max-width: 700px) { .alert-evidence-grid { grid-template-columns: minmax(0, 1fr); } }
+.network-history-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: space-between; font-size: 12px; }
+.network-history-toolbar .segmented-control button { min-width: 40px; padding: 6px 10px; }
+.network-history-refresh { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.network-diagnosis { border: 1px solid var(--outline-variant); border-radius: 20px; padding: 14px 18px; }
+.network-diagnosis summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.network-diagnosis p { font-size: 12px; color: var(--on-surface-variant); line-height: 1.6; }
+.network-official-incidents { padding-left: 18px; font-size: 12px; }
+.network-official-incidents li { margin-block: 10px; }
+.network-official-incidents li > * { display: block; overflow-wrap: anywhere; margin-block: 4px; }

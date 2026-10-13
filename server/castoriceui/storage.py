@@ -700,6 +700,58 @@ class Storage:
             rows = connection.execute("SELECT * FROM alert_history WHERE resolved_at IS NULL ORDER BY started_at DESC, episode_id DESC").fetchall()
         return [self.alert_payload(row) for row in rows]
 
+    def network_time_history(self, target: str, hours: int, ip_version: int = 0, now: int | None = None) -> dict[str, Any]:
+        """On-demand, bounded day view; bucket maxima preserve spikes and gaps."""
+        if hours not in {1, 6, 24} or ip_version not in {0, 4, 6}:
+            raise ValueError("Invalid network history range")
+        end = int(time.time()) if now is None else int(now)
+        start = end - hours * 3600
+        step = {1: 20, 6: 120, 24: 300}[hours]
+        with self.connect() as connection:
+            rows = connection.execute("SELECT captured_at,json_extract(payload_json,'$.latency') AS latency,json_extract(payload_json,'$.loss') AS loss,json_extract(payload_json,'$.complete') AS complete,json_extract(payload_json,'$.status') AS status,COALESCE(json_extract(payload_json,'$.resolvedIpVersion'),json_extract(payload_json,'$.ipVersion'),0) AS family FROM monitoring_samples WHERE domain='network' AND target=? AND captured_at BETWEEN ? AND ? ORDER BY captured_at DESC,id DESC LIMIT 5001", (target, start, end)).fetchall()
+        truncated = len(rows) > 5000
+        buckets: dict[int, dict[str, Any]] = {}
+        count = 0
+        for row in reversed(rows[:5000]):
+            sample = dict(row)
+            family = sample["family"]
+            if ip_version and family != ip_version:
+                continue
+            count += 1
+            at = row["captured_at"] // step * step
+            bucket = buckets.setdefault(at, {"capturedAt": at, "latency": None, "loss": None, "complete": False, "hasGaps": False, "samples": 0, "status": "unavailable"})
+            bucket["samples"] += 1
+            complete = sample.get("complete") == 1
+            bucket["hasGaps"] |= not complete
+            bucket["complete"] |= complete
+            if not complete:
+                continue
+            for metric in ("latency", "loss"):
+                value = sample.get(metric)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    bucket[metric] = max(bucket[metric] if bucket[metric] is not None else value, value)
+            if sample.get("status") in {"down", "degraded"}:
+                bucket["status"] = sample["status"]
+            elif bucket["status"] == "unavailable":
+                bucket["status"] = sample.get("status", "unavailable")
+        for bucket in buckets.values():
+            # A partially sampled bucket stays visibly partial; never fill it
+            # with artificial successful probes or join across missing rounds.
+            bucket["hasGaps"] |= bucket["samples"] < step // 20
+        return {"targetId": target, "hours": hours, "ipVersion": ip_version, "start": start, "end": end, "granularitySeconds": step, "aggregation": "maximum", "sourceSamples": count, "truncated": truncated, "samples": list(buckets.values())}
+
+    def episode_evidence(self, episode_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT first_json,last_json,worst_json,updated_at FROM alert_evidence WHERE episode_id=?", (episode_id,)).fetchone()
+            exists = connection.execute("SELECT 1 FROM alert_history WHERE episode_id=?", (episode_id,)).fetchone()
+        if not exists:
+            return None
+        return {"episodeId": episode_id, "available": row is not None,
+                "first": json.loads(row["first_json"]) if row else None,
+                "last": json.loads(row["last_json"]) if row else None,
+                "worst": json.loads(row["worst_json"]) if row else None,
+                "updatedAt": row["updated_at"] if row else None}
+
     def alert_history(self, limit: int = 200) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(

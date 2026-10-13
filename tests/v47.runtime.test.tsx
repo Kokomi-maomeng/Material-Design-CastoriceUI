@@ -40,8 +40,9 @@ it("keeps a single degraded target visible despite healthy averages and labels r
   english(<NetworkPage targets={[target, { ...target, id: "healthy", name: "Healthy", status: "healthy", loss: 0, timeHistory: [] }]} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={vi.fn()} />);
   expect(screen.getByText("Poor")).toBeTruthy();
   expect(screen.getAllByText("Replies this round")).toHaveLength(2);
-  expect(screen.getByText("Measured hour · gaps preserved")).toBeTruthy();
-  expect(document.querySelectorAll('svg[aria-label="QA time trend"] polyline')).toHaveLength(2);
+  expect(screen.getAllByText("Measured hour · gaps preserved")).toHaveLength(2);
+  expect(document.querySelectorAll('svg[aria-label="QA time trend"] circle')).toHaveLength(4);
+  expect(document.querySelectorAll('svg[aria-label="QA time trend"] [data-gap]')).toHaveLength(1);
 });
 
 it("keeps inherited thresholds empty when editing a measured target", async () => {

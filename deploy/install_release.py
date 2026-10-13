@@ -51,6 +51,32 @@ def allow_login_image_blobs(site_text: str) -> str:
     return re.sub(r'(\badd_header\s+Content-Security-Policy\s+")([^"\r\n]*)(")', policy, site_text, flags=re.IGNORECASE)
 
 
+def protect_html_updates(site_text: str) -> str:
+    """Deterministic archive times cannot validate a changed HTML entry point.
+
+    Nginx's default ETag contains only mtime and length. Different releases can
+    therefore share it. Always send the current shell, even if a browser sends
+    validators cached before this policy was installed. Hashed assets retain
+    their independent immutable cache policy.
+    """
+    changed = 0
+    def location(match: re.Match) -> str:
+        nonlocal changed
+        body = match[2]
+        if not re.search(r"\btry_files\s+[^;]*/index\.html\s*;", body):
+            return match[0]
+        changed += 1
+        body = re.sub(r"(?m)^[ \t]*(?:etag\s+(?:on|off)|if_modified_since\s+\w+)[ \t]*;[ \t]*\r?\n", "", body)
+        body, count = re.subn(r'\badd_header\s+Cache-Control\s+"[^"]*"(?:\s+always)?\s*;', 'add_header Cache-Control "no-store" always;', body, flags=re.IGNORECASE)
+        if count != 1:
+            raise ValueError("Expected one HTML Cache-Control header")
+        return match[1] + "\n        etag off;\n        if_modified_since off;" + body + match[3]
+    result = re.sub(r"(\blocation\s+/\s*\{)([^{}]*)(\})", location, site_text)
+    if changed != 1:
+        raise ValueError("Expected one panel HTML fallback location")
+    return result
+
+
 def backup_database(source: Path, target: Path) -> None:
     with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as incoming, sqlite3.connect(target) as outgoing:
         incoming.backup(outgoing)
@@ -197,7 +223,7 @@ def install(archive: Path, config_path: Path) -> dict:
         updated_site, count = re.subn(r"proxy_pass\s+http://(?:127\.[0-9.]+|\[::1\]):\d+\s*;", f"proxy_pass http://{address}:{config.listen_port};", site_text)
         if count != 1:
             raise ValueError("Panel site must have one unambiguous loopback upstream")
-        updated_site = allow_login_image_blobs(updated_site)
+        updated_site = protect_html_updates(allow_login_image_blobs(updated_site))
         shutil.copytree(source, backend_release)
         shutil.copytree(source / "frontend", frontend_release)
         record("prepared")
