@@ -483,7 +483,8 @@ export function CastoriceApp() {
           onConfigure={configurePage}
           onSaveBasics={async (nodeName, quotaGb) => {
             await saveIntegration("system", { nodeName });
-            await saveIntegration("traffic", { quotaGb });
+            await updateTrafficLimit({ bytes: Math.round(Number(quotaGb) * 1_000_000_000) });
+            await saveIntegration("traffic", {});
           }}
           onComplete={async () => {
             await completeInitialization();

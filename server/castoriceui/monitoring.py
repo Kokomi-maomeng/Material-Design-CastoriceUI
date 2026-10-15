@@ -118,7 +118,7 @@ class NetworkPolicy:
                 target["alertConfirmed"] = bool(state["confirmed"])
                 target["qualityWindow"] = {"sent": total_sent, "received": total_received,
                                            "loss": round(loss, 2) if loss is not None else None,
-                                           "ready": ready, "confirmation": "confirmed" if state["confirmed"] else "observing" if bad else "normal"}
+                                           "ready": ready, "confirmation": "recovering" if state["confirmed"] and usable and not bad else "confirmed" if state["confirmed"] else "observing" if bad else "normal"}
             return targets
 
 

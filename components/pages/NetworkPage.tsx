@@ -16,6 +16,7 @@ import { MaterialSelect } from "../ui/MaterialSelect";
 import { PageHeader } from "../ui/Page";
 import { NetworkHistory } from "./NetworkHistory";
 import { NetworkDiagnosis } from "./NetworkDiagnosis";
+import { networkQuality, qualityLabels } from "../../lib/network-quality";
 
 interface TargetDraft {
   ipVersion: 0 | 4 | 6;
@@ -56,31 +57,12 @@ export function NetworkPage({
   );
   const measuredLatency = filtered.flatMap((item) => item.latency === null ? [] : [item.latency]);
   const measuredJitter = filtered.flatMap((item) => item.jitter === null ? [] : [item.jitter]);
-  const measuredLoss = filtered.flatMap((item) => item.loss === null ? [] : [item.loss]);
   const avgLatency = measuredLatency.length ? measuredLatency.reduce((sum, value) => sum + value, 0) / measuredLatency.length : null;
   const avgJitter = measuredJitter.length ? measuredJitter.reduce((sum, value) => sum + value, 0) / measuredJitter.length : null;
-  const avgLoss = measuredLoss.length ? measuredLoss.reduce((sum, value) => sum + value, 0) / measuredLoss.length : null;
   const available = filtered.filter((target) => target.status === "healthy" || target.status === "degraded").length;
-  const quality =
-    filtered.length === 0
-      ? t("暂无数据", "No data")
-      : filtered.some((target) => target.status === "down")
-        ? t("较差", "Poor")
-      : filtered.some((target) => target.status === "unavailable") || avgLoss === null || avgLatency === null
-        ? t("部分不可用", "Partially unavailable")
-      : filtered.some((target) => target.status === "degraded")
-        ? t("较差", "Poor")
-        : t("优秀", "Excellent");
-  const grade =
-    filtered.length === 0
-      ? "—"
-      : filtered.some((target) => target.status === "down")
-        ? "C"
-      : filtered.some((target) => target.status === "unavailable") || avgLoss === null || avgLatency === null
-        ? "—"
-      : filtered.some((target) => target.status === "degraded")
-        ? "C"
-        : "A";
+  const state = networkQuality(filtered);
+  const quality = t(qualityLabels[state][0], qualityLabels[state][1]);
+  const grade = state === "excellent" ? "A" : state === "poor" ? "C" : "—";
   const openEditor = () => {
     setDrafts(
       targets.map((target, index) => ({
@@ -242,8 +224,8 @@ export function NetworkPage({
               <div className="network-target-card__header">
                 <div className="provider-mark">{target.name.slice(0, 1)}</div>
                 <div className="network-target__identity"><strong>{target.name}</strong><span>{target.address} · {(target.resolvedIpVersion ?? target.ipVersion) === 0 ? t("自动解析", "Automatic") : `IPv${target.resolvedIpVersion ?? target.ipVersion}`}</span></div>
-                <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "degraded" || target.status === "unavailable" ? "warning" : "danger"}>
-                  {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
+                <Chip staticChip tone={target.status === "healthy" && !target.alertConfirmed ? "success" : target.status === "down" ? "danger" : "warning"}>
+                  {target.status === "healthy" && target.alertConfirmed ? t("恢复观察", "Recovering") : target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
                 </Chip>
               </div>
               <div className="network-target-card__content">
@@ -255,7 +237,7 @@ export function NetworkPage({
               <div className="network-target-card__evidence">
               {target.probeReason === "insufficientSamples" ? <small>{t("仅有一个成功样本；抖动需要至少两个样本。", "Only one successful sample; jitter requires at least two samples.")}</small> : null}
               {target.complete === false ? <small>{t("本轮未完成；不计为健康或用于确认恢复。", "Incomplete round; excluded from healthy recovery.")}</small> : null}
-              {target.effectivePolicy ? <small>{t(`阈值 ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · 窗口 ${target.qualityWindow?.sent ?? 0} 包 · ${target.alertConfirmed ? "已确认异常" : target.status === "healthy" ? "正常" : "观察中"}`, `Thresholds ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · ${target.qualityWindow?.sent ?? 0} packets · ${target.alertConfirmed ? "confirmed" : target.status === "healthy" ? "normal" : "observing"}`)}</small> : null}
+              {target.effectivePolicy ? <small>{t(`阈值 ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · 窗口 ${target.qualityWindow?.sent ?? 0} 包 · ${target.status === "healthy" && target.alertConfirmed ? "恢复观察" : target.alertConfirmed ? "已确认异常" : target.status === "healthy" ? "正常" : "观察中"}`, `Thresholds ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · ${target.qualityWindow?.sent ?? 0} packets · ${target.status === "healthy" && target.alertConfirmed ? "recovering" : target.alertConfirmed ? "confirmed" : target.status === "healthy" ? "normal" : "observing"}`)}</small> : null}
               {target.layers && Object.values(target.layers).some((item) => item.configured) ? <small>{Object.entries(target.layers).filter(([, item]) => item.configured).map(([method, item]) => `${method.toUpperCase()}: ${item.status === "passed" ? t("正常", "passed") : t("失败", "failed")} · ${item.durationMs ?? "—"} ms${item.observedAt ? ` · ${new Date(item.observedAt).toLocaleTimeString()}` : ""}`).join(" / ")}</small> : null}
               <div className="network-target-card__chart">
                 <div className="network-target-card__chart-title"><span>{t("本轮回包分布", "Replies this round")}</span><b>{target.latency === null ? t("无有效样本", "No valid sample") : `${target.latency.toFixed(1)} ms`}</b></div>

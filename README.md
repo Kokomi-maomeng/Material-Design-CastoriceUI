@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-5.0.1-6750A4)
+![Version](https://img.shields.io/badge/version-5.1.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -35,9 +35,13 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 git clone https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI.git
 cd Material-Design-CastoriceUI
 npm ci
+python3 -m venv ../.castoriceui-venv
+node scripts/python-run.mjs -m pip install -r server/requirements.txt
 npm run check
 npm run dev
 ```
+
+Debian 源码环境先安装 `python3-venv`。Windows PowerShell 将创建环境那一行改为 `python -m venv ../.castoriceui-venv`；其余命令相同。检查脚本自动优先使用项目 `../.castoriceui-venv`，无需修改系统 PATH 或执行激活脚本。Windows 的 IANA 时区数据随 requirements 安装。功能依赖与已验证环境见 [`支持矩阵`](docs/SUPPORT_MATRIX.md)。
 
 `npm run dev` 会在 `https://127.0.0.1:5173` 启动仅监听回环地址的开发服务器，使用本地生成的开发证书，并把 `/api/` 代理到 `http://127.0.0.1:18080`。首次访问需在浏览器确认本地证书。后端必须另行运行在 Linux/WSL，或通过 SSH 端口转发到本机回环端口；代理目标只能通过 `CASTORICEUI_DEV_API_TARGET` 设置为 HTTP 回环 URL。Secure Cookie 不会被关闭。后端不可用或采集失败时，页面会显示明确错误且不生成演示流量。完整接口约定见 [`docs/INTEGRATION.md`](docs/INTEGRATION.md)。
 
@@ -49,7 +53,7 @@ npm run dev
 
 首次初始化向导可完成节点、额度、探测目标和已运行协议的接入验证。代理核心、API Secret、管理账号和订阅记录需要先在服务器受保护配置中准备；向导不会自动创建它们。CPU、内存和流量历史图只显示部署后实际积累的采样。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v5.0.1.md`](docs/RELEASE_NOTES_v5.0.1.md)，逐项修复与交叉验证见 [`docs/V5.0.1_FIX_SUMMARY.md`](docs/V5.0.1_FIX_SUMMARY.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v5.1.0.md`](docs/RELEASE_NOTES_v5.1.0.md)，逐项修复与交叉验证见 [`docs/V5.1_FIX_SUMMARY.md`](docs/V5.1_FIX_SUMMARY.md)。
 
 浏览器最低版本与发布验证边界见 [`docs/BROWSER_SUPPORT.md`](docs/BROWSER_SUPPORT.md)。
 

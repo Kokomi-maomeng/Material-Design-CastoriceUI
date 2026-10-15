@@ -1,6 +1,6 @@
 {
   "name": "material-design-castorice-ui",
-  "version": "5.0.1",
+  "version": "5.1.0",
   "private": false,
   "engines": {
     "node": ">=20.19.0"
@@ -21,7 +21,7 @@
     "release:package": "node scripts/package-release.mjs",
     "preview": "vite preview",
     "test:runtime": "vitest run",
-    "test": "node --test tests/*.test.mjs && npm run test:runtime && python -m compileall -q server && python -m unittest discover -s server/tests -p test_*.py -v",
+    "test": "node --test tests/*.test.mjs && npm run test:runtime && node scripts/python-run.mjs -m compileall -q server && node scripts/python-run.mjs -m unittest discover -s server/tests -p test_*.py -v",
     "scan:sensitive": "node scripts/sensitive-scan.mjs",
     "privacy:install": "node scripts/install-privacy-hooks.mjs",
     "privacy:identity": "node scripts/privacy-guard.mjs identity",
@@ -29,8 +29,9 @@
     "test:privacy": "node --test tests/privacy-guard.test.mjs",
     "lint": "eslint . --ignore-pattern dist",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm test && npm run scan:sensitive && npm run build && npm run audit:production",
-    "audit:production": "npm audit --omit=dev --audit-level=low"
+    "check": "npm run check:docs && npm run lint && npm run typecheck && npm test && npm run scan:sensitive && npm run build && npm run audit:production",
+    "audit:production": "npm audit --omit=dev --audit-level=low",
+    "check:docs": "node scripts/check-release-docs.mjs"
   },
   "dependencies": {
     "@fontsource-variable/roboto": "^5.3.0",

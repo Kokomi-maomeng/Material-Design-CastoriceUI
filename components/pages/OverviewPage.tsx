@@ -14,6 +14,7 @@ import type {
   TrafficRange,
 } from "../../lib/types";
 import { storageIsHealthy } from "../../lib/service-health";
+import { networkQuality, qualityLabels } from "../../lib/network-quality";
 import { TrafficChart } from "../charts/TrafficChart";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
@@ -82,18 +83,8 @@ export function OverviewPage({
   const measuredLoss = networkTargets.flatMap((target) => target.loss === null ? [] : [target.loss]);
   const averageLatency = measuredLatency.length ? measuredLatency.reduce((sum, value) => sum + value, 0) / measuredLatency.length : null;
   const averageLoss = measuredLoss.length ? measuredLoss.reduce((sum, value) => sum + value, 0) / measuredLoss.length : null;
-  const networkGrade =
-    networkTargets.length === 0
-      ? t("暂无数据", "No data")
-      : networkTargets.some((target) => target.status === "down")
-        ? t("较差", "Poor")
-      : networkTargets.some((target) => target.status === "unavailable") || averageLoss === null || averageLatency === null
-        ? t("部分不可用", "Partially unavailable")
-      : averageLoss >= 5 || averageLatency >= 150
-        ? t("较差", "Poor")
-        : averageLoss >= 1 || averageLatency >= 80
-          ? t("一般", "Fair")
-          : t("优秀", "Excellent");
+  const networkLabel = qualityLabels[networkQuality(networkTargets)];
+  const networkGrade = t(networkLabel[0], networkLabel[1]);
 
   return (
     <div className="page-content page-enter">
@@ -125,6 +116,7 @@ export function OverviewPage({
                   `Quota ${formatDecimalBytes(metrics.trafficLimitBytes)} · ${formatDecimalBytes(remaining)} remaining`,
                 )}
               </span>
+              {metrics.trafficUsedBytes > metrics.trafficLimitBytes ? <span className="metric-support">{t(`超额 ${formatDecimalBytes(metrics.trafficUsedBytes - metrics.trafficLimitBytes)}`, `${formatDecimalBytes(metrics.trafficUsedBytes - metrics.trafficLimitBytes)} over quota`)}</span> : null}
               {quotaCycleText ? <span className="metric-support">{quotaCycleText}</span> : null}
             </div>
             <Button

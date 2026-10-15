@@ -181,7 +181,7 @@ with sync_playwright() as playwright:
                     "action": "登录成功",
                     "category": "认证",
                     "actor": "QA operator",
-                    "ip": "2408:8240:c10:4f00:58f2:d72c:68ff:83b2",
+                    "ip": "2001:db8:abcd:4f00:58f2:d72c:68ff:83b2",
                     "time": "2026-01-15T04:00:00+00:00",
                     "result": "成功",
                     "detail": "Synthetic browser-matrix record",
@@ -196,7 +196,7 @@ with sync_playwright() as playwright:
         browser = getattr(playwright, engine).launch(headless=True)
         context = browser.new_context(ignore_https_errors=True, viewport={"width": 1440, "height": 1000}, reduced_motion="reduce")
         context.route("**/api/v2/**", route_api)
-        context.add_init_script("localStorage.setItem('castorice-language','en');localStorage.setItem('castorice-theme-mode','dark');")
+        context.add_init_script("if(!localStorage.getItem('castorice-language'))localStorage.setItem('castorice-language','en');if(!localStorage.getItem('castorice-theme-mode'))localStorage.setItem('castorice-theme-mode','dark');")
         page = context.new_page()
         page.on("pageerror", lambda error, name=engine: errors.append(f"{name}: pageerror: {error}"))
         page.on(
@@ -257,52 +257,60 @@ with sync_playwright() as playwright:
         assert page.locator("#main-content").is_visible()
         route_state["logoutFails"] = False
 
-        for language in ("en", "zh"):
-            page.evaluate("language => localStorage.setItem('castorice-language', language)", language)
-            page.reload(wait_until="networkidle")
-            for width, height in VIEWPORTS:
-                page.set_viewport_size({"width": width, "height": height})
-                for section in PAGES:
-                    open_page(page, section)
-                    page.evaluate("document.fonts.ready")
-                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"), (engine, language, width, section, "document overflow")
-                    if section == "traffic":
-                        assert page.locator(".chart--traffic").evaluate("element => element.scrollWidth <= element.clientWidth + 2"), (engine, language, width, section, "chart clipping")
-                        if width >= 901:
-                            monthly = page.locator(".monthly-traffic-panel").bounding_box()
-                            protocol = page.locator(".protocol-panel").bounding_box()
-                            assert monthly and protocol and abs(monthly["height"] - protocol["height"]) <= 2, (engine, language, width, "secondary card heights")
-                        if engine == "chromium" and language == "en" and width in (1440, 390, 320):
-                            trigger = page.get_by_role("button", name="Measurement coverage is incomplete")
-                            trigger.hover()
-                            popup = page.get_by_role("dialog", name="Measurement coverage is incomplete")
-                            popup.wait_for(state="visible")
-                            anchor_box, popup_box = trigger.bounding_box(), popup.bounding_box()
-                            assert anchor_box and popup_box and popup_box["x"] >= 0 and popup_box["x"] + popup_box["width"] <= width + 2
-                            assert popup_box["x"] <= anchor_box["x"] + anchor_box["width"] + 12 and popup_box["x"] + popup_box["width"] >= anchor_box["x"] - 12, (width, "coverage popover detached")
-                            page.mouse.move(0, 0)
-                            more = page.get_by_role("button", name="More protocols")
-                            more.hover()
-                            more_popup = page.get_by_role("dialog", name="More protocol traffic")
-                            more_popup.wait_for(state="visible")
-                            more_box = more_popup.bounding_box()
-                            assert more_box and more_box["x"] >= 0 and more_box["x"] + more_box["width"] <= width + 2, (width, "protocol popover overflow")
-                            page.mouse.move(0, 0)
-                            page.wait_for_timeout(220)
-                    if section == "network":
-                        assert page.locator(".sparkline").first.evaluate("element => getComputedStyle(element).height") == "200px"
-                    if screenshot_root := os.environ.get("CASTORICEUI_BROWSER_SCREENSHOTS"):
-                        if engine == "chromium" and language == "en" and width in (1440, 390) and section in ("overview", "traffic", "services"):
-                            page.evaluate("scrollTo(0, 0)")
-                            target = Path(screenshot_root)
-                            target.mkdir(parents=True, exist_ok=True)
-                            page.screenshot(path=str(target / f"{section}-{width}.png"), full_page=True)
-                results.append({"engine": engine, "language": language, "width": width, "pages": len(PAGES)})
+        for theme in ("dark", "light"):
+            for motion in ("reduce", "no-preference"):
+                page.emulate_media(reduced_motion=motion)
+                page.evaluate("value => localStorage.setItem('castorice-theme-mode',value)", theme)
+                for language in ("en", "zh"):
+                    page.evaluate("language => localStorage.setItem('castorice-language', language)", language)
+                    page.reload(wait_until="networkidle")
+                    for width, height in VIEWPORTS:
+                        page.set_viewport_size({"width": width, "height": height})
+                        for section in PAGES:
+                            open_page(page, section)
+                            page.evaluate("document.fonts.ready")
+                            actual = page.evaluate("({lang:document.documentElement.lang,theme:document.documentElement.dataset.theme,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,route:location.hash})")
+                            assert actual == {"lang": "zh-CN" if language == "zh" else "en", "theme": theme, "motion": motion == "reduce", "route": "#/" + section}, actual
+                            heading = page.locator("#main-content h1").inner_text().strip()
+                            assert heading, (engine, language, theme, motion, section, "missing heading")
+                            results.append({"engine": engine, "language": language, "theme": theme, "motion": motion, "width": width, "height": height, "page": section, "heading": heading, "actual": actual})
+                            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"), (engine, language, width, section, "document overflow")
+                            if section == "traffic":
+                                assert page.locator(".chart--traffic").evaluate("element => element.scrollWidth <= element.clientWidth + 2"), (engine, language, width, section, "chart clipping")
+                                if width >= 901:
+                                    monthly = page.locator(".monthly-traffic-panel").bounding_box()
+                                    protocol = page.locator(".protocol-panel").bounding_box()
+                                    assert monthly and protocol and abs(monthly["height"] - protocol["height"]) <= 2, (engine, language, width, "secondary card heights")
+                                if engine == "chromium" and language == "en" and width in (1440, 390, 320):
+                                    trigger = page.get_by_role("button", name="Measurement coverage is incomplete")
+                                    trigger.hover()
+                                    popup = page.get_by_role("dialog", name="Measurement coverage is incomplete")
+                                    popup.wait_for(state="visible")
+                                    anchor_box, popup_box = trigger.bounding_box(), popup.bounding_box()
+                                    assert anchor_box and popup_box and popup_box["x"] >= 0 and popup_box["x"] + popup_box["width"] <= width + 2
+                                    assert popup_box["x"] <= anchor_box["x"] + anchor_box["width"] + 12 and popup_box["x"] + popup_box["width"] >= anchor_box["x"] - 12, (width, "coverage popover detached")
+                                    page.mouse.move(0, 0)
+                                    more = page.get_by_role("button", name="More protocols")
+                                    more.hover()
+                                    more_popup = page.get_by_role("dialog", name="More protocol traffic")
+                                    more_popup.wait_for(state="visible")
+                                    more_box = more_popup.bounding_box()
+                                    assert more_box and more_box["x"] >= 0 and more_box["x"] + more_box["width"] <= width + 2, (width, "protocol popover overflow")
+                                    page.mouse.move(0, 0)
+                                    page.wait_for_timeout(220)
+                            if section == "network":
+                                assert page.locator(".sparkline").first.evaluate("element => getComputedStyle(element).height") == "200px"
+                            if screenshot_root := os.environ.get("CASTORICEUI_BROWSER_SCREENSHOTS"):
+                                if engine == "chromium" and language == "en" and width in (1440, 390) and section in ("overview", "traffic", "services"):
+                                    page.evaluate("scrollTo(0, 0)")
+                                    target = Path(screenshot_root)
+                                    target.mkdir(parents=True, exist_ok=True)
+                                    page.screenshot(path=str(target / f"{section}-{width}.png"), full_page=True)
         browser.close()
 
 assert not errors, errors
 assert len(quota_writes) == len(ENGINES), quota_writes
-report = {"layoutGroups": len(results), "layoutCases": len(results) * len(PAGES), "javascriptErrors": errors, "quotaWrites": len(quota_writes)}
+report = {"layoutCases": len(results), "uniqueConditions": len({(item["engine"], item["language"], item["theme"], item["motion"], item["width"], item["height"], item["page"]) for item in results}), "cases": results, "javascriptErrors": errors, "quotaWrites": len(quota_writes)}
 if report_path := os.environ.get("CASTORICEUI_BROWSER_REPORT"):
     Path(report_path).write_text(json.dumps(report, indent=2), encoding="utf-8")
 print(json.dumps(report))

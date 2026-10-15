@@ -88,10 +88,15 @@ def link(target: Path | None, destination: Path) -> None:
     if target is None:
         destination.unlink(missing_ok=True)
         return
-    temporary = destination.with_name(destination.name + ".next")
-    temporary.unlink(missing_ok=True)
-    temporary.symlink_to(target)
-    os.replace(temporary, destination)
+    descriptor, name = tempfile.mkstemp(prefix="." + destination.name + "-", dir=destination.parent)
+    os.close(descriptor)
+    temporary = Path(name)
+    temporary.unlink()
+    try:
+        temporary.symlink_to(target)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def health(config: object, expected: str | None = None) -> dict:
@@ -129,6 +134,20 @@ def extract(archive: Path, staging: Path, version: str) -> Path:
 
 
 def install(archive: Path, config_path: Path) -> dict:
+    import fcntl
+    descriptor = os.open("/run/lock/castoriceui-install.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w") as lock:
+        if os.fstat(lock.fileno()).st_uid != 0:
+            raise ValueError("Installer lock must be owned by root")
+        os.fchmod(lock.fileno(), 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("Another CastoriceUI installation is running; retry after it completes") from error
+        return _install(archive, config_path)
+
+
+def _install(archive: Path, config_path: Path) -> dict:
     match = re.fullmatch(r"CastoriceUI-v(\d+\.\d+\.\d+)\.tar\.gz", archive.name)
     if not match:
         raise ValueError("Expected CastoriceUI-vX.Y.Z.tar.gz")
@@ -146,7 +165,7 @@ def install(archive: Path, config_path: Path) -> dict:
     frontend_release = frontend_root / "releases" / transaction
     units = ("castoriceui-backend.service", "castoriceui-protocol-probe.service", "castoriceui-protocol-probe.timer")
     states = {unit: system_state(unit) for unit in units}
-    proxy_pids = {unit: system_state(unit).get("MainPID") for unit in ("hysteria-server", "sing-box", "nginx")}
+    proxy_pids = {}
     old_links = {backend_link: backend_link.resolve() if backend_link.is_symlink() else None, frontend_link: frontend_link.resolve() if frontend_link.is_symlink() else None}
     modified = False
     saved_files: dict[Path, Path | None] = {}
@@ -170,6 +189,8 @@ def install(archive: Path, config_path: Path) -> dict:
         from castoriceui.config import AppConfig
         import preflight
         config = AppConfig.load(config_path)
+        protected_units = {value.removesuffix(".service") + ".service" for value in (config.hysteria_unit, config.singbox_unit, config.nginx_unit)}
+        proxy_pids.update({unit: system_state(unit).get("MainPID") for unit in protected_units})
         report = preflight.inspect(str(config_path))
         (backup / "preflight.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         for item in report["checks"]:
@@ -195,9 +216,11 @@ def install(archive: Path, config_path: Path) -> dict:
             save(Path("/etc/systemd/system") / unit, unit)
         event_helper = Path("/usr/local/libexec/castoriceui-core-event.py")
         save(event_helper, "core-event.py")
+        event_units = Path("/etc/castoriceui/core-event-units.json")
+        save(event_units, "core-event-units.json")
         lifecycle_hooks = []
         for core in (config.singbox_unit, config.hysteria_unit):
-            if core.removesuffix(".service") in {"sing-box", "hysteria-server"}:
+            if system_state(core).get("LoadState") == "loaded":
                 hook = Path("/etc/systemd/system") / (core.removesuffix(".service") + ".service.d") / "90-castoriceui-lifecycle.conf"
                 save(hook, core.removesuffix(".service") + "-lifecycle.conf")
                 lifecycle_hooks.append(hook)
@@ -231,6 +254,8 @@ def install(archive: Path, config_path: Path) -> dict:
         event_helper.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(backend_release / "deploy/core-event.py", event_helper)
         os.chmod(event_helper, 0o755)
+        event_units.write_text(json.dumps([core.removesuffix(".service") + ".service" for core in (config.singbox_unit, config.hysteria_unit)]))
+        os.chmod(event_units, 0o644)
         for hook in lifecycle_hooks:
             hook.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(backend_release / "deploy/core-lifecycle.conf.example", hook)
@@ -257,7 +282,7 @@ def install(archive: Path, config_path: Path) -> dict:
         command("systemctl", "restart", units[0])
         health(config, version)
         if updated_site != site_text:
-            command("systemctl", "reload", "nginx")
+            command("systemctl", "reload", config.nginx_unit)
         if proxy_pids != {unit: system_state(unit).get("MainPID") for unit in proxy_pids}:
             raise RuntimeError("Proxy or Nginx PID changed during panel deployment")
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
@@ -291,7 +316,7 @@ def install(archive: Path, config_path: Path) -> dict:
                 operations.append((f"restore-{unit}-active", lambda unit=unit, active=active: command("systemctl", "start" if active else "stop", unit)))
             if states[units[1]].get("ActiveState") == "active":
                 operations.append(("restore-probe-active", lambda: command("systemctl", "start", units[1])))
-            operations += [("nginx-syntax", lambda: command("nginx", "-t")), ("nginx-reload", lambda: command("systemctl", "reload", "nginx"))]
+            operations += [("nginx-syntax", lambda: command("nginx", "-t")), ("nginx-reload", lambda: command("systemctl", "reload", config.nginx_unit))]
             if old_config is not None and old_version:
                 operations.append(("old-panel-health", lambda: health(old_config, old_version)))
             for label, operation in operations:

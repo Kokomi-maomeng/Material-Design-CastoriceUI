@@ -12,12 +12,16 @@ except ImportError:
     pwd = grp = None
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.protocol_probe import owned_listeners  # noqa: E402
+from castoriceui.nginx_site import panel_site  # noqa: E402
 
 
 def command(*arguments: str, timeout: float = 8) -> tuple[bool, str]:
@@ -119,7 +123,22 @@ def inspect(config_path: str) -> dict[str, Any]:
     nginx_ok, nginx_output = command("nginx", "-t")
     add("nginx-configuration", "pass" if nginx_ok else "fail", nginx_output or "no output")
     nginx_dump_ok, nginx_dump = command("nginx", "-T")
-    add("panel-site", "pass" if nginx_dump_ok and "/var/www/castorice-ui/current" in nginx_dump and "proxy_pass http://" in nginx_dump else "fail", "An enabled TLS panel site with the versioned frontend root and API upstream is required")
+    site = panel_site(nginx_dump, config.listen_host, config.listen_port) if nginx_dump_ok else {"ok": False, "reason": "Nginx configuration is unavailable"}
+    add("panel-site", "pass" if site["ok"] else "fail", site["reason"])
+    if site["ok"]:
+        cert_ok, _ = command("openssl", "x509", "-in", site["certificate"], "-noout", "-checkend", "0")
+        for name in site["serverNames"]:
+            import ipaddress
+            try:
+                ipaddress.ip_address(name)
+                option = "-checkip"
+            except ValueError:
+                option = "-checkhost"
+            matches, match_output = command("openssl", "x509", "-in", site["certificate"], "-noout", option, name)
+            # Older OpenSSL x509 versions can exit zero after a mismatch.
+            # Require its affirmative result as well as successful execution.
+            cert_ok = cert_ok and matches and "does match certificate" in match_output
+        add("panel-certificate", "pass" if cert_ok and Path(site["key"]).is_file() else "fail", "Panel certificate must be readable, unexpired, match the panel names, and have its key")
     failed = [item for item in checks if item["status"] == "fail"]
     return {"ok": not failed, "mutationFree": True, "checks": checks}
 
@@ -127,10 +146,38 @@ def inspect(config_path: str) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="/etc/castoriceui/config.json")
+    parser.add_argument("--public-url", help="Also verify the real public HTTPS origin after installation")
     arguments = parser.parse_args()
     report = inspect(arguments.config)
+    if arguments.public_url:
+        public = inspect_public(arguments.public_url)
+        report["public"] = public
+        report["ok"] = report["ok"] and public["ok"]
     print(json.dumps(report, ensure_ascii=False, indent=2))
     raise SystemExit(0 if report["ok"] else 1)
+
+
+def inspect_public(url: str) -> dict:
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *_args, **_kwargs):
+            return None
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        return {"ok": False, "errorCategory": "invalid_public_origin"}
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    try:
+        with opener.open(url.rstrip('/') + '/api/v2/health', timeout=10) as response:
+            health = json.loads(response.read(8192))
+        with opener.open(url.rstrip('/') + '/', timeout=10) as response:
+            static_ok = response.status == 200 and b'<html' in response.read(65536).lower()
+        try:
+            with opener.open(url.rstrip('/') + '/api/v2/dashboard', timeout=10) as response:
+                unauthorized = response.status
+        except urllib.error.HTTPError as error:
+            unauthorized = error.code
+        return {"ok": health.get("status") == "ok" and static_ok and unauthorized == 401, "version": health.get("version"), "staticOk": static_ok, "unauthenticatedDashboard": unauthorized, "tlsVerified": True}
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        return {"ok": False, "errorCategory": type(error).__name__}
 
 
 if __name__ == "__main__":

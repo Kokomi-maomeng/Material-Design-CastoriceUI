@@ -69,6 +69,7 @@ export function localTimeZone(): string {
 }
 
 export function percent(value: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.min(100, Math.max(0, (value / total) * 100));
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0;
+  const ratio = value / total * 100;
+  return Number.isFinite(ratio) ? Math.max(0, ratio) : 0;
 }

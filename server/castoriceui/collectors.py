@@ -9,6 +9,7 @@ import re
 import shutil
 import socket
 import ssl
+import sqlite3
 import statistics
 import subprocess
 import time
@@ -198,14 +199,28 @@ class SystemCollector:
         return rx, tx, round(rx_rate), round(tx_rate)
 
     def snapshot(self) -> dict[str, Any]:
+        from .monitoring import event
+        try:
+            return self._snapshot()
+        except Exception as error:
+            event("host-stage", getattr(self, "collection_stage", "initializing"), exceptionType=type(error).__name__)
+            raise
+
+    def _snapshot(self) -> dict[str, Any]:
+        self.collection_stage = "cpu"
         cpu = self.cpu_percent()
+        self.collection_stage = "memory"
         memory_total, memory_used, memory_pct = self.memory()
+        self.collection_stage = "disk"
         disk = shutil.disk_usage("/")
+        self.collection_stage = "network"
         rx, tx, download, upload = self.network()
+        self.collection_stage = "persist-sample"
         now = int(time.time())
         if now - self.last_persisted_at >= 60:
             self.storage.record_sample(now, rx, tx, cpu, memory_pct, self.interface, self.boot_id)
             self.last_persisted_at = now
+        self.collection_stage = "quota"
         legacy_limit = self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)
         quota_setting = normalize_quota_state(
             self.storage.get_setting("traffic_quota", {}),
@@ -225,7 +240,23 @@ class SystemCollector:
             str(quota_setting["countMode"]),
             baseline_for_cycle(quota_setting, cycle_start),
         )
+        self.collection_stage = "host-load"
         load = os.getloadavg()
+        self.collection_stage = "host-uptime"
+        uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
+        self.collection_stage = "database-diagnostics"
+        from .alert_archive import capacity
+        from .monitoring import event
+        try:
+            database_bytes = self.storage.database_size()
+            alert_capacity = capacity(self.storage, self.config.alert_history_limit)
+            database_error = None
+        except (OSError, ValueError, sqlite3.Error) as error:
+            database_bytes, alert_capacity = None, {}
+            database_error = type(error).__name__
+            event("host-diagnostic", "database-size", exceptionType=database_error)
+        self.collection_stage = "database-writability"
+        writable = self.storage.is_writable()
         return {
             "nodeName": self.config.node_name,
             "cpuPercent": cpu,
@@ -237,7 +268,7 @@ class SystemCollector:
             "diskUsedBytes": disk.used,
             "diskTotalBytes": disk.total,
             "load": [round(value, 2) for value in load],
-            "uptimeSeconds": float(Path("/proc/uptime").read_text().split()[0]),
+            "uptimeSeconds": uptime_seconds,
             "trafficUsedBytes": traffic_usage["usedBytes"],
             "trafficLimitBytes": limit,
             "trafficCycleStart": cycle_start.isoformat().replace("+00:00", "Z"),
@@ -257,8 +288,10 @@ class SystemCollector:
             "configuredInterface": self.config.interface,
             "interfaceFallback": bool(self.config.interface and self.config.interface != self.interface),
             "kernel": platform.release(),
-            "databaseBytes": self.storage.database_size(),
-            "databaseWritable": self.storage.is_writable(),
+            "databaseBytes": database_bytes,
+            "databaseDiagnosticError": database_error,
+            "alertCapacity": alert_capacity,
+            "databaseWritable": writable,
         }
 
 
@@ -270,7 +303,7 @@ def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float =
     try:
         # Management credentials must never cross a redirect boundary. Runtime
         # collection and setup validation deliberately use the same policy.
-        opener = urllib.request.build_opener(_NoRedirect)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
         deadline = time.monotonic() + timeout
         with opener.open(request, timeout=timeout) as response:
             declared = response.headers.get("Content-Length")

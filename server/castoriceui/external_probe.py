@@ -60,7 +60,16 @@ def service_evidence(config, storage, active_ids: set[str], *, now: float | None
         return bool(item) and 0 <= now - item["capturedAt"] <= 180 and -60 <= now - item["observedAt"] <= 180
     for agent in config.external_probe_agents if config.external_probe_secret else []:
         records = [item for item in history if item.get("agentId") == agent]
+        required = config.external_probe_protocols.get(agent)
+        if required is None:
+            # Existing dual-protocol installations retain their contract.
+            # Single-protocol installations only require enabled integrations.
+            required = [key for key in ("anytls", "hysteria2") if config.integrations.get(key, {}).get("enabled")]
+            if not required:
+                required = sorted({key for item in records for key in item.get("protocols", {})})
         for protocol, label in (("anytls", "AnyTLS"), ("hysteria2", "HY2")):
+            if protocol not in required:
+                continue
             relevant = [item for item in records if protocol in item.get("protocols", {})]
             latest = relevant[-1] if relevant else {}
             measured = latest.get("protocols", {}).get(protocol, {})

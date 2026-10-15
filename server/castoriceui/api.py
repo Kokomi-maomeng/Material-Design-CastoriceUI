@@ -8,6 +8,7 @@ import os
 import socket
 import threading
 import time
+from contextlib import contextmanager
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from . import __version__
 from .config import AppConfig
 from .dashboard import DashboardService, VISIBLE_PANEL_ORDER, ordered_visible_panels
-from .security import _image_mime, list_background_images, normalize_https_image_url, safe_background_image
+from .security import PublicFetchBusy, _image_mime, list_background_images, normalize_https_image_url, safe_background_image
 from .background import BackgroundCache, BackgroundUnavailable, CACHE_SECONDS, DEFAULT_PROFILE, PROFILES, background_setting
 from .storage import Storage
 
@@ -27,7 +28,17 @@ SESSION_COOKIE = "castorice_session"
 VISIBLE_PANELS = set(VISIBLE_PANEL_ORDER)
 
 
+class AuthenticationBusy(Exception):
+    pass
+
+
+def token_matches(supplied: str, expected: str) -> bool:
+    return bool(supplied) and len(supplied) <= 256 and supplied.isascii() and expected.isascii() and hmac.compare_digest(supplied.encode("ascii"), expected.encode("ascii"))
+
+
 def validation_error_payload(error: ValueError) -> dict[str, str]:
+    if isinstance(error, PublicFetchBusy):
+        return {"error": "subscription_check_incomplete", "message": "Some subscriptions were not checked because of local capacity or the 50-entry limit. Retry or reduce the protected list."}
     message = str(error)
     if message.startswith("Username must"):
         return {"error": "invalid_username", "field": "username", "message": message}
@@ -212,7 +223,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             if not self.require_mutation_header():
                 return None
             supplied = self.headers.get("X-CSRF-Token", "")
-            if not supplied or not hmac.compare_digest(supplied, str(session["csrf_token"])):
+            if not token_matches(supplied, str(session["csrf_token"])):
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "invalid_csrf_token"})
                 return None
             self.app.storage.session(self.session_token(), touch=True)
@@ -434,7 +445,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, self.login_appearance())
                 return
         except (ValueError, json.JSONDecodeError) as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE if isinstance(error, PublicFetchBusy) else HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
@@ -449,7 +460,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v2/auth/initialize":
                 payload = self.read_json()
-                with self.app.authentication_lock:
+                with self.app.authentication_gate():
                     if self.app.storage.has_users():
                         self.send_json(HTTPStatus.CONFLICT, {"error": "administrator_exists"})
                         return
@@ -462,7 +473,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                         return
                     user_id = self.app.storage.create_initial_user(text(payload.get("username", ""), "username"), text(payload.get("password", ""), "password"))
                     self.app.consume_bootstrap()
-                token, csrf, expires_at = self.app.storage.create_session(user_id, self.app.config.session_lifetime_seconds)
+                    token, csrf, expires_at = self.app.storage.create_session(user_id, self.app.config.session_lifetime_seconds)
                 username = str(payload.get("username", "")).strip()
                 self.app.clear_login_failures(self.source_ip())
                 self.app.storage.add_audit("创建初始管理员", "认证", "首次安全初始化已完成", self.source_ip(), actor=username)
@@ -473,7 +484,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self.send_json(HTTPStatus.CONFLICT, {"error": "initialization_required"})
                     return
                 payload = self.read_json()
-                with self.app.authentication_lock:
+                with self.app.authentication_gate():
                     if not self.app.login_allowed(self.source_ip()):
                         self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too_many_attempts"})
                         return
@@ -483,12 +494,15 @@ class ApiHandler(BaseHTTPRequestHandler):
                         self.app.storage.add_audit("登录失败", "认证", "用户名或密码错误", self.source_ip(), result="失败", actor=str(payload.get("username", "unknown")))
                         self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid_credentials"})
                         return
-                user_id, username = authenticated
-                token, csrf, expires_at = self.app.storage.create_session(user_id, self.app.config.session_lifetime_seconds)
+                    user_id, username = authenticated
+                    token, csrf, expires_at = self.app.storage.create_session(user_id, self.app.config.session_lifetime_seconds)
                 self.app.clear_login_failures(self.source_ip())
                 self.app.storage.add_audit("登录成功", "认证", "管理员会话已创建", self.source_ip(), actor=username)
                 self.send_json(HTTPStatus.OK, {"username": username, "csrfToken": csrf, "expiresAt": expires_at, "setupComplete": bool(self.app.storage.get_setting("initial_setup_complete", False))}, {"Set-Cookie": self.session_cookie(token, self.app.config.session_lifetime_seconds)})
                 return
+        except AuthenticationBusy:
+            self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "authentication_busy"}, {"Retry-After": "2"})
+            return
         except (ValueError, json.JSONDecodeError) as error:
             self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
             return
@@ -507,12 +521,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         if path == "/api/v2/auth/change-password":
             try:
                 payload = self.read_json()
-                changed = self.app.storage.change_password(
-                    int(session["user_id"]),
-                    text(payload.get("currentPassword", ""), "currentPassword"),
-                    text(payload.get("newPassword", ""), "newPassword"),
-                    self.session_token(),
-                )
+                with self.app.authentication_gate():
+                    changed = self.app.storage.change_password(
+                        int(session["user_id"]),
+                        text(payload.get("currentPassword", ""), "currentPassword"),
+                        text(payload.get("newPassword", ""), "newPassword"),
+                        self.session_token(),
+                    )
+            except AuthenticationBusy:
+                self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "authentication_busy"}, {"Retry-After": "2"})
+                return
             except (ValueError, json.JSONDecodeError) as error:
                 self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
                 return
@@ -565,6 +583,7 @@ class ApiServer(ThreadingHTTPServer):
         self.storage = storage
         self.dashboard = dashboard
         self.authentication_lock = threading.Lock()
+        self.authentication_slots = threading.BoundedSemaphore(2)
         self.backgrounds = BackgroundCache(Path(config.database_path).parent / "background-cache")
         old_background = storage.get_setting("login_background", {})
         migrated_background = background_setting(old_background)
@@ -607,7 +626,19 @@ class ApiServer(ThreadingHTTPServer):
             expected = path.read_text(encoding="utf-8").strip()
         except OSError:
             return False
-        return bool(supplied) and hmac.compare_digest(supplied, expected)
+        return token_matches(supplied, expected)
+
+    @contextmanager
+    def authentication_gate(self):
+        # At most one expensive password operation plus one waiting request.
+        # Distributed failures cannot impose a persistent global account lock.
+        if not self.authentication_slots.acquire(blocking=False):
+            raise AuthenticationBusy()
+        try:
+            with self.authentication_lock:
+                yield
+        finally:
+            self.authentication_slots.release()
 
     def consume_bootstrap(self) -> None:
         path = Path(self.config.bootstrap_token_path)
