@@ -58,6 +58,8 @@ export interface ConnectionDetail {
 }
 
 export interface TrafficPoint {
+  intervalSeconds?: number;
+  gapBefore?: boolean;
   label: string;
   capturedAt?: string;
   upload: number;
@@ -190,7 +192,7 @@ export interface OverviewMetrics {
   configuredInterface?: string;
   interfaceFallback?: boolean;
   kernel: string;
-  databaseBytes: number;
+  databaseBytes: number | null;
   databaseWritable: boolean;
 }
 
@@ -245,6 +247,8 @@ export interface DashboardPayload {
 }
 
 export interface ResourceSample {
+  intervalSeconds?: number;
+  gapBefore?: boolean;
   capturedAt: string;
   cpuPercent: number;
   memoryPercent: number;
@@ -321,7 +325,7 @@ export interface AlertEvidenceSample {
   description: string;
   descriptionZh?: string;
   descriptionEn?: string;
-  evidence?: { observedAt?: string; sampledAt?: number; latency?: number | null; loss?: number | null; sent?: number | null; received?: number | null; complete?: boolean; service?: { observedAt?: string; sampledAt?: number }; effectivePolicy?: { latencyMs?: number; lossPercent?: number } };
+  evidence?: { observedAt?: string; sampledAt?: number; usedPercent?: number; usedBytes?: number; limitBytes?: number; thresholdPercent?: number; latency?: number | null; loss?: number | null; sent?: number | null; received?: number | null; complete?: boolean; service?: { observedAt?: string; sampledAt?: number }; effectivePolicy?: { latencyMs?: number; lossPercent?: number } };
 }
 
 export interface AuditEvent {

@@ -35,6 +35,7 @@ await Promise.all([
   copy("server/tests", "server/tests"),
   copy("server/run.py", "server/run.py"),
   copy("server/preflight.py", "server/preflight.py"),
+  copy("server/maintenance.py", "server/maintenance.py"),
   copy("server/requirements.txt", "server/requirements.txt"),
   copy("server/config.example.json", "server/config.example.json"),
   copy("deploy", "deploy"),
@@ -47,6 +48,8 @@ await Promise.all([
   copy("docs/V4.7_FIX_SUMMARY.md", "docs/V4.7_FIX_SUMMARY.md"),
   copy("docs/V5.0_FIX_SUMMARY.md", "docs/V5.0_FIX_SUMMARY.md"),
   copy("docs/V5.0.1_FIX_SUMMARY.md", "docs/V5.0.1_FIX_SUMMARY.md"),
+  copy("docs/V5.1_FIX_SUMMARY.md", "docs/V5.1_FIX_SUMMARY.md"),
+  copy("docs/SUPPORT_MATRIX.md", "docs/SUPPORT_MATRIX.md"),
   copy("docs/MONITORING.md", "docs/MONITORING.md"),
   cp(releaseNotes, path.join(stageDirectory, "docs", `RELEASE_NOTES_v${version}.md`)),
   copy("public/og.png", "public/og.png"),
@@ -55,6 +58,7 @@ await Promise.all([
   copy("SECURITY.md", "SECURITY.md"),
   copy("LICENSE", "LICENSE"),
 ]);
+await writeFile(path.join(stageDirectory, "VERSION"), version + "\n", "utf8");
 await writeFile(
   path.join(stageDirectory, "server", "castoriceui", "_version.py"),
   `# Generated from package.json by scripts/package-release.mjs.\nVERSION = ${JSON.stringify(version)}\n`,

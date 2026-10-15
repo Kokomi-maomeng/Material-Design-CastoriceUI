@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchAlertEvidence } from "../../lib/api";
-import { formatLocalDateTime, localTimeZone } from "../../lib/format";
+import { formatDecimalBytes, formatLocalDateTime, localTimeZone } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import type { AlertEvidenceResponse, AlertEvidenceSample, AlertItem } from "../../lib/types";
 import { Button } from "../ui/Button";
@@ -37,6 +37,11 @@ export function AlertEvidenceDialog({ alert, onClose }: { alert: AlertItem | nul
           <time>{sampleTime(sample)}</time>
           <strong>{language === "zh" ? sample.titleZh || sample.title : sample.titleEn || sample.title}</strong>
           <p>{language === "zh" ? sample.descriptionZh || sample.description : sample.descriptionEn || sample.description}</p>
+          {typeof evidence?.usedPercent === "number" ? <dl className="monitoring-evidence-list">
+            <div><dt>{t("额度使用率", "Quota usage")}</dt><dd>{evidence.usedPercent.toFixed(1)}%</dd></div>
+            <div><dt>{t("已用 / 额度", "Used / quota")}</dt><dd>{typeof evidence.usedBytes === "number" ? formatDecimalBytes(evidence.usedBytes) : "—"} / {typeof evidence.limitBytes === "number" ? formatDecimalBytes(evidence.limitBytes) : "—"}</dd></div>
+            <div><dt>{t("当时阈值", "Threshold at the time")}</dt><dd>{evidence.thresholdPercent ?? "—"}%</dd></div>
+          </dl> : key === "worst" && typeof evidence?.loss !== "number" && typeof evidence?.latency !== "number" ? <small>{t("未保存可比较数值，按严重程度选取；旧记录不会补造读数。", "No comparable numeric metric was saved; selected by severity. Historical readings are not reconstructed.")}</small> : null}
           {evidence && (typeof evidence.latency === "number" || typeof evidence.loss === "number" || typeof evidence.sent === "number") ? <dl className="monitoring-evidence-list">
             <div><dt>{t("延迟", "Latency")}</dt><dd>{typeof evidence.latency === "number" ? `${evidence.latency} ms` : "—"}</dd></div>
             <div><dt>{t("丢包", "Loss")}</dt><dd>{typeof evidence.loss === "number" ? `${evidence.loss}%` : "—"}</dd></div>

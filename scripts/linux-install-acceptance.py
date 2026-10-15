@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import http.client
+import hashlib
 import importlib.util
 import json
 import os
@@ -11,6 +12,8 @@ import sqlite3
 import ssl
 import subprocess
 import tarfile
+import time
+import fcntl
 from pathlib import Path
 
 
@@ -47,17 +50,70 @@ def main() -> None:
         run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=panel.example.com", "-keyout", "/etc/letsencrypt/live/panel.example.com/privkey.pem", "-out", "/etc/letsencrypt/live/panel.example.com/fullchain.pem")
         config = json.loads((release / "server/config.example.json").read_text())
         config["listen_port"] = 18081
+        core_name = "sing-box@region"
+        config["singbox_unit"] = core_name + ".service"
+        config["hysteria_unit"] = "qa-hy2.service"
+        config["nginx_unit"] = "qa-nginx.service"
+        # Synthetic units reserve TCP/443 and exercise custom/template names.
+        # They provide continuity evidence, not real proxy protocol acceptance.
+        Path('/etc/systemd/system/sing-box@.service').write_text('[Unit]\nDescription=Synthetic core for installer QA\n[Service]\nExecStart=/usr/bin/python3 -m http.server 443 --bind 127.0.0.1\n[Install]\nWantedBy=multi-user.target\n')
+        Path('/etc/systemd/system/qa-hy2.service').write_text('[Unit]\nDescription=Synthetic HY2 unit for installer QA\n[Service]\nExecStart=/usr/bin/sleep infinity\n[Install]\nWantedBy=multi-user.target\n')
+        Path('/etc/systemd/system/qa-nginx.service').symlink_to('/lib/systemd/system/nginx.service')
+        run('systemctl', 'daemon-reload')
+        run('systemctl', 'enable', '--now', core_name + '.service', 'qa-hy2.service')
         config["network_targets"] = [{"id": "local", "name": "Local QA", "address": "127.0.0.1", "provider": "Synthetic", "ipVersion": 4, "order": 1}]
         config_path.write_text(json.dumps(config))
         run("chown", "root:castoriceui", str(config_path)); os.chmod(config_path, 0o640)
         site = Path("/etc/nginx/sites-available/castoriceui")
-        site.write_text((release / "deploy/nginx.conf.example").read_text())
+        run('python3', str(release / 'deploy/configure-site.py'), '--config', str(config_path), '--host', 'panel.example.com', '--port', '2087', '--certificate', '/etc/letsencrypt/live/panel.example.com/fullchain.pem', '--key', '/etc/letsencrypt/live/panel.example.com/privkey.pem', '--output', str(site))
         Path("/etc/nginx/sites-enabled/castoriceui").symlink_to(site)
         run("nginx", "-t"); run("systemctl", "enable", "--now", "nginx")
+        run("systemctl", "reload", "qa-nginx.service")
+        # Nginx reload acknowledges the signal before new workers are ready.
+        # Poll the exact expected response; do not accept the old default site.
+        for _ in range(100):
+            redirect = http.client.HTTPConnection('127.0.0.1', 80, timeout=5)
+            redirect.request('GET', '/qa-path', headers={'Host': 'panel.example.com'})
+            response = redirect.getresponse()
+            status, location = response.status, response.getheader('Location')
+            response.read(); redirect.close()
+            if status == 301 and location == 'https://panel.example.com:2087/qa-path':
+                break
+            time.sleep(.1)
+        else:
+            raise AssertionError({'redirectStatus': status, 'redirectLocation': location})
+        # A valid but wrong-host certificate must fail preflight, even though
+        # Nginx's syntax/key-pair validation accepts it.
+        import sys
+        sys.path.insert(0, str(release / 'server'))
+        import preflight
+        correct_site = site.read_text()
+        wrong_cert = '/etc/letsencrypt/live/panel.example.com/wrong.pem'
+        run('openssl', 'req', '-x509', '-key', '/etc/letsencrypt/live/panel.example.com/privkey.pem', '-days', '2', '-subj', '/CN=wrong.example.com', '-out', wrong_cert)
+        site.write_text(correct_site.replace('ssl_certificate /etc/letsencrypt/live/panel.example.com/fullchain.pem;', 'ssl_certificate ' + wrong_cert + ';'))
+        run('nginx', '-t')
+        wrong = preflight.inspect(str(config_path))
+        assert any(item['name'] == 'panel-certificate' and item['status'] == 'fail' for item in wrong['checks'])
+        site.write_text(correct_site)
         # Fresh-install failure must undo units and links; the next same-version attempt must work.
         specification = importlib.util.spec_from_file_location("qa_installer", release / "deploy/install_release.py")
         module = importlib.util.module_from_spec(specification); specification.loader.exec_module(module)
-        real_command = module.command
+        underlying_command = module.command
+        archive_sha = hashlib.sha256(args.archive.read_bytes()).hexdigest()
+        cached_regressions = [None]
+        def real_command(*arguments, **kwargs):
+            # Failure injection changes installation operations, not the immutable
+            # candidate. Run its staged suite once here; the competing CLI runs it
+            # independently again. Never reuse a failed result or another archive.
+            if arguments[:3] == ('python3', '-m', 'unittest'):
+                assert hashlib.sha256(args.archive.read_bytes()).hexdigest() == archive_sha
+                if cached_regressions[0] is not None:
+                    return cached_regressions[0]
+                result = underlying_command(*arguments, **kwargs)
+                if result.returncode == 0:
+                    cached_regressions[0] = result
+                return result
+            return underlying_command(*arguments, **kwargs)
         injected = [False]
         def failed_start(*arguments, **kwargs):
             if arguments[:3] == ("systemctl", "restart", "castoriceui-backend.service") and not injected[0]:
@@ -81,7 +137,7 @@ def main() -> None:
     cookie = csrf = ""
     def call(method, path, payload=None):
         nonlocal cookie, csrf
-        connection = http.client.HTTPSConnection("127.0.0.1", 443, context=ssl._create_unverified_context(), timeout=12)
+        connection = http.client.HTTPSConnection("127.0.0.1", 2087, context=ssl._create_unverified_context(), timeout=12)
         headers = {"Content-Type": "application/json", "Cookie": cookie, "X-CastoriceUI-Request": "1", "X-CSRF-Token": csrf}
         connection.request(method, path, json.dumps(payload) if payload else None, headers)
         response = connection.getresponse(); raw = response.read()
@@ -166,12 +222,37 @@ def main() -> None:
             assert run("systemctl", "is-enabled", "castoriceui-backend").stdout.strip() == "enabled", failure
             with sqlite3.connect("/var/lib/castoriceui/state.db") as connection:
                 assert connection.execute("SELECT value FROM settings WHERE key='synthetic_rollback_marker'").fetchone() is None
-        module.install(args.archive, config_path)
+        # A real competing installer must stop before entering a transaction.
+        installer_args = ['python3', str(release / 'deploy/install_release.py'), '--archive', str(args.archive), '--config', str(config_path)]
+        worker = subprocess.Popen(installer_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(100):
+            with open('/run/lock/castoriceui-install.lock', 'a') as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                except BlockingIOError:
+                    break
+            assert worker.poll() is None
+            time.sleep(.1)
+        else:
+            raise AssertionError('Installer never acquired the cross-process lock')
+        competing = run(*installer_args, check=False)
+        assert competing.returncode != 0 and 'Another CastoriceUI installation is running' in competing.stderr
+        worker.terminate()
+        output, errors = worker.communicate(timeout=600)
+        assert worker.returncode != 0, 'Interrupted installer unexpectedly completed'
+        assert all(path.resolve() == target for path, target in previous.items())
+        assert call('GET', '/api/v2/health')[1]['version'] == version
+        retried = run(*installer_args)
+        accepted = json.loads(retried.stdout.splitlines()[-1])
+        assert accepted['proxyPidsUnchanged']
+        assert (Path('/etc/systemd/system') / (core_name + '.service.d') / '90-castoriceui-lifecycle.conf').is_file()
+        assert Path('/etc/systemd/system/qa-hy2.service.d/90-castoriceui-lifecycle.conf').is_file()
     with sqlite3.connect("file:/var/lib/castoriceui/state.db?mode=ro", uri=True) as database:
         assert database.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     run("nginx", "-t")
     assert run("systemctl", "is-active", "castoriceui-backend").stdout.strip() == "active"
-    print(json.dumps({"phase": args.phase, "version": version, "customConfigAndPort": True, "freshInstallRollbackRetry": args.phase == "install", "realHttpsInitializationOrLogin": True, "sqliteIntegrity": "ok"}))
+    print(json.dumps({"phase": args.phase, "version": version, "archiveSha256": hashlib.sha256(args.archive.read_bytes()).hexdigest(), "customConfigAndPort": True, "customProtectedUnits": True, "tcp443ConflictAnd2087Redirect": True, "competingInstallerRejected": args.phase == "install", "interruptedInstallerRetry": args.phase == "install", "immutableSuiteReusedForFailureInjection": args.phase == "install", "freshInstallRollbackRetry": args.phase == "install", "realHttpsInitializationOrLogin": True, "sqliteIntegrity": "ok"}))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Thank you for helping improve CastoriceUI.
 
 1. Create a focused branch.
 2. Install the locked dependencies with `npm ci`.
+   Create `../.castoriceui-venv` with `python3 -m venv ../.castoriceui-venv` (Windows: `python -m venv ../.castoriceui-venv`), then run `node scripts/python-run.mjs -m pip install -r server/requirements.txt`. Debian source environments need `python3-venv`. The npm checks prefer the project interpreter; `CASTORICEUI_PYTHON` can select an existing interpreter for the current process.
    Install the local privacy hooks with `npm run privacy:install` and verify `npm run privacy:identity` before committing.
 3. Keep protocol-specific logic behind the shared types and provider boundary.
 4. Run `npm run check` before opening a pull request.

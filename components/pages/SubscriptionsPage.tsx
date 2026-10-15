@@ -15,14 +15,17 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
   const [qrSubscription, setQrSubscription] = useState<Subscription | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
+  const [manualUrl, setManualUrl] = useState("");
 
   const copy = async (subscription: Subscription) => {
+    let value = "";
     try {
-      const value = subscription.url ?? (await fetchSubscriptionUrl(subscription.id)).url;
+      value = subscription.url ?? (await fetchSubscriptionUrl(subscription.id)).url;
       await copyText(value);
       onToast(t(`${subscription.account} 的订阅地址已复制`, `${subscription.account} subscription URL copied`));
     } catch {
-      onToast(t("复制失败，请手动选择地址", "Copy failed. Select the address manually."));
+      if (value) setManualUrl(value);
+      onToast(value ? t("复制失败，可在地址框中手动复制", "Copy failed. Copy manually from the address field.") : t("无法读取订阅地址，请检查后端连接", "Unable to read the subscription URL. Check the backend connection."));
     }
   };
 
@@ -74,6 +77,10 @@ export function SubscriptionsPage({ subscriptions, onToast }: { subscriptions: S
           </Card>
         ))}
       </section>
+      <Dialog open={Boolean(manualUrl)} onClose={() => setManualUrl("")} title={t("手动复制订阅地址", "Copy subscription URL manually")} size="small" actions={<Button onClick={() => setManualUrl("")}>{t("完成", "Done")}</Button>}>
+        <label>{t("订阅地址", "Subscription URL")}<textarea readOnly value={manualUrl} rows={4} onFocus={(event) => event.currentTarget.select()} /></label>
+        <p>{t("地址包含访问凭据，请妥善保管。使用 Ctrl/Cmd+A 和 Ctrl/Cmd+C 复制。", "This address contains access credentials. Keep it private. Use Ctrl/Cmd+A and Ctrl/Cmd+C to copy.")}</p>
+      </Dialog>
       <Dialog
         open={qrOpen}
         onClose={closeQr}

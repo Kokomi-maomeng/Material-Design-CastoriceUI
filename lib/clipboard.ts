@@ -1,7 +1,9 @@
 export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch { /* Try the legacy command; the caller provides manual recovery. */ }
   }
 
   const textarea = document.createElement("textarea");

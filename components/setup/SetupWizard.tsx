@@ -55,6 +55,7 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
         protocol_probe_unavailable: t("协议状态采集不可用；请检查探针服务与状态文件。", "Protocol evidence is unavailable. Check the probe service and status file."),
         protocol_probe_stale: t("协议状态证据已过期；按既有变更流程重载核心并等待新探针结果。", "Protocol evidence is stale. Reload the core through the normal change procedure and wait for a fresh probe."),
         invalid_subscription: t("订阅 HTTPS 响应或节点格式无效；尚未验证客户端导入与代理连通性。", "The subscription HTTPS response or node format is invalid; client import and proxy connectivity remain unverified."),
+        subscription_check_incomplete: t("部分订阅因本地抓取容量或 50 条检查上限尚未检查。请稍后重试或减少受保护订阅列表。", "Some subscriptions are unchecked due to local capacity or the 50-entry limit. Retry or reduce the protected list."),
         upstream_unavailable: t("无法连接本机上游 API；请检查服务、回环地址和认证配置。", "The loopback upstream API is unavailable. Check the service, endpoint, and authentication."),
         upstream_invalid_response: t("上游 API 已响应，但返回格式不符合要求。", "The upstream API responded with an unsupported payload."),
         network_unavailable: t("浏览器无法连接后端，请检查网络。", "The browser cannot reach the backend. Check the network."),

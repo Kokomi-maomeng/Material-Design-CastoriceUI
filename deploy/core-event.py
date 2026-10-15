@@ -2,6 +2,7 @@
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +12,17 @@ import time
 
 def main():
     unit = sys.argv[1]
-    if unit not in {"sing-box.service", "hysteria-server.service"}:
+    policy = Path("/etc/castoriceui/core-event-units.json")
+    try:
+        metadata = policy.lstat()
+        if policy.is_symlink() or metadata.st_uid != 0 or metadata.st_mode & 0o022 or metadata.st_size > 4096:
+            raise ValueError("Unsafe event policy")
+        allowed = json.loads(policy.read_text())
+        if not isinstance(allowed, list):
+            raise ValueError("Invalid event policy")
+    except (OSError, ValueError):
+        raise SystemExit(64)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@:-]{0,127}\.service", unit) or unit not in allowed:
         raise SystemExit(64)
     root = Path("/run/castoriceui")
     root.mkdir(mode=0o755, exist_ok=True)

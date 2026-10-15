@@ -1027,12 +1027,12 @@ class BackendTests(unittest.TestCase):
             Storage(path).clear_login_failures("203.0.113.10")
             self.assertTrue(Storage(path).login_allowed("203.0.113.10"))
 
-    def test_login_global_budget_cannot_be_evaded_by_rotating_forwarded_addresses(self) -> None:
+    def test_distributed_failures_do_not_lock_an_unrelated_administrator(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             storage = Storage(str(Path(directory) / "state.db"))
             for index in range(30):
                 storage.record_login_failure(f"198.51.100.{index + 1}")
-            self.assertFalse(storage.login_allowed("203.0.113.200"))
+            self.assertTrue(storage.login_allowed("203.0.113.200"))
 
     @staticmethod
     def _config_file(directory: str, database: str) -> str:

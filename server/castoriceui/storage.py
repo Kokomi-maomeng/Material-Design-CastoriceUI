@@ -328,6 +328,7 @@ class Storage:
                 rows = connection.execute(
                     """
                     SELECT MAX(captured_at) AS captured_at,
+                           MAX(boot_id) AS boot_id, COUNT(DISTINCT boot_id) AS boots,
                            ROUND(AVG(cpu), 1) AS cpu_percent,
                            ROUND(AVG(memory), 1) AS memory_percent
                     FROM samples
@@ -339,8 +340,9 @@ class Storage:
                 ).fetchall()
                 result[name] = [
                     {"capturedAt": datetime.fromtimestamp(int(row["captured_at"]), timezone.utc).isoformat().replace("+00:00", "Z"),
-                     "cpuPercent": float(row["cpu_percent"]), "memoryPercent": float(row["memory_percent"])}
-                    for row in rows
+                     "cpuPercent": float(row["cpu_percent"]), "memoryPercent": float(row["memory_percent"]),
+                     "intervalSeconds": interval, "gapBefore": row["boots"] > 1 or index > 0 and row["boot_id"] != rows[index - 1]["boot_id"]}
+                    for index, row in enumerate(rows)
                 ]
         return result
 
@@ -583,7 +585,14 @@ class Storage:
                 worst = json.loads(evidence[0]) if evidence else payload
                 def score(item: dict[str, Any]) -> tuple[float, float, float]:
                     metrics = item.get("evidence", {})
-                    return ({"critical": 3, "warning": 2, "info": 1}.get(item.get("severity"), 0), float(metrics.get("loss") or 0), float(metrics.get("latency") or 0))
+                    def finite(key: str) -> float:
+                        import math
+                        value = metrics.get(key)
+                        return float(value) if type(value) in {int, float} and math.isfinite(value) else 0
+                    severity = {"critical": 3, "warning": 2, "info": 1}.get(item.get("severity"), 0)
+                    if item.get("id") == "traffic-threshold" or "usedPercent" in metrics:
+                        return severity, finite("usedPercent"), 0
+                    return severity, finite("loss"), finite("latency")
                 if score(payload) > score(worst):
                     worst = payload
                 connection.execute("INSERT INTO alert_evidence VALUES(?,?,?,?,?) ON CONFLICT(episode_id) DO UPDATE SET last_json=excluded.last_json,worst_json=excluded.worst_json,updated_at=excluded.updated_at",
@@ -856,25 +865,24 @@ class Storage:
                 "SELECT COUNT(*) FROM login_failures WHERE source_ip=? AND failed_at>=?",
                 (source_ip, cutoff),
             ).fetchone()[0])
-            global_count = int(connection.execute(
-                "SELECT COUNT(*) FROM login_failures WHERE failed_at>=?",
-                (cutoff,),
-            ).fetchone()[0])
-        # The global budget prevents a loopback reverse-proxy peer from evading
-        # the per-client budget by rotating a spoofed forwarding header.
-        return source_count < limit and global_count < global_limit
+        # Password work has a separate bounded server gate. Failures from other
+        # sources must not lock out an administrator who has not tried to log in.
+        return source_count < limit
 
     def record_login_failure(self, source_ip: str) -> None:
         with self.lock, self.connect() as connection:
             connection.execute("INSERT INTO login_failures(source_ip,failed_at) VALUES(?,?)", (source_ip, int(time.time())))
+            connection.execute("DELETE FROM login_failures WHERE rowid NOT IN (SELECT rowid FROM login_failures ORDER BY rowid DESC LIMIT 10000)")
 
     def clear_login_failures(self, source_ip: str) -> None:
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM login_failures WHERE source_ip=?", (source_ip,))
 
     def database_size(self) -> int:
-        return sum(
-            candidate.stat().st_size
-            for candidate in (Path(self.path), Path(self.path + "-wal"), Path(self.path + "-shm"))
-            if candidate.is_file()
-        )
+        total = Path(self.path).stat().st_size
+        for suffix in ("-wal", "-shm"):
+            try:
+                total += Path(self.path + suffix).stat().st_size
+            except FileNotFoundError:
+                pass  # SQLite may remove optional sidecars between samples.
+        return total

@@ -24,6 +24,10 @@ _INTERFACE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}$")
 _PUBLIC_FETCH_SLOTS = threading.BoundedSemaphore(4)
 
 
+class PublicFetchBusy(ValueError):
+    """The local fetch budget expired before an upstream could be checked."""
+
+
 class _SubscriptionLoader(yaml.SafeLoader):
     """Bound YAML structure; aliases and custom object tags are unsupported."""
     def __init__(self, stream: str) -> None:
@@ -346,9 +350,9 @@ def _public_https_get(value: str, headers: dict[str, str], max_bytes: int, timeo
     """One wall-clock budget including DNS, TLS, headers, address retries and body."""
     if timeout <= 0:
         raise TimeoutError("Public fetch exceeded the total deadline")
-    if not _PUBLIC_FETCH_SLOTS.acquire(blocking=False):
-        raise ValueError("Public fetch concurrency budget is exhausted")
     deadline = time.monotonic() + timeout
+    if not _PUBLIC_FETCH_SLOTS.acquire(timeout=timeout):
+        raise PublicFetchBusy("Public fetch concurrency budget is exhausted")
     mailbox: queue.Queue[Any] = queue.Queue(maxsize=1)
     connection_holder: list[Any] = []
     cancelled = threading.Event()
