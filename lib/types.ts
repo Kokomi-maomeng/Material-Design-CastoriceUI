@@ -288,6 +288,7 @@ export interface SessionState {
 
 export interface AlertItem {
   id: string;
+  logRef?: { domain: string; target: string };
   severity: "critical" | "warning" | "info";
   title: string;
   titleZh?: string;
@@ -307,25 +308,6 @@ export interface AlertItem {
   source: string;
   sourceZh?: string;
   sourceEn?: string;
-}
-
-export interface AlertEvidenceResponse {
-  episodeId: string;
-  available: boolean;
-  updatedAt: string | null;
-  first: AlertEvidenceSample | null;
-  last: AlertEvidenceSample | null;
-  worst: AlertEvidenceSample | null;
-}
-
-export interface AlertEvidenceSample {
-  title: string;
-  titleZh?: string;
-  titleEn?: string;
-  description: string;
-  descriptionZh?: string;
-  descriptionEn?: string;
-  evidence?: { observedAt?: string; sampledAt?: number; usedPercent?: number; usedBytes?: number; limitBytes?: number; thresholdPercent?: number; latency?: number | null; loss?: number | null; sent?: number | null; received?: number | null; complete?: boolean; service?: { observedAt?: string; sampledAt?: number }; effectivePolicy?: { latencyMs?: number; lossPercent?: number } };
 }
 
 export interface AuditEvent {
@@ -364,6 +346,7 @@ export interface AlertPageResponse {
   pageSize: number;
   totalPages: number;
   summary: AlertSummary;
+  logLocation?: { database: string; journal: string };
 }
 
 export interface Subscription {

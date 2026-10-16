@@ -105,6 +105,7 @@ jobs:
           python3 scripts/browser-v47.py '${{ matrix.engine }}'
           python3 scripts/browser-v50.py '${{ matrix.engine }}'
           python3 scripts/browser-v51.py '${{ matrix.engine }}'
+          python3 scripts/browser-v52.py '${{ matrix.engine }}'
 
   linux-install:
     name: Linux install (Debian ${{ matrix.debian }})

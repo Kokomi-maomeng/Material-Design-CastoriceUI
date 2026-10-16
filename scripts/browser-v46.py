@@ -159,7 +159,7 @@ def run(engine, timezone, browser):
     page.locator(".audit-table tbody tr").nth(49).wait_for()
     audit_controls = page.locator(".md-pagination").inner_text()
     open_page("alerts")
-    page.locator(".alert-row").nth(49).wait_for()
+    page.locator(".alert-row").nth(29).wait_for()
     assert page.locator(".notification-badge").inner_text() == "99+"
     page.get_by_role("button", name="Acknowledge", exact=True).first.click()
     page.get_by_text("Synthetic alert 0", exact=True).wait_for(state="detached")

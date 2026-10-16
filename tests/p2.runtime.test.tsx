@@ -130,7 +130,7 @@ describe("P2 truthfulness and interaction regressions", () => {
     renderEnglish(<AlertsPage alerts={[alert]} onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     fireEvent.click(screen.getByText("All records"));
     await screen.findByText("Nginx is offline");
-    const timestamps = [...document.querySelectorAll(".alert-row__content > span")].map((element) => element.textContent);
+    const timestamps = [...document.querySelectorAll(".alert-row__times > span")].map((element) => element.textContent);
     expect(timestamps.some((text) => /Started.*2026/.test(text || ""))).toBe(true);
     expect(timestamps.some((text) => /Recovered.*2026/.test(text || ""))).toBe(true);
     expect(timestamps.some((text) => /Acknowledged.*2026/.test(text || ""))).toBe(true);

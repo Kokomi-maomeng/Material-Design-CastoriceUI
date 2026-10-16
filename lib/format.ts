@@ -55,9 +55,26 @@ export function formatDate(value: string): string {
   ).format(date);
 }
 
-export function formatLocalDateTime(value: string, language: "zh" | "en"): string {
-  const date = new Date(value);
-  if (!value || Number.isNaN(date.getTime())) return "—";
+export function normalizeTimestamp(value: string | number | null | undefined): Date | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = typeof value === "number" || /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : null;
+  const date = numeric === null ? new Date(value) : new Date(numeric < 1e11 ? numeric * 1000 : numeric);
+  return Number.isFinite(date.getTime()) && date.getUTCFullYear() >= 2000 && date.getUTCFullYear() <= 2100 ? date : null;
+}
+
+/** Inclusive local dates become [start, next local midnight), including DST. */
+export function localDateBoundary(value: string, nextDay = false): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day || year < 2000 || year > 2100) return "";
+  if (nextDay) date.setDate(date.getDate() + 1);
+  return date.toISOString();
+}
+
+export function formatLocalDateTime(value: string | number | null | undefined, language: "zh" | "en"): string {
+  const date = normalizeTimestamp(value);
+  if (!date) return "—";
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", {
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",

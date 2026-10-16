@@ -54,6 +54,10 @@ def service_evidence(config, storage, active_ids: set[str], *, now: float | None
     now = time.time() if now is None else now
     history = storage.monitoring_history("external", since=int(now - 600), limit=160)
     services = []
+    saved_incidents = storage.get_setting("external_business_incidents", {})
+    if not isinstance(saved_incidents, dict):
+        saved_incidents = {}
+    current_incidents = {}
     def fresh_report(item):
         # Receipt time belongs to the server. The signed observation may be
         # slightly ahead within the same 60s skew accepted on submission.
@@ -80,10 +84,19 @@ def service_evidence(config, storage, active_ids: set[str], *, now: float | None
             tail = relevant[-2:]
             def matching(status):
                 return len(tail) == 2 and all(item.get("agentHealthy") is True and fresh_report(item) and item["protocols"][protocol].get("status") == status for item in tail)
-            business_incident = (key in active_ids or observer and matching("failed")) and not (observer and matching("passed"))
+            business_incident = (key in active_ids or saved_incidents.get(key) is True or observer and matching("failed")) and not (observer and matching("passed"))
+            current_incidents[key] = bool(business_incident)
             confirmed = observer and business_incident
             unknown = not observer or measured.get("status") == "unavailable"
             reason = "external_observer_unavailable" if unknown else "external_business_failure" if not passed or confirmed else "external_business_passed"
             services.append({"id": key, "name": f"{label} external · {agent}", "nameEn": f"{label} external · {agent}", "nameZh": f"{label} 外部业务 · {agent}", "icon": "travel_explore", "kind": "monitor", "status": "running" if passed and not confirmed else "warning", "version": "synthetic probe", "detail": "External forwarding verified" if passed and not confirmed else "External observer evidence unavailable" if unknown else "External business path requires attention", "detailEn": "External forwarding verified" if passed and not confirmed else "External observer evidence unavailable" if unknown else "External business path requires attention", "detailZh": "外部认证与转发验证通过" if passed and not confirmed else "外部观测点证据不可用，无法判断 VPS 业务" if unknown else "外部业务验证失败或等待连续正常确认", "stateReason": reason, "alertConfirmed": bool(confirmed or unknown and (bool(latest) or startup_age >= 180)), "evidence": {"agentId": agent, "protocol": protocol, "observedAt": latest.get("observedAt"), "ageSeconds": round(now - latest["observedAt"], 1) if latest else None, "observerHealthy": bool(observer), "fresh": fresh, "result": measured}})
             services[-1]["evidence"]["businessIncidentActive"] = bool(business_incident)
+    for service in services:
+        protocol = service["evidence"]["protocol"]
+        failing = {item["evidence"]["agentId"] for item in services
+                   if item["evidence"]["protocol"] == protocol and item["evidence"]["observerHealthy"]
+                   and item["evidence"]["businessIncidentActive"] and item["evidence"]["result"].get("status") == "failed"}
+        service["evidence"]["failedObserverCount"] = len(failing)
+    if current_incidents != saved_incidents:
+        storage.set_setting("external_business_incidents", current_incidents)
     return services

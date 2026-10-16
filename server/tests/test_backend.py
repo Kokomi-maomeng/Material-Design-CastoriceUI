@@ -546,6 +546,7 @@ class BackendTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             storage = Storage(str(Path(directory) / "state.db"))
             dashboard = DashboardService(AppConfig(database_path=storage.path), storage)
+            dashboard.alert_policy.since["integration-subscriptions"] = -1e12
             alerts = dashboard.alerts(
                 {"trafficUsedBytes": 0, "trafficLimitBytes": 1000},
                 [],
@@ -553,7 +554,7 @@ class BackendTests(unittest.TestCase):
                 [{"id": "subscriptions", "configured": True, "status": "error", "summary": "probe failed", "summaryZh": "实际验证失败"}],
             )
             self.assertEqual(alerts[0]["id"], "integration-subscriptions")
-            self.assertEqual(alerts[0]["titleZh"], "订阅配置需要检查")
+            self.assertEqual(alerts[0]["titleZh"], "订阅配置数据暂不可用")
             self.assertEqual(alerts[0]["sourceZh"], "数据接入验证")
 
     def test_quota_schedule_matches_day_week_month_year_and_disabled_modes(self) -> None:
