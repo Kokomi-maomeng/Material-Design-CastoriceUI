@@ -92,6 +92,10 @@
 .overview-health-list button > .material-symbols-rounded:last-child { color: var(--on-surface-variant); }
 
 /* Give the overview trend the full height of its two adjacent cards. */
+.chart--traffic { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.traffic-chart-plot { position: relative; flex: 1; min-height: 0; }
+.traffic-chart-plot > .native-chart { position: absolute; inset: 0; width: 100%; height: 100%; }
+.chart--traffic > small { flex: none; }
 .resource-panel { display: flex; flex-direction: column; min-width: 0; }
 .resource-panel > [data-no-navigate] { display: flex; flex: 1; min-height: 0; }
 .resource-panel .chart--traffic { flex: 1; height: auto; min-height: 315px; }

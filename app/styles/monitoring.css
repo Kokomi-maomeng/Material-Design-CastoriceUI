@@ -34,9 +34,10 @@
 .alert-filter__dates input { min-width: 0; color-scheme: light dark; font: inherit; font-size: 13px; }
 .alert-filter__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .record-transition { overflow-anchor: none; }
+.record-load-error { padding: 12px 22px; }
 .alert-panel, .table-panel { overflow-anchor: none; }
 .alert-list, .audit-table { transition: opacity .16s; }
-.is-loading { opacity: .6; }
+.alert-list.is-loading, .audit-table.is-loading { opacity: .6; }
 @media (max-width: 480px) {
   .alert-filter__dates .md-date-trigger { padding-inline: 8px; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
   .alert-filter__dates .md-date-trigger.is-open { padding-inline: 7px; }
