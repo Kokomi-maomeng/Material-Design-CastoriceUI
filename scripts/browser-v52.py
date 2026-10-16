@@ -23,6 +23,18 @@ from castoriceui.dashboard import DashboardService
 from castoriceui.storage import Storage
 
 
+def settle_view(page):
+    """Wait for finite layout animations/scroll before the next distinct click."""
+    page.evaluate('window.qaStableFrames=0;window.qaLastScrollY=null')
+    page.wait_for_function('''() => {
+        const surfaces=document.querySelectorAll('.record-transition,.record-transition > div,.alert-filter,.alert-filter-calendar,.page-enter');
+        if (Array.from(surfaces).some(el=>el.getAnimations().some(a=>a.playState==='running'))) { window.qaStableFrames=0; return false; }
+        window.qaStableFrames=window.qaLastScrollY===scrollY ? window.qaStableFrames+1 : 0;
+        window.qaLastScrollY=scrollY;
+        return window.qaStableFrames>=3;
+    }''')
+
+
 def main():
     engines = sys.argv[1:] or ['chromium', 'firefox', 'webkit']
     with tempfile.TemporaryDirectory(prefix='castorice-v52-browser-') as temporary:
@@ -71,13 +83,25 @@ def main():
                     results = []
                     from datetime import datetime, timezone
                     # Fixed synthetic SQL rows exercise the real API query and pagination.
+                    fixture_resolutions = []
                     with storage.connect() as connection:
                         for index in range(145):
                             started = "2026-10-15T12:00:00Z" if index % 2 else "2026-10-16T02:00:00Z"
                             resolved = "2026-10-16T02:30:00Z" if index % 2 else None
                             payload = {"id": "qa-event-" + str(index), "title": "Synthetic event " + str(index), "description": "Synthetic condition", "severity": ("critical", "warning", "info")[index % 3], "source": "Monitor evidence", "time": "now"}
                             connection.execute("INSERT INTO alert_history VALUES(?,?,?,?,?,NULL)", ("qa-episode-"+str(index),payload["id"],json.dumps(payload),started,resolved))
+                            fixture_resolutions.append((resolved,"qa-episode-"+str(index)))
                     for _ in range(140): storage.add_audit("登录成功", "认证", "Synthetic audit", actor="QA", source_ip="192.0.2.1")
+                    def prepare_view():
+                        # This isolated server has no production sampler threads.
+                        # Refresh real collectors between scenarios so a stale-data
+                        # banner cannot appear between pointerdown and pointerup.
+                        dashboard.collect_system_snapshot()
+                        dashboard.refresh_services()
+                        # Real rule evaluation resolves synthetic IDs; restore the
+                        # deliberate mixed lifecycle fixture before opening the UI.
+                        with storage.connect() as connection:
+                            connection.executemany("UPDATE alert_history SET resolved_at=? WHERE episode_id=?",fixture_resolutions)
                     with sync_playwright() as playwright:
                         for engine in engines:
                             browser = getattr(playwright, engine).launch()
@@ -91,7 +115,7 @@ def main():
                                         assert login.status == 200
                                         csrf = login.json()["csrfToken"]
                                         page = context.new_page(); errors=[]; requests=[]; responses=[]
-                                        page.on('pageerror', lambda error: errors.append(type(error).__name__))
+                                        page.on('pageerror', lambda error: errors.append(str(error)))
                                         page.on('request', lambda request: requests.append(request.url) if '/api/v2/alerts?' in request.url or '/api/v2/audits?' in request.url else None)
                                         page.on('response', lambda response: responses.append(response.url) if '/api/v2/alerts?' in response.url or '/api/v2/audits?' in response.url else None)
                                         t=lambda en,zh: zh if language=='zh' else en
@@ -99,9 +123,11 @@ def main():
                                             print(json.dumps({"caseStart": {"engine":engine,"language":language,"motion":motion,"width":width}}), flush=True)
                                             page.set_viewport_size({"width":width,"height":height})
                                             for section, selector, expand in (("alerts",".alert-row",t("Show all records","展开全部记录")),("audit",".audit-table tbody tr",t("Show all logs","展开全部日志"))):
+                                                prepare_view()
                                                 page.goto(origin+'/#/'+section,wait_until='networkidle')
                                                 page.locator(selector).nth(29).wait_for()
                                                 assert page.locator(selector).count()==30
+                                                settle_view(page)
                                                 controls=page.locator('.audit-controls');controls.scroll_into_view_if_needed()
                                                 y=page.evaluate('scrollY');calls=len(requests)
                                                 page.get_by_role('button',name=expand,exact=True).click()
@@ -117,18 +143,25 @@ def main():
                                                 page.wait_for_timeout(260)
                                                 assert page.evaluate('scrollY')>0, 'collapse jumped to page top'
                                                 page.get_by_role('button',name=expand,exact=True).click()
+                                                settle_view(page)
                                                 page.locator('.md-pagination').get_by_role('button',name='2',exact=True).click()
                                                 page.wait_for_function("document.querySelector('.audit-controls strong').textContent.includes('2')")
                                                 assert page.locator(selector).count()==50
+                                                settle_view(page)
                                                 page.get_by_role('button',name=t('Collapse to latest 30','收起到最近 30 条'),exact=True).click()
                                                 assert page.locator(selector).count()==30
                                                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+2')
+                                            prepare_view()
                                             page.goto(origin+'/#/alerts',wait_until='networkidle')
+                                            settle_view(page)
                                             assert page.get_by_role('button',name='View evidence',exact=True).count()==0
                                             assert page.get_by_text('Monitor evidence',exact=True).count()==0
                                             for stamp in page.locator('.alert-row time').all_text_contents(): assert '1970' not in stamp and '2026' in stamp
                                             page.get_by_role('button',name=t('Filter','筛选'),exact=True).click()
+                                            assert page.get_by_role('button',name=t('Filter','筛选'),exact=True).get_attribute('aria-expanded')=='true'
                                             filter=page.get_by_role('dialog',name=t('Filter alerts','筛选告警'),exact=True)
+                                            filter.wait_for(state='visible')
+                                            settle_view(page)
                                             if os.environ.get('CASTORICEUI_QA_SCREENSHOTS') and language=='zh' and motion=='no-preference':
                                                 filter.wait_for(state='visible')
                                                 page.wait_for_function("()=>{const el=document.querySelector('.alert-filter.is-open');return el && getComputedStyle(el).visibility==='visible' && Number(getComputedStyle(el).opacity)>.99}")
@@ -152,6 +185,7 @@ def main():
                                             filter.get_by_role('button',name=t('Reset','重置'),exact=True).click()
                                             filter.get_by_role('button',name=t('Apply filters','应用筛选'),exact=True).click()
                                             page.locator('.alert-row').nth(29).wait_for()
+                                            settle_view(page)
                                             page.locator('.alert-row').first.get_by_text(t('Log location','日志位置'),exact=True).click()
                                             assert storage.path in page.locator('.alert-log-location[open]').inner_text()
                                             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+2')
