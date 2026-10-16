@@ -37,7 +37,7 @@ with sync_playwright() as playwright:
             elif path.startswith("auth/"):
                 data = {"username": "QA", "csrfToken": "synthetic-csrf", "expiresAt": int(time.time()) + 3600, "setupComplete": True}
             elif path == "alerts":
-                selected = query.get("filter", ["pending"])[0]
+                selected = query.get("status", ["pending"])[0]
                 items = [active] if selected == "active" else [recovered] if selected == "recovered" else [active, recovered]
                 data = {"items": items, "total": len(items), "page": 1, "pageSize": 50, "totalPages": 1, "summary": summary}
             elif path.startswith("alerts/") and path.endswith("/evidence"):
@@ -63,17 +63,16 @@ with sync_playwright() as playwright:
             page.set_viewport_size({"width": width, "height": height})
             page.evaluate("location.hash='/alerts'")
             page.get_by_role("heading", name="Alerts", exact=True).wait_for(timeout=10000)
-            page.get_by_role("button", name="Active 1", exact=True).click()
+            page.get_by_role("button", name="Filter", exact=True).click()
+            page.get_by_role("button", name="Active", exact=True).click()
+            page.get_by_role("button", name="Apply filters", exact=True).click()
             expect(page.get_by_text("Synthetic active", exact=True)).to_be_visible()
             expect(page.get_by_text("Synthetic recovered", exact=True)).to_have_count(0)
-            page.get_by_role("button", name="Recovered pending 1", exact=True).click()
+            page.get_by_role("button", name="Filter · 1", exact=True).click()
+            page.get_by_role("button", name="Recovered pending", exact=True).click()
+            page.get_by_role("button", name="Apply filters", exact=True).click()
             expect(page.get_by_text("Synthetic recovered", exact=True)).to_be_visible()
-            page.get_by_role("button", name="View evidence", exact=True).click()
-            expect(page.get_by_text("Worst reading", exact=True)).to_be_visible()
-            expect(page.get_by_text("30%", exact=True)).to_be_visible()
-            assert page.locator(".md-dialog").evaluate("element=>element.scrollWidth<=element.clientWidth+2")
-            page.get_by_label("Close", exact=True).click()
-            page.locator(".md-dialog-layer").wait_for(state="detached")
+            expect(page.get_by_role("button", name="View evidence", exact=True)).to_have_count(0)
             page.evaluate("location.hash='/network'")
             expect(page.get_by_text("Poor", exact=True)).to_be_visible()
             expect(page.get_by_text("Replies this round", exact=True)).to_be_visible()

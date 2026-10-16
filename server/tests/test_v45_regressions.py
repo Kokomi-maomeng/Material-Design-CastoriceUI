@@ -201,6 +201,7 @@ class AuditRegressions(unittest.TestCase):
             payload = self.dashboard.snapshot()
             self.assertEqual(payload["mode"], "stale")
             self.assertEqual(payload["services"][0]["status"], "warning")
+        self.dashboard.alert_policy.since["collector-runtime"] = time.monotonic() - 301
         self.dashboard.refresh_collection_alerts()
         self.assertTrue(any(item["id"] == "collector-runtime" and item["status"] == "active" for item in self.storage.alert_history()))
 
@@ -210,6 +211,7 @@ class AuditRegressions(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.dashboard.collect_system_snapshot()
         self.assertEqual(self.dashboard.snapshot()["mode"], "stale")
+        self.dashboard.alert_policy.since["collector-system"] = time.monotonic() - 301
         self.dashboard.refresh_collection_alerts()
         self.assertEqual(next(item for item in self.storage.alert_history() if item["id"] == "collector-system")["status"], "active")
         with patch.object(self.dashboard.system_collector, "snapshot", return_value=system_fixture()):

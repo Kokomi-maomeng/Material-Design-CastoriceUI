@@ -49,7 +49,7 @@ def main() -> None:
     periodic(sampler_stop, "runtime-monitor", 5, dashboard.refresh_services)
     periodic(sampler_stop, "watchdog", 5, dashboard.refresh_collection_alerts)
     from castoriceui.alert_archive import archive
-    periodic(sampler_stop, "alert-archive", 3600, lambda: archive(storage, Path(config.database_path).parent / "alert-archives", days=config.alert_retention_days, limit=config.alert_history_limit))
+    periodic(sampler_stop, "alert-archive", 3600, lambda: archive(storage, Path(config.database_path).parent / "alert-archives", days=config.alert_retention_days, limit=config.alert_history_limit, minimum_batch=100))
     def pressure_burst() -> None:
         if time.monotonic() < dashboard.resource_pressure.burst_until:
             storage.record_monitoring("resource", "backend", dashboard.resource_pressure.snapshot())

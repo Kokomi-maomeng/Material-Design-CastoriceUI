@@ -22,13 +22,13 @@ class AlertStorageRegressions(unittest.TestCase):
         self.temp.cleanup()
 
     def test_recovery_restart_acknowledgement_and_recurrence_are_separate(self):
-        first = self.storage.reconcile_alerts([item()])["condition"]["episodeId"]
+        first = self.storage.reconcile_alerts([{**item(), "severity": "critical"}])["condition"]["episodeId"]
         self.storage.reconcile_alerts([])
         restarted = Storage(self.path, audit_retention_days=7)
         pending = restarted.alert_page(pending=True)
         self.assertEqual(pending["total"], 1)
         self.assertEqual(pending["items"][0]["status"], "resolved")
-        second = restarted.reconcile_alerts([item()])["condition"]["episodeId"]
+        second = restarted.reconcile_alerts([{**item(), "severity": "critical"}])["condition"]["episodeId"]
         self.assertNotEqual(first, second)
         self.assertTrue(restarted.acknowledge(first))
         self.assertEqual(restarted.alert_page(pending=True)["items"][0]["episodeId"], second)

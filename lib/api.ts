@@ -1,4 +1,4 @@
-import type { AlertEvidenceResponse, AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, MonitoringContext, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, MonitoringContext, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { validDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -53,10 +53,6 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
     window.clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abortFromCaller);
   }
-}
-
-export function fetchAlertEvidence(episodeId: string, signal?: AbortSignal) {
-  return request<AlertEvidenceResponse>(`/api/v2/alerts/${encodeURIComponent(episodeId)}/evidence`, { signal });
 }
 
 export function fetchNetworkHistory(targetId: string, hours: 6 | 24, ipVersion: number, signal?: AbortSignal) {
@@ -117,8 +113,9 @@ export function fetchAudits(options: { page: number; pageSize: 30 | 50; search?:
   return request<AuditPageResponse>(`/api/v2/audits?${query}`, { signal: options.signal });
 }
 
-export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: "pending" | "all" | "active" | "recovered"; signal?: AbortSignal }) {
+export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: "pending" | "all" | "active" | "recovered"; status?: "" | "active" | "recovered"; severity?: "" | "critical" | "warning" | "info"; start?: string; end?: string; signal?: AbortSignal }) {
   const query = new URLSearchParams({ page: String(options.page), pageSize: String(options.pageSize), filter: options.filter });
+  for (const key of ["status", "severity", "start", "end"] as const) if (options[key]) query.set(key, options[key]);
   return request<AlertPageResponse>(`/api/v2/alerts?${query}`, { signal: options.signal });
 }
 

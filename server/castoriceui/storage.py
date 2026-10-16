@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from .alert_policy import present, sql_level
 from .auth import dummy_password_check, hash_password, token_hash, validate_password, validate_username, verify_password
 
 
@@ -30,12 +31,15 @@ class Storage:
         self.path = path
         self.audit_retention_days = max(7, min(int(audit_retention_days), 3650))
         self.lock = threading.RLock()
+        self.monitoring_writes: dict[tuple[str, str], tuple[int, str]] = {}
+        self.monitoring_write_count = 0
         self._initialize()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
+        connection.create_function("alert_level", 1, sql_level, deterministic=True)
         connection.execute("PRAGMA foreign_keys=ON")
         try:
             yield connection
@@ -147,6 +151,7 @@ class Storage:
             if "coverage_state" not in delta_columns:
                 connection.execute("ALTER TABLE traffic_deltas ADD COLUMN coverage_state TEXT NOT NULL DEFAULT 'source_start'")
             self._initialize_traffic_ledger(connection)
+            self._prune_monitoring(connection, int(time.time()))
 
     @staticmethod
     def _initialize_traffic_ledger(connection: sqlite3.Connection) -> None:
@@ -531,12 +536,23 @@ class Storage:
                    (SELECT episode_id FROM alert_state WHERE active=0)""",
                 (now,),
             )
+            for recovered in connection.execute("SELECT episode_id,alert_id,payload_json FROM alert_history WHERE resolved_at=?", (now,)).fetchall():
+                if connection.execute("SELECT 1 FROM monitoring_samples WHERE domain='alert' AND target=? AND captured_at=? AND json_extract(payload_json,'$.event')='recovered'", (recovered["alert_id"], int(time.time()))).fetchone() is None:
+                    connection.execute("INSERT INTO monitoring_samples(captured_at,domain,target,payload_json) VALUES(?, 'alert', ?, ?)", (int(time.time()), recovered["alert_id"], json.dumps({"event": "recovered", "episodeId": recovered["episode_id"], "observedAt": now})))
             # Recovery and acknowledgement are separate events. Keep every
             # episode, including recovered episodes awaiting manual review.
             for alert_id in current_ids:
                 row = connection.execute(
-                    "SELECT active FROM alert_state WHERE alert_id=?", (alert_id,)
+                    "SELECT active,episode_id,acknowledged_at FROM alert_state WHERE alert_id=?", (alert_id,)
                 ).fetchone()
+                if row is not None and row["active"] and row["acknowledged_at"] and alert_id in payloads:
+                    previous = connection.execute("SELECT payload_json FROM alert_history WHERE episode_id=?", (row["episode_id"],)).fetchone()
+                    ranks = {"info": 1, "warning": 2, "critical": 3}
+                    if previous and ranks.get(sql_level(json.dumps(payloads[alert_id])), 0) > ranks.get(sql_level(previous[0]), 0):
+                        connection.execute("UPDATE alert_history SET resolved_at=? WHERE episode_id=?", (now, row["episode_id"]))
+                        connection.execute("UPDATE alert_state SET active=0 WHERE alert_id=?", (alert_id,))
+                        connection.execute("INSERT INTO monitoring_samples(captured_at,domain,target,payload_json) VALUES(?, 'alert', ?, ?)", (int(time.time()), alert_id, json.dumps({"event": "escalated", "episodeId": row["episode_id"], "observedAt": now})))
+                        row = {"active": False}
                 if row is None:
                     episode_id = secrets.token_urlsafe(18)
                     connection.execute(
@@ -548,15 +564,19 @@ class Storage:
                         (episode_id, alert_id, json.dumps(payloads.get(alert_id, {"id": alert_id}), ensure_ascii=False), now),
                     )
                 elif not bool(row["active"]):
-                    episode_id = secrets.token_urlsafe(18)
-                    connection.execute(
-                        "UPDATE alert_state SET episode_id=?,active=1,started_at=?,acknowledged_at=NULL WHERE alert_id=?",
-                        (episode_id, now, alert_id),
-                    )
-                    connection.execute(
-                        "INSERT INTO alert_history VALUES(?,?,?,?,NULL,NULL)",
-                        (episode_id, alert_id, json.dumps(payloads.get(alert_id, {"id": alert_id}), ensure_ascii=False), now),
-                    )
+                    payload = payloads.get(alert_id, {"id": alert_id})
+                    quiet = 1800 if payload.get("severity") == "info" else 300 if payload.get("severity") == "warning" else 0
+                    reusable = connection.execute("SELECT episode_id,started_at,payload_json FROM alert_history WHERE alert_id=? AND acknowledged_at IS NULL AND resolved_at IS NOT NULL AND julianday(resolved_at)>=julianday(?)-?/86400.0 ORDER BY resolved_at DESC LIMIT 1", (alert_id, now, quiet)).fetchone() if quiet else None
+                    episode_id = reusable["episode_id"] if reusable else secrets.token_urlsafe(18)
+                    if reusable:
+                        before = json.loads(reusable["payload_json"])
+                        payload["repeatCount"] = int(before.get("repeatCount", 1)) + 1
+                        payload["lastStartedAt"] = now
+                        connection.execute("INSERT INTO monitoring_samples(captured_at,domain,target,payload_json) VALUES(?, 'alert', ?, ?)", (int(time.time()), alert_id, json.dumps({"event": "reopened", "episodeId": episode_id, "observedAt": now})))
+                        connection.execute("UPDATE alert_history SET resolved_at=NULL,payload_json=? WHERE episode_id=?", (json.dumps(payload, ensure_ascii=False), episode_id))
+                    else:
+                        connection.execute("INSERT INTO alert_history VALUES(?,?,?,?,NULL,NULL)", (episode_id, alert_id, json.dumps(payload, ensure_ascii=False), now))
+                    connection.execute("UPDATE alert_state SET episode_id=?,active=1,started_at=?,acknowledged_at=NULL WHERE alert_id=?", (episode_id, reusable["started_at"] if reusable else now, alert_id))
                 else:
                     # Databases created before alert_history existed can already
                     # contain an active alert_state row. Backfill that episode so
@@ -571,6 +591,10 @@ class Storage:
                         (state["episode_id"], alert_id, payload_json, state["started_at"], state["acknowledged_at"]),
                     )
                     if alert_id in payloads:
+                        prior = connection.execute("SELECT payload_json FROM alert_history WHERE episode_id=?", (state["episode_id"],)).fetchone()
+                        old_payload = json.loads(prior[0]) if prior else {}
+                        payloads[alert_id].update({key: old_payload[key] for key in ("repeatCount", "lastStartedAt") if key in old_payload})
+                        payload_json = json.dumps(payloads[alert_id], ensure_ascii=False)
                         connection.execute(
                             "UPDATE alert_history SET payload_json=? WHERE episode_id=?",
                             (payload_json, state["episode_id"]),
@@ -581,10 +605,10 @@ class Storage:
                     continue
                 episode = current["episode_id"]
                 encoded = json.dumps(payload, ensure_ascii=False)
-                evidence = connection.execute("SELECT worst_json FROM alert_evidence WHERE episode_id=?", (episode,)).fetchone()
+                evidence = connection.execute("SELECT worst_json,last_json,updated_at FROM alert_evidence WHERE episode_id=?", (episode,)).fetchone()
                 worst = json.loads(evidence[0]) if evidence else payload
                 def score(item: dict[str, Any]) -> tuple[float, float, float]:
-                    metrics = item.get("evidence", {})
+                    metrics = item.get("evidence") or {}
                     def finite(key: str) -> float:
                         import math
                         value = metrics.get(key)
@@ -593,8 +617,11 @@ class Storage:
                     if item.get("id") == "traffic-threshold" or "usedPercent" in metrics:
                         return severity, finite("usedPercent"), 0
                     return severity, finite("loss"), finite("latency")
-                if score(payload) > score(worst):
+                worse = score(payload) > score(worst)
+                if worse:
                     worst = payload
+                if not evidence:
+                    connection.execute("INSERT INTO monitoring_samples(captured_at,domain,target,payload_json) VALUES(?, 'alert', ?, ?)", (int(time.time()), alert_id, json.dumps({"event": "opened", "episodeId": episode, "severity": payload.get("severity"), "observedAt": now})))
                 connection.execute("INSERT INTO alert_evidence VALUES(?,?,?,?,?) ON CONFLICT(episode_id) DO UPDATE SET last_json=excluded.last_json,worst_json=excluded.worst_json,updated_at=excluded.updated_at",
                                    (episode, encoded, encoded, json.dumps(worst, ensure_ascii=False), now))
             rows = connection.execute(
@@ -635,12 +662,12 @@ class Storage:
             "acknowledgedAt": row["acknowledged_at"],
             "status": "resolved" if row["resolved_at"] else "active",
         })
-        return payload
+        return present(payload)
 
     @staticmethod
     def pending_summary(connection: sqlite3.Connection) -> dict[str, int]:
         summary = {"pending": 0, "critical": 0, "warning": 0, "info": 0}
-        rows = connection.execute("SELECT json_extract(payload_json, '$.severity') AS severity, COUNT(*) AS count FROM alert_history WHERE acknowledged_at IS NULL GROUP BY severity").fetchall()
+        rows = connection.execute("SELECT alert_level(payload_json) AS severity, COUNT(*) AS count FROM alert_history WHERE acknowledged_at IS NULL GROUP BY severity").fetchall()
         for row in rows:
             summary["pending"] += int(row["count"])
             if row["severity"] in summary and row["severity"] != "pending":
@@ -662,39 +689,96 @@ class Storage:
         with self.connect() as connection:
             return self.pending_summary(connection)
 
-    def alert_page(self, page: int = 1, page_size: int = 30, pending: bool = False, status: str = "") -> dict[str, Any]:
+    def alert_page(self, page: int = 1, page_size: int = 30, pending: bool = False, status: str = "", severity: str = "", start: str = "", end: str = "") -> dict[str, Any]:
         page_size = max(1, min(int(page_size), 100))
-        where = " WHERE acknowledged_at IS NULL" if pending else ""
+        if status not in {"", "pending", "all", "active", "recovered"} or severity not in {"", "critical", "warning", "info"}:
+            raise ValueError("Invalid alert filter")
+        clauses, parameters = [], []
+        if pending:
+            clauses.append("acknowledged_at IS NULL")
         if status == "active":
-            where = " WHERE resolved_at IS NULL"
+            clauses.append("resolved_at IS NULL")
         elif status == "recovered":
-            where = " WHERE resolved_at IS NOT NULL AND acknowledged_at IS NULL"
+            clauses.append("resolved_at IS NOT NULL AND acknowledged_at IS NULL")
+        if severity:
+            clauses.append("alert_level(payload_json)=?"); parameters.append(severity)
+        boundaries = []
+        for value, operator in ((start, ">="), (end, "<")):
+            if not value:
+                boundaries.append(None); continue
+            date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if date.tzinfo is None or not 2000 <= date.year <= 2100:
+                raise ValueError("Alert dates require an explicit time zone")
+            boundaries.append(date)
+            clauses.append("julianday(started_at)" + operator + "julianday(?)")
+            parameters.append(date.astimezone(timezone.utc).isoformat())
+        if all(boundaries) and boundaries[0] >= boundaries[1]:
+            raise ValueError("Invalid alert date range")
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.connect() as connection:
-            # Count and rows must describe the same snapshot while monitoring
-            # or a different browser is adding/acknowledging episodes.
             connection.execute("BEGIN")
-            total = int(connection.execute(f"SELECT COUNT(*) FROM alert_history{where}").fetchone()[0])
+            total = int(connection.execute(f"SELECT COUNT(*) FROM alert_history{where}", parameters).fetchone()[0])
             total_pages = max(1, (total + page_size - 1) // page_size)
             page = min(max(1, int(page)), total_pages)
-            rows = connection.execute(f"SELECT * FROM alert_history{where} ORDER BY started_at DESC, episode_id DESC LIMIT ? OFFSET ?", (page_size, (page - 1) * page_size)).fetchall()
+            rows = connection.execute(f"SELECT * FROM alert_history{where} ORDER BY started_at DESC, episode_id DESC LIMIT ? OFFSET ?", (*parameters, page_size, (page - 1) * page_size)).fetchall()
             summary = self.pending_summary(connection)
-        return {"items": [self.alert_payload(row) for row in rows], "total": total, "page": page, "pageSize": page_size, "totalPages": total_pages, "summary": summary}
+        return {"items": [self.alert_payload(row) for row in rows], "total": total, "page": page, "pageSize": page_size, "totalPages": total_pages, "summary": summary,
+                "logLocation": {"database": self.path, "journal": "journalctl -u castoriceui-backend"}}
+
+    @staticmethod
+    def _prune_monitoring(connection: sqlite3.Connection, captured: int) -> None:
+        """Rotate raw samples only; incident history/snapshots remain protected."""
+        connection.execute("DELETE FROM monitoring_samples WHERE captured_at<?", (captured - 7 * 86400,))
+        last = connection.execute("SELECT MAX(id) FROM monitoring_samples").fetchone()[0] or 0
+        connection.execute("DELETE FROM monitoring_samples WHERE id<=?", (last - 180000,))
+        budget = 32 * 1024 * 1024
+        used = connection.execute("SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))),0) FROM monitoring_samples").fetchone()[0]
+        while used > budget:
+            rows = connection.execute("SELECT id,length(CAST(payload_json AS BLOB)) AS bytes FROM monitoring_samples ORDER BY id LIMIT 1000").fetchall()
+            freed, cutoff = 0, rows[0]["id"]
+            for row in rows:
+                freed += row["bytes"]; cutoff = row["id"]
+                if used - freed <= budget:
+                    break
+            connection.execute("DELETE FROM monitoring_samples WHERE id<=?", (cutoff,))
+            used -= freed
 
     def record_monitoring(self, domain: str, target: str, payload: dict[str, Any], now: int | None = None) -> bool:
         """7 days/180k rows, bounded payloads; a full disk never blocks proxies."""
         try:
             captured = int(time.time()) if now is None else int(now)
+            if domain == "resource":
+                compact = {key: value for key, value in payload.items() if key not in {"tcpCounters", "tcpExtendedCounters", "networkCounters", "cpuCounters"}}
+                wanted = {"RetransSegs", "OutSegs", "InSegs", "InErrs", "AttemptFails", "EstabResets", "TCPTimeouts", "TCPSynRetrans", "TCPFastRetrans", "TCPMemoryPressures"}
+                counters = {}
+                for field in ("tcpCounters", "tcpExtendedCounters"):
+                    lines = str(payload.get(field, "")).splitlines()
+                    for index in range(0, len(lines) - 1, 2):
+                        for key, value in zip(lines[index].split()[1:], lines[index + 1].split()[1:]):
+                            if key in wanted and value.isdigit():
+                                counters[key] = int(value)
+                if counters:
+                    compact["tcp"] = counters
+                payload = compact
             encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False)
             if len(encoded.encode("utf-8")) > 32768:
                 return False
             with self.lock, self.connect() as connection:
+                if domain == "protocol":
+                    signature = json.dumps({key: value for key, value in payload.items() if key not in {"sampledAt", "sampleStartedAt", "sampleEndedAt", "ageSeconds"}}, sort_keys=True)
+                    previous = self.monitoring_writes.get((domain, target))
+                    if previous and captured - previous[0] < 60 and signature == previous[1]:
+                        return True
+                    self.monitoring_writes[(domain, target)] = captured, signature
                 connection.execute("INSERT INTO monitoring_samples(captured_at,domain,target,payload_json) VALUES(?,?,?,?)", (captured, domain[:32], target[:160], encoded))
                 last = connection.execute("SELECT MAX(id) FROM monitoring_samples").fetchone()[0]
                 connection.execute("DELETE FROM monitoring_samples WHERE id<=?", (last - 180000,))
-                if last % 100 == 0:
-                    connection.execute("DELETE FROM monitoring_samples WHERE captured_at<?", (captured - 7 * 86400,))
+                self.monitoring_write_count += 1
+                if self.monitoring_write_count % 100 == 0:
+                    self._prune_monitoring(connection, captured)
             return True
         except (sqlite3.Error, OSError, ValueError, TypeError):
+            self.monitoring_writes.pop((domain, target), None)
             return False
 
     def monitoring_history(self, domain: str, target: str = "", since: int | None = None, limit: int = 360) -> list[dict[str, Any]]:

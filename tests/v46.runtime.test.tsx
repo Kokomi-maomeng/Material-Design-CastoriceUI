@@ -18,7 +18,7 @@ it("keeps a recovered episode pending until manual confirmation and passes its e
   const onAcknowledge = vi.fn(async () => { acknowledged = true; });
   english(<AlertsPage alerts={[]} onAcknowledge={onAcknowledge} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   expect(await screen.findByText(alert.title)).toBeTruthy();
-  expect(screen.getByText("Recovered")).toBeTruthy();
+  expect(screen.getAllByText("Recovered").length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: /^Acknowledge$/ }));
   await waitFor(() => expect(screen.queryByText(alert.title)).toBeNull());
   expect(onAcknowledge).toHaveBeenCalledWith("recovered-episode");
@@ -30,7 +30,7 @@ it("loads latest 30 then expanded pages of 50 using the audit controls, includin
   english(<AlertsPage alerts={[]} onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   await screen.findByText("Episode 1-0");
   fireEvent.click(screen.getByText("All records"));
-  await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "all", pageSize: 30, page: 1 })));
+  await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "all", pageSize: 50, page: 1 })));
   await screen.findByText("Showing the latest 30 by default");
   expect(document.querySelectorAll(".alert-row")).toHaveLength(30);
   fireEvent.click(screen.getByRole("button", { name: "Show all records" }));

@@ -317,7 +317,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 alert_filter = query.get("filter", ["all"])[0]
                 if page < 1 or page > 100_000 or page_size not in {30, 50} or alert_filter not in {"pending", "all", "active", "recovered"}:
                     raise ValueError("Invalid alert pagination or filter")
-                self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending", alert_filter))
+                self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending", query.get("status", [alert_filter])[0], query.get("severity", [""])[0], query.get("start", [""])[0], query.get("end", [""])[0]))
             except (TypeError, ValueError) as error:
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
         elif path.startswith("/api/v2/alerts/") and path.endswith("/evidence"):

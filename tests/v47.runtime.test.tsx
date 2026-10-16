@@ -22,16 +22,20 @@ it("distinguishes unavailable evidence from a confirmed offline service", () => 
 it("separates active and recovered pending records without acknowledging them", async () => {
   const active: AlertItem = { id: "qa", episodeId: "qa1", severity: "critical", title: "Active fault", description: "Synthetic", source: "QA", time: "now", startedAt: "2026-01-01T00:00:00Z", acknowledged: false, status: "active" };
   const recovered = { ...active, id: "qa2", episodeId: "qa2", title: "Recovered fault", status: "resolved" as const, resolvedAt: "2026-01-01T00:01:00Z" };
-  const fetch = vi.spyOn(api, "fetchAlerts").mockImplementation(async (options) => ({ items: options.filter === "active" ? [active] : options.filter === "recovered" ? [recovered] : [active, recovered], total: options.filter === "pending" ? 2 : 1, page: 1, pageSize: 50, totalPages: 1, summary: { active: 1, recoveredPending: 1, pending: 2, critical: 2, warning: 0, info: 0 } }));
+  const fetch = vi.spyOn(api, "fetchAlerts").mockImplementation(async (options) => ({ items: options.status === "active" ? [active] : options.status === "recovered" ? [recovered] : [active, recovered], total: options.filter === "pending" ? 2 : 1, page: 1, pageSize: 50, totalPages: 1, summary: { active: 1, recoveredPending: 1, pending: 2, critical: 2, warning: 0, info: 0 } }));
   const acknowledge = vi.fn();
   english(<AlertsPage alerts={[]} onAcknowledge={acknowledge} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   await screen.findByText("Recovered fault");
-  fireEvent.click(screen.getByRole("button", { name: /^Active 1$/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Active" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
   await waitFor(() => expect(screen.queryByText("Recovered fault")).toBeNull());
   expect(screen.getByText("Active fault")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /^Recovered pending 1$/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Filter · 1" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Recovered pending" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
   await screen.findByText("Recovered fault");
-  expect(fetch).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "recovered" }));
+  expect(fetch).toHaveBeenLastCalledWith(expect.objectContaining({ status: "recovered", filter: "pending" }));
   expect(acknowledge).not.toHaveBeenCalled();
 });
 

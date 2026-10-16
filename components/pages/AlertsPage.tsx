@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchAlerts } from "../../lib/api";
-import { formatLocalDateTime, localTimeZone } from "../../lib/format";
+import { formatLocalDateTime, localDateBoundary } from "../../lib/format";
 import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
+import { useRecordHistory } from "../../lib/useRecordHistory";
 import type { AlertItem, AlertPageResponse, AlertSummary, IntegrationStatus } from "../../lib/types";
 import { IntegrationGate } from "../setup/IntegrationGate";
+import { AnchoredPopover } from "../ui/AnchoredPopover";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
-import { RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
-import { AlertEvidenceDialog } from "./AlertEvidenceDialog";
+import { MaterialDatePicker } from "../ui/MaterialDatePicker";
+import { AnimatedRecords, RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
+
+type Filters = { from: string; to: string; status: "" | "active" | "recovered"; severity: "" | AlertItem["severity"] };
+const emptyFilters: Filters = { from: "", to: "", status: "", severity: "" };
 
 export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, onSummaryChange, integration, onConfigure }: {
   alerts: AlertItem[];
@@ -24,66 +29,71 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
   onConfigure: () => void;
 }) {
   const { language, t } = useI18n();
-  const [filter, setFilter] = useState<"pending" | "all" | "active" | "recovered">("pending");
-  const [expanded, setExpanded] = useState(false);
-  const [page, setPage] = useState(1);
-  const [result, setResult] = useState<AlertPageResponse>({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1, summary: { pending: 0, critical: 0, warning: 0, info: 0 } });
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const [scope, setScope] = useState<"pending" | "all">("pending");
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [draft, setDraft] = useState<Filters>(emptyFilters);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterAnchor = useRef<HTMLSpanElement>(null);
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
+  const refreshKey = useMemo(() => ({ alerts, refresh }), [alerts, refresh]);
+  const load = useCallback((page: number, signal: AbortSignal) => fetchAlerts({ page, pageSize: 50, filter: scope, status: filters.status, severity: filters.severity, start: localDateBoundary(filters.from), end: localDateBoundary(filters.to, true), signal }), [scope, filters]);
+  const records = useRecordHistory<AlertItem, AlertPageResponse>(JSON.stringify([scope, filters]), load, refreshKey);
+  const { result, items, expanded, toggleExpanded, setPage, loading, loadError } = records;
+  const summary = result?.summary ?? { pending: 0, critical: 0, warning: 0, info: 0 };
   const summaryCallback = useRef(onSummaryChange);
   useEffect(() => { summaryCallback.current = onSummaryChange; }, [onSummaryChange]);
-  const paginated = filter !== "all" || expanded;
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchAlerts({ page: paginated ? page : 1, pageSize: paginated ? 50 : 30, filter, signal: controller.signal }).then((data) => {
-      if (controller.signal.aborted) return;
-      setResult(data);
-      setLoadError(false);
-      summaryCallback.current?.(data.summary);
-      if (paginated && data.page !== page) setPage(data.page);
-    }).catch(() => { if (!controller.signal.aborted) setLoadError(true); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [alerts, filter, paginated, page, refresh]);
-
-  const selectFilter = (value: typeof filter) => { if (value === filter) return; setFilter(value); setExpanded(false); setPage(1); setLoading(true); };
+  useEffect(() => { if (result) summaryCallback.current?.(result.summary); }, [result]);
+  const closeFilter = useCallback(() => setFilterOpen(false), []);
+  const apply = (value: Filters) => { setFilters(value); setDraft(value); setPage(1); };
+  const selectScope = (value: typeof scope) => { setScope(value); setPage(1); };
+  const invalidRange = Boolean(draft.from && draft.to && draft.from > draft.to || draft.from && !localDateBoundary(draft.from) || draft.to && !localDateBoundary(draft.to, true));
+  const filterCount = Number(Boolean(filters.from || filters.to)) + Number(Boolean(filters.status)) + Number(Boolean(filters.severity));
   const confirm = async (episodeId?: string) => {
     if (busy) return;
     setBusy(true);
     try {
       if (episodeId) await onAcknowledge(episodeId); else await onAcknowledgeAll();
       setRefresh((value) => value + 1);
-    } catch {
-      onToast(t("告警确认失败，请重试", "Unable to acknowledge the alert. Try again."));
-    } finally { setBusy(false); }
+    } catch { onToast(t("告警确认失败，请重试", "Unable to acknowledge the alert. Try again.")); }
+    finally { setBusy(false); }
   };
-  const summary = result.summary;
-  const visible = loading || loadError ? [] : result.items;
+  const severityName = (severity: AlertItem["severity"]) => severity === "critical" ? t("严重", "Critical") : severity === "warning" ? t("警告", "Warning") : t("提醒", "Info");
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("主动监控", "Proactive monitoring")} title={t("告警中心", "Alerts")} description={t(`告警保留在待处理，直到手动确认；时间按本地时区 ${localTimeZone()} 显示。`, `Alerts remain pending until you acknowledge them. Times use your local time zone: ${localTimeZone()}.`)} />
-    <IntegrationGate status={integration} name="告警规则" nameEn="Alert rules" description="设置流量、延迟和丢包阈值后，异常会自动进入待处理列表。" descriptionEn="Set traffic, latency, and packet-loss thresholds to place real anomalies in the pending list." onConfigure={onConfigure} />
-    <section className="alert-summary">{(["critical", "warning", "info"] as const).map((severity) => <Card key={severity} variant="filled"><span className={`alert-count alert-count--${severity}`}>{summary[severity]}</span><div><strong>{severity === "critical" ? t("严重", "Critical") : severity === "warning" ? t("警告", "Warning") : t("提醒", "Info")}</strong></div></Card>)}</section>
-    <p className="muted" aria-live="polite">{t(`正在发生 ${summary.active ?? 0} · 已恢复待确认 ${summary.recoveredPending ?? 0} · 以上级别计数包含待确认历史`, `Active ${summary.active ?? 0} · Recovered awaiting acknowledgement ${summary.recoveredPending ?? 0} · Severity counts include pending history`)}</p>
+    <PageHeader eyebrow={t("主动监控", "Proactive monitoring")} title={t("告警中心", "Alerts")} />
+    <IntegrationGate status={integration} name="告警规则" nameEn="Alert rules" description="设置流量、延迟和丢包阈值。" descriptionEn="Set traffic, latency, and packet-loss thresholds." onConfigure={onConfigure} />
+    <section className="alert-summary">{(["critical", "warning", "info"] as const).map((severity) => <button type="button" className={`md-card md-card--filled alert-summary__button ${filters.severity === severity ? "is-selected" : ""}`} key={severity} aria-pressed={filters.severity === severity} onClick={() => apply({ ...filters, severity: filters.severity === severity ? "" : severity })}><span className={`alert-count alert-count--${severity}`}>{summary[severity]}</span><strong>{severityName(severity)}</strong></button>)}</section>
     <Card variant="outlined" className="alert-panel">
-      <div className="table-toolbar"><div className="filter-chips"><Chip selected={filter === "active"} onClick={() => selectFilter("active")}>{t("正在发生", "Active")} {summary.active ?? 0}</Chip><Chip selected={filter === "recovered"} onClick={() => selectFilter("recovered")}>{t("已恢复待确认", "Recovered pending")} {summary.recoveredPending ?? 0}</Chip><Chip selected={filter === "pending"} onClick={() => selectFilter("pending")}>{t("待处理", "Pending")} {summary.pending}</Chip><Chip selected={filter === "all"} onClick={() => selectFilter("all")}>{t("全部记录", "All records")}</Chip></div><Button variant="text" compact icon="done_all" disabled={busy || loading || loadError || summary.pending === 0} onClick={() => void confirm()}>{t("全部确认", "Acknowledge all")}</Button></div>
-      <div className="alert-list" aria-busy={loading}>
-        {visible.map((alert) => <div className={`alert-row alert-row--${alert.severity} ${alert.acknowledged ? "is-acknowledged" : ""}`} key={alert.episodeId}>
-          <span className="alert-row__icon"><Icon name={alert.severity === "critical" ? "error" : alert.severity === "warning" ? "warning" : "info"} size={23} filled /></span>
-          <div className="alert-row__content"><div><strong>{language === "zh" ? alert.titleZh || alert.title : alert.titleEn || alert.title}</strong><Chip staticChip>{language === "zh" ? alert.sourceZh || alert.source : alert.sourceEn || alert.source}</Chip></div><p>{withoutTerminalPeriod(language === "zh" ? alert.descriptionZh || alert.description : alert.descriptionEn || alert.description)}</p>
-            <span>{t("开始", "Started")}: <time dateTime={alert.startedAt}>{formatLocalDateTime(alert.startedAt, language)}</time></span>
-            {alert.resolvedAt ? <span>{t("恢复", "Recovered")}: <time dateTime={alert.resolvedAt}>{formatLocalDateTime(alert.resolvedAt, language)}</time></span> : null}
-            {alert.acknowledgedAt ? <span>{t("确认", "Acknowledged")}: <time dateTime={alert.acknowledgedAt}>{formatLocalDateTime(alert.acknowledgedAt, language)}</time></span> : null}
-            <Button variant="text" compact icon="fact_check" onClick={() => setSelectedAlert(alert)}>{t("查看证据", "View evidence")}</Button>
-          </div>
-          <div className="alert-row__actions">{alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : null}{!alert.acknowledged ? <Button variant="tonal" compact disabled={busy} onClick={() => void confirm(alert.episodeId)}>{t("确认", "Acknowledge")}</Button> : <Chip staticChip tone="success" icon="check">{t("已确认", "Acknowledged")}</Chip>}</div>
-        </div>)}
-        {loading ? <p className="muted">{t("正在读取告警记录", "Loading alert records")}</p> : loadError ? <div role="alert"><p>{t("告警记录加载失败，请重试。", "Unable to load alert records. Try again.")}</p><Button onClick={() => { setLoading(true); setRefresh((value) => value + 1); }}>{t("重试", "Retry")}</Button></div> : !visible.length ? <p className="muted">{filter === "pending" ? t("没有待确认的告警。", "No alerts need acknowledgement.") : t("暂无告警记录。", "No alert records yet.")}</p> : null}
-      </div>
-      {filter === "all" ? <RecordHistoryControls kind="alerts" expanded={expanded} loading={loading} total={result.total} page={result.page} totalPages={result.totalPages} onExpandedChange={(value) => { setExpanded(value); setPage(1); setLoading(true); }} /> : <div className="audit-controls"><div><strong>{t(`第 ${result.page}/${result.totalPages} 页`, `Page ${result.page} of ${result.totalPages}`)}</strong><span>{t(`当前筛选 ${result.total} 条`, `${result.total} matching alerts`)}</span></div></div>}
-      {paginated && !loadError ? <RecordPagination page={result.page} totalPages={result.totalPages} onPageChange={(value) => { if (value !== page) { setPage(value); setLoading(true); } }} label={t("告警记录分页", "Alert record pagination")} /> : null}
+      <div className="table-toolbar"><div className="filter-chips">
+        <Chip selected={scope === "pending"} onClick={() => selectScope("pending")}>{t("待处理", "Pending")} {summary.pending}</Chip>
+        <Chip selected={scope === "all"} onClick={() => selectScope("all")}>{t("全部记录", "All records")}</Chip>
+        <span ref={filterAnchor}><Button variant={filterCount ? "tonal" : "text"} compact icon="filter_list" aria-expanded={filterOpen} aria-haspopup="dialog" onClick={() => { setDraft(filters); setFilterOpen((value) => !value); }}>{t("筛选", "Filter")}{filterCount ? ` · ${filterCount}` : ""}</Button></span>
+      </div><Button variant="text" compact icon="done_all" disabled={busy || loading || loadError || summary.pending === 0} onClick={() => void confirm()}>{t("全部确认", "Acknowledge all")}</Button></div>
+      <AnchoredPopover open={filterOpen} anchorRef={filterAnchor} onClose={closeFilter} ariaLabel={t("筛选告警", "Filter alerts")} preferredWidth={440} placementPreference="vertical" className="alert-filter">
+        <form onSubmit={(event) => { event.preventDefault(); if (!invalidRange) { apply(draft); closeFilter(); } }}>
+          <fieldset><legend>{t("发生日期", "Start date")}</legend><div className="alert-filter__dates"><div className="field"><span>{t("从", "From")}</span><MaterialDatePicker portalClassName="alert-filter-calendar" allowEmpty ariaLabel={t("开始日期", "From date")} value={draft.from} onChange={(from) => setDraft({ ...draft, from })} /></div><span>—</span><div className="field"><span>{t("至", "To")}</span><MaterialDatePicker portalClassName="alert-filter-calendar" allowEmpty ariaLabel={t("结束日期", "To date")} value={draft.to} onChange={(to) => setDraft({ ...draft, to })} /></div></div>{invalidRange ? <p role="alert">{t("日期范围无效，请重新选择", "Choose a valid date range")}</p> : null}</fieldset>
+          <fieldset><legend>{t("状态", "Status")}</legend><div className="filter-chips" role="group" aria-label={t("告警状态", "Alert status")}>{(["", "active", "recovered"] as const).map((status) => <Chip type="button" key={status} selected={draft.status === status} aria-pressed={draft.status === status} onClick={() => setDraft({ ...draft, status })}>{status === "" ? t("不限", "Any") : status === "active" ? t("正在发生", "Active") : t("已恢复待确认", "Recovered pending")}</Chip>)}</div></fieldset>
+          <fieldset><legend>{t("级别", "Severity")}</legend><div className="filter-chips" role="group" aria-label={t("告警级别", "Alert severity")}>{(["", "critical", "warning", "info"] as const).map((severity) => <Chip type="button" key={severity} selected={draft.severity === severity} aria-pressed={draft.severity === severity} onClick={() => setDraft({ ...draft, severity })}>{severity ? severityName(severity) : t("不限", "Any")}</Chip>)}</div></fieldset>
+          <div className="alert-filter__actions"><Button type="button" variant="text" onClick={() => setDraft(emptyFilters)}>{t("重置", "Reset")}</Button><Button type="submit" disabled={invalidRange}>{t("应用筛选", "Apply filters")}</Button></div>
+        </form>
+      </AnchoredPopover>
+      <AnimatedRecords ready={Boolean(result)} itemCount={items.length} transitionKey={`${JSON.stringify([scope, filters])}:${result?.page ?? 1}`}>
+        <div className={`alert-list ${loading && result ? "is-loading" : ""}`} aria-busy={loading}>
+          {items.map((alert) => <div className={`alert-row alert-row--${alert.severity} ${alert.acknowledged ? "is-acknowledged" : ""}`} key={alert.episodeId}>
+            <span className="alert-row__icon"><Icon name={alert.severity === "critical" ? "error" : alert.severity === "warning" ? "warning" : "info"} size={23} filled /></span>
+            <div className="alert-row__content"><strong>{language === "zh" ? alert.titleZh || alert.title : alert.titleEn || alert.title}</strong><p>{withoutTerminalPeriod(language === "zh" ? alert.descriptionZh || alert.description : alert.descriptionEn || alert.description)}</p>
+              <div className="alert-row__times"><span>{t("开始", "Started")} <time dateTime={alert.startedAt}>{formatLocalDateTime(alert.startedAt, language)}</time></span>
+                {alert.resolvedAt ? <span>{t("恢复", "Recovered")} <time dateTime={alert.resolvedAt}>{formatLocalDateTime(alert.resolvedAt, language)}</time></span> : null}
+                {alert.acknowledgedAt ? <span>{t("确认", "Acknowledged")} <time dateTime={alert.acknowledgedAt}>{formatLocalDateTime(alert.acknowledgedAt, language)}</time></span> : null}</div>
+              {result?.logLocation ? <details className="alert-log-location"><summary>{t("日志位置", "Log location")}</summary><code>{result.logLocation.database}<br />alert_history / alert_evidence<br />episode_id = {alert.episodeId}</code><span>{t("采集记录", "Samples")}: monitoring_samples · {alert.logRef?.domain ?? 'alert'} / {alert.logRef?.target ?? alert.id}</span><code>{result.logLocation.journal}</code></details> : null}
+            </div>
+            <div className="alert-row__actions">{alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : null}{!alert.acknowledged ? <Button variant="tonal" compact disabled={busy || loading || loadError} onClick={() => void confirm(alert.episodeId)}>{t("确认", "Acknowledge")}</Button> : <Chip staticChip tone="success" icon="check">{t("已确认", "Acknowledged")}</Chip>}</div>
+          </div>)}
+          {loading && !result ? <p className="muted">{t("正在读取告警记录", "Loading alert records")}</p> : loadError ? <div role="alert"><p>{t("告警记录加载失败，请重试。", "Unable to load alert records. Try again.")}</p><Button onClick={() => setRefresh((value) => value + 1)}>{t("重试", "Retry")}</Button></div> : !items.length ? <p className="muted">{t("没有符合条件的告警。", "No alerts match these filters.")}</p> : null}
+        </div>
+      </AnimatedRecords>
+      <RecordHistoryControls kind="alerts" expanded={expanded} loading={loading} total={result?.total ?? 0} page={result?.page ?? 1} totalPages={result?.totalPages ?? 1} onExpandedChange={toggleExpanded} />
+      {expanded && !loadError ? <RecordPagination loading={loading} page={result?.page ?? 1} totalPages={result?.totalPages ?? 1} onPageChange={setPage} label={t("告警记录分页", "Alert record pagination")} /> : null}
     </Card>
-    <AlertEvidenceDialog key={selectedAlert?.episodeId ?? "closed"} alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
   </div>;
 }

@@ -15,8 +15,8 @@ def capacity(storage, limit: int = 10000) -> dict:
             "requiresAttention": row["total"] > limit, "policy": "archive-recovered-and-acknowledged-only"}
 
 
-def archive(storage, directory: Path, *, days: int = 180, limit: int = 10000) -> dict:
-    if not 7 <= days <= 3650 or not 100 <= limit <= 100000:
+def archive(storage, directory: Path, *, days: int = 180, limit: int = 10000, minimum_batch: int = 1) -> dict:
+    if not 7 <= days <= 3650 or not 100 <= limit <= 100000 or not 1 <= minimum_batch <= 500:
         raise ValueError("Invalid alert retention policy")
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
     with storage.lock, storage.connect() as connection:
@@ -25,7 +25,7 @@ def archive(storage, directory: Path, *, days: int = 180, limit: int = 10000) ->
         overflow = max(0, count - limit)
         rows = connection.execute("SELECT * FROM alert_history WHERE resolved_at IS NOT NULL AND acknowledged_at IS NOT NULL ORDER BY resolved_at,episode_id LIMIT 500").fetchall()
         selected = [row for index, row in enumerate(rows) if row["resolved_at"] < cutoff or index < overflow]
-        if not selected:
+        if not selected or len(selected) < minimum_batch:
             return {"archived": 0, "remaining": count}
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         if directory.is_symlink():

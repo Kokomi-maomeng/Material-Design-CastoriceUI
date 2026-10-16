@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from .monitoring import NetworkPolicy, ResourcePressure, correlate, event, timestamp, maintenance_info
 from .external_probe import service_evidence
+from .alert_policy import AlertPolicy
 from .collectors import layered_probe
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -80,6 +81,7 @@ class DashboardService:
         self.collection_state: dict[str, dict[str, Any]] = {}
         self.started_monotonic = time.monotonic()
         self.network_policy = NetworkPolicy()
+        self.alert_policy = AlertPolicy()
         self.resource_pressure = ResourcePressure()
         self.layer_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self.unknown_since: dict[str, float] = {}
@@ -1042,10 +1044,12 @@ class DashboardService:
             if str(alert["id"]).startswith("network-"):
                 matching = next((item for item in network if str(alert["id"]) in {"network-" + item["id"], "network-probe-" + item["id"]}), None)
                 if matching:
-                    alert["evidence"] = {key: matching.get(key) for key in ("latency", "loss", "sent", "received", "complete", "observedAt", "probeReason", "effectivePolicy", "qualityWindow", "layers")}
+                    alert["targetName"] = matching["name"]
+                    alert["evidence"] = {key: matching.get(key) for key in ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")}
             elif str(alert["id"]) == "service-singbox":
                 alert["affectedServices"] = [item["id"] for item in services if item["id"] in PROTOCOLS and item.get("stateReason") == "core_offline"]
         alerts.extend(self.collection_alerts())
+        alerts = self.alert_policy.apply(alerts, previous_alerts)
         episodes = self.storage.reconcile_alerts(alerts)
         for alert in alerts:
             episode = episodes[str(alert["id"])]
@@ -1258,7 +1262,7 @@ class DashboardService:
             if item["status"] in {"live", "initializing"}:
                 continue
             description = f"Status: {item['status']}; last measurement: {item['observedAt'] or 'unavailable'}"
-            result.append({"id": f"collector-{name}", "severity": "warning", "title": f"{en} collection requires attention", "titleEn": f"{en} collection requires attention", "titleZh": f"{zh}采集需要检查", "description": description, "descriptionEn": description, "descriptionZh": f"采集状态：{item['status']}；最近测量：{item['observedAt'] or '暂无'}", "source": "Collector monitor", "sourceEn": "Collector monitor", "sourceZh": "采集监控", "time": "latest check", "acknowledged": False})
+            result.append({"id": f"collector-{name}", "severity": "warning", "title": f"{en} collection requires attention", "titleEn": f"{en} collection requires attention", "titleZh": f"{zh}采集需要检查", "description": description, "descriptionEn": description, "descriptionZh": f"采集状态：{item['status']}；最近测量：{item['observedAt'] or '暂无'}", "source": "Collector monitor", "sourceEn": "Collector monitor", "sourceZh": "采集监控", "time": "latest check", "acknowledged": False, "evidence": {"domain": name, **item}})
         return result
 
     def refresh_collection_alerts(self) -> None:
@@ -1266,6 +1270,7 @@ class DashboardService:
         with self.lock:
             active = [item for item in self.storage.active_alerts() if not str(item["id"]).startswith("collector-")]
             active.extend(self.collection_alerts())
+            active = self.alert_policy.apply(active, self.storage.active_alerts(), prune=False)
             self.storage.reconcile_alerts(active)
             self.runtime_cache["alerts"] = self.storage.alert_history()
 

@@ -40,6 +40,7 @@ class SupplementalEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             storage = Storage(str(Path(folder) / "qa.sqlite"))
             dashboard = DashboardService(AppConfig(), storage)
+            dashboard.alert_policy.since["network-one"] = time.monotonic() - 601
             dashboard.collection_state["network"] = {"observedAt": datetime.now(timezone.utc).isoformat()}
             for loss in (10, 30, 15):
                 target = {**sample(loss), "alertConfirmed": True, "observedAt": "2026-01-01T00:00:00Z", "effectivePolicy": THRESHOLDS, "layers": {"tcp": {"status": "passed"}}}
@@ -55,6 +56,8 @@ class SupplementalEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             storage = Storage(str(Path(folder) / "qa.sqlite"))
             dashboard = DashboardService(AppConfig(), storage)
+            dashboard.alert_policy.since["monitor-vless"] = time.monotonic() - 601
+            dashboard.alert_policy.since["monitor-external-qa-anytls"] = time.monotonic() - 601
             services = [
                 {"id": "singbox", "name": "sing-box", "status": "stopped", "detail": "Core inactive"},
                 {"id": "anytls", "name": "AnyTLS", "status": "stopped", "detail": "Core inactive", "stateReason": "core_offline"},
@@ -66,7 +69,7 @@ class SupplementalEvidenceTests(unittest.TestCase):
             self.assertEqual(alerts["service-singbox"]["affectedServices"], ["anytls"])
             self.assertIn("AnyTLS", alerts["service-singbox"]["descriptionZh"])
             self.assertIn("monitor-vless", alerts)
-            self.assertIn("business check failed", alerts["monitor-external-qa-anytls"]["titleEn"])
+            self.assertIn("repeatedly failed", alerts["monitor-external-qa-anytls"]["titleEn"])
 
     def test_confirmed_core_stop_overrides_stale_successful_statistics(self):
         with patch("castoriceui.collectors.service_state", return_value=("failed", 0)), patch("castoriceui.collectors.run", return_value="1.13.19"):
@@ -89,6 +92,7 @@ class SupplementalEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             storage = Storage(str(Path(folder) / "qa.sqlite"))
             dashboard = DashboardService(AppConfig(), storage)
+            dashboard.alert_policy.since["network-one"] = time.monotonic() - 601
             dashboard.collection_state["network"] = {"observedAt": datetime.now(timezone.utc).isoformat()}
             system = {"trafficUsedBytes": 0, "trafficLimitBytes": 100}
             target = {**sample(12.5), "alertConfirmed": True}
@@ -419,6 +423,7 @@ class EvidenceTests(unittest.TestCase):
         self.storage.reconcile_alerts([])
         self.assertEqual(self.storage.alert_summary()["active"], 0)
         self.assertEqual(self.storage.alert_page(status="recovered")["total"], 1)
+        self.storage.acknowledge(first)
         new = self.storage.reconcile_alerts([alert(20)])["network-test"]["episodeId"]
         self.assertNotEqual(first, new)
         self.storage.acknowledge(first)

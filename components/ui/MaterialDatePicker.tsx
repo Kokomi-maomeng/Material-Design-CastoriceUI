@@ -18,7 +18,7 @@ const isoDate = (date: Date) => [
   String(date.getDate()).padStart(2, "0"),
 ].join("-");
 
-export function MaterialDatePicker({ value, onChange, ariaLabel }: { value: string; onChange: (value: string) => void; ariaLabel: string }) {
+export function MaterialDatePicker({ value, onChange, ariaLabel, allowEmpty = false, portalClassName = "" }: { value: string; onChange: (value: string) => void; ariaLabel: string; allowEmpty?: boolean; portalClassName?: string }) {
   const { language, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"day" | "month" | "year">("day");
@@ -91,10 +91,10 @@ export function MaterialDatePicker({ value, onChange, ariaLabel }: { value: stri
     <>
       <button ref={buttonRef} type="button" className={`md-date-trigger ${open ? "is-open" : ""}`} aria-label={ariaLabel} aria-haspopup="dialog" aria-expanded={open} onClick={() => { if (!open) { const current = parseDate(value); setMonth(new Date(current.getFullYear(), current.getMonth(), 1)); setView("day"); setPosition((position) => ({ ...position, ready: false })); } setOpen((current) => !current); }}>
         <Icon name="calendar_month" size={20} />
-        <span>{new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit" }).format(selected)}</span>
+        <span>{!value && allowEmpty ? t("不限日期", "Any date") : new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit" }).format(selected)}</span>
       </button>
       {present ? createPortal(
-        <div ref={popupRef} className={`md-date-picker md-floating-panel ${open ? "is-open" : "is-closing"}`} data-placement={position.placement} role="dialog" aria-modal="false" aria-hidden={!open} aria-label={ariaLabel} style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}>
+        <div ref={popupRef} onPointerDown={(event) => event.stopPropagation()} className={`md-date-picker md-floating-panel ${portalClassName} ${open ? "is-open" : "is-closing"}`} data-placement={position.placement} role="dialog" aria-modal="false" aria-hidden={!open} aria-label={ariaLabel} style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}>
           <div className="md-date-picker__headline"><small>{t("选择日期", "Select date")}</small><strong>{new Intl.DateTimeFormat(locale, { weekday: "short", month: "short", day: "numeric" }).format(selected)}</strong></div>
           <div className="md-date-picker__month">
             <button type="button" className="md-date-picker__period" aria-label={t("选择年份和月份", "Choose year and month")} onClick={() => setView((current) => current === "day" ? "year" : current === "year" ? "month" : "day")}>
@@ -129,6 +129,7 @@ export function MaterialDatePicker({ value, onChange, ariaLabel }: { value: stri
             {years.map((year) => <button type="button" role="option" aria-selected={year === selected.getFullYear()} key={year} className={year === selected.getFullYear() ? "is-selected" : ""} onClick={() => { setMonth((current) => new Date(year, current.getMonth(), 1)); setView("month"); }}>{year}</button>)}
           </div> : null}
           <div className="md-date-picker__actions">
+            {allowEmpty ? <button type="button" onClick={() => { onChange(""); setOpen(false); }}>{t("清除", "Clear")}</button> : null}
             <button type="button" onClick={() => setOpen(false)}>{t("取消", "Cancel")}</button>
             <button type="button" onClick={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setView("day"); onChange(isoDate(today)); setOpen(false); }}>{t("今天", "Today")}</button>
           </div>

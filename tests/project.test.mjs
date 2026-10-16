@@ -293,7 +293,7 @@ test("v3.1 detail interactions avoid native or stale UI artifacts", async () => 
   assert.doesNotMatch(app, /onDismiss=\{\(\) => setToast\(null\)\}/);
   assert.match(app, /snapshot-date/);
   assert.match(audit, /fetchAudits/);
-  assert.match(audit, /pageSize: expanded \? 50 : 30/);
+  assert.match(audit, /pageSize: 50/);
   assert.match(audit, /RecordPagination/);
   assert.match(await read("components/ui/RecordHistory.tsx"), /pageItems/);
   assert.match(traffic, /chart-inspector/);
