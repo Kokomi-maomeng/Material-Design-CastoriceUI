@@ -37,4 +37,8 @@
 .alert-panel, .table-panel { overflow-anchor: none; }
 .alert-list, .audit-table { transition: opacity .16s; }
 .is-loading { opacity: .6; }
+@media (max-width: 480px) {
+  .alert-filter__dates .md-date-trigger { padding-inline: 8px; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .alert-filter__dates .md-date-trigger.is-open { padding-inline: 7px; }
+}
 @media (prefers-reduced-motion: reduce) { .alert-list, .audit-table, .alert-summary__button { transition: none; } }

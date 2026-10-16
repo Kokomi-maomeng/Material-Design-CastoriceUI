@@ -139,6 +139,7 @@ def main():
                                                 calendar=page.get_by_role('dialog',name=t(bound,label),exact=True)
                                                 calendar.get_by_role('button',name=t('Today','今天'),exact=True).click()
                                                 assert filter.is_visible(), 'calendar dismissed the filter'
+                                            assert filter.locator('.md-date-trigger > span:not(.material-symbols-rounded)').evaluate_all('(elements)=>elements.every(el=>el.scrollWidth <= el.clientWidth+1)'), ('selected date truncated',engine,language,width)
                                             filter.get_by_role('button',name=t('Active','正在发生'),exact=True).click()
                                             filter.get_by_role('button',name=t('Info','提醒'),exact=True).click()
                                             filter.get_by_role('button',name=t('Apply filters','应用筛选'),exact=True).click()
