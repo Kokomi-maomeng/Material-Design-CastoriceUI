@@ -23,6 +23,13 @@ beforeEach(() => {
   vi.stubGlobal("URL", TestURL);
   vi.stubGlobal("Image", class { src = ""; decode() { return Promise.resolve(); } });
   vi.stubGlobal("fetch", fetchImage);
+  // Cache API is a browser boundary. Do not mix jsdom Blobs with Node's
+  // version-dependent native Response implementation in this fixture.
+  vi.stubGlobal("Response", class {
+    body: Blob;
+    headers: Headers;
+    constructor(body: Blob, init?: ResponseInit) { this.body = body; this.headers = new Headers(init?.headers); }
+  });
   cachePut.mockReset();
   vi.stubGlobal("caches", { open: async () => ({ match: async () => entry, put: cachePut, keys: async () => [], delete: vi.fn() }), keys: async () => [], delete: vi.fn() });
   fetchImage.mockReset(); fetchImage.mockResolvedValue(response());
