@@ -35,7 +35,7 @@
 .alert-filter__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .record-transition { overflow-anchor: none; }
 .record-load-error { padding: 12px 22px; }
-.alert-panel, .table-panel { overflow-anchor: none; }
+.alert-panel, .audit-panel { overflow-anchor: none; }
 .alert-list, .audit-table { transition: opacity .16s; }
 .alert-list.is-loading, .audit-table.is-loading { opacity: .6; }
 @media (max-width: 480px) {

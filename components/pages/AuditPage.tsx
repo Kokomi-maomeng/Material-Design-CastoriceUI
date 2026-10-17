@@ -54,7 +54,7 @@ export function AuditPage() {
 
   return <div className="page-content page-enter">
     <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} description={t(`时间按本地时区 ${localTimeZone()} 显示。`, `Times are shown in your local time zone: ${localTimeZone()}.`)} />
-    <Card variant="outlined" className="table-panel">
+    <Card variant="outlined" className="table-panel audit-panel">
       <div className="table-toolbar table-toolbar--wrap">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={t("搜索操作、账号或 IP", "Search action, account, or IP")} aria-label={t("搜索审计记录", "Search audit records")} /></label>
         <div className="filter-chips">{(["全部", "认证", "账号", "配置", "系统"] as const).map((item) => <Chip key={item} selected={category === item} onClick={() => { setCategory(item); setPage(1); }}>{item === "全部" ? t("全部", "All") : item === "认证" ? t("认证", "Authentication") : item === "账号" ? t("账号", "Account") : item === "配置" ? t("配置", "Configuration") : t("系统", "System")}</Chip>)}</div>
