@@ -138,10 +138,33 @@ def synthetic_dashboard(page) -> dict[str, object]:
 
 
 def open_page(page, section: str) -> None:
+    titles = {
+        "overview": ("QA node", "QA node"),
+        "traffic": ("流量分析", "Traffic analytics"),
+        "connections": ("活动连接", "Active connections"),
+        "accounts": ("账号状态", "Account status"),
+        "network": ("网络质量", "Network quality"),
+        "services": ("服务状态", "Services"),
+        "subscriptions": ("订阅管理", "Subscription management"),
+        "alerts": ("告警中心", "Alerts"),
+        "audit": ("操作审计", "Audit log"),
+        "setup": ("初始化向导", "Setup"),
+    }
+    language = page.locator("html").get_attribute("lang") or "en"
+    title = titles[section][0 if language.startswith("zh") else 1]
     page.evaluate("section => { location.hash = '/' + section; }", section)
+    # The old view can still have a visible h1 before React handles hashchange.
+    # Wait for this view and its paint before inspecting responsive geometry.
+    page.get_by_role("heading", level=1, name=title, exact=True).wait_for()
     page.locator("#main-content .page-loading").wait_for(state="detached")
-    page.locator("#main-content h1").wait_for()
     page.evaluate("scrollTo(0, 0)")
+    page.evaluate("""async () => {
+        await document.fonts.ready;
+        const finite = document.getAnimations().filter(animation =>
+            animation.playState === 'running' && Number.isFinite(animation.effect?.getComputedTiming().endTime));
+        await Promise.all(finite.map(animation => animation.finished.catch(() => {})));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }""")
 
 
 with sync_playwright() as playwright:
