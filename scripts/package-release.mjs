@@ -50,6 +50,7 @@ await Promise.all([
   copy("docs/V5.0.1_FIX_SUMMARY.md", "docs/V5.0.1_FIX_SUMMARY.md"),
   copy("docs/V5.1_FIX_SUMMARY.md", "docs/V5.1_FIX_SUMMARY.md"),
   copy("docs/V5.2_ALERTS.md", "docs/V5.2_ALERTS.md"),
+  copy("docs/V5.3_BACKGROUND.md", "docs/V5.3_BACKGROUND.md"),
   copy("docs/SUPPORT_MATRIX.md", "docs/SUPPORT_MATRIX.md"),
   copy("docs/MONITORING.md", "docs/MONITORING.md"),
   cp(releaseNotes, path.join(stageDirectory, "docs", `RELEASE_NOTES_v${version}.md`)),

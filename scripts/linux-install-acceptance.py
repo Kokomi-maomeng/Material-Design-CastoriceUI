@@ -7,13 +7,14 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
 import shutil
 import sqlite3
 import ssl
 import subprocess
 import tarfile
+import tempfile
 import time
-import fcntl
 from pathlib import Path
 
 
@@ -103,7 +104,7 @@ def main() -> None:
         cached_regressions = [None]
         def real_command(*arguments, **kwargs):
             # Failure injection changes installation operations, not the immutable
-            # candidate. Run its staged suite once here; the competing CLI runs it
+            # candidate. Run its staged suite once here; separate CLI attempts run it
             # independently again. Never reuse a failed result or another archive.
             if arguments[:3] == ('python3', '-m', 'unittest'):
                 assert hashlib.sha256(args.archive.read_bytes()).hexdigest() == archive_sha
@@ -224,23 +225,48 @@ def main() -> None:
                 assert connection.execute("SELECT value FROM settings WHERE key='synthetic_rollback_marker'").fetchone() is None
         # A real competing installer must stop before entering a transaction.
         installer_args = ['python3', str(release / 'deploy/install_release.py'), '--archive', str(args.archive), '--config', str(config_path)]
-        worker = subprocess.Popen(installer_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        for _ in range(100):
-            with open('/run/lock/castoriceui-install.lock', 'a') as lock:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    fcntl.flock(lock, fcntl.LOCK_UN)
-                except BlockingIOError:
-                    break
-            assert worker.poll() is None
-            time.sleep(.1)
-        else:
-            raise AssertionError('Installer never acquired the cross-process lock')
-        competing = run(*installer_args, check=False)
-        assert competing.returncode != 0 and 'Another CastoriceUI installation is running' in competing.stderr
-        worker.terminate()
-        output, errors = worker.communicate(timeout=600)
-        assert worker.returncode != 0, 'Interrupted installer unexpectedly completed'
+        # Pause the actual installer after its links have switched. Merely
+        # observing its lock races completion while the competing CLI starts.
+        # The gate lives in this QA wrapper, never in the shipped installer.
+        paused_installer = r'''
+import importlib.util, os, sys, time
+from pathlib import Path
+script, marker = sys.argv[1:3]
+sys.argv = [script, *sys.argv[3:]]
+spec = importlib.util.spec_from_file_location('interrupted_qa_installer', script)
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+original = module.command
+def gated_command(*arguments, **kwargs):
+    if arguments == ('systemctl', 'restart', 'castoriceui-backend.service'):
+        Path(marker).write_text(str(os.getpid()))
+        while True:
+            time.sleep(1)
+    return original(*arguments, **kwargs)
+module.command = gated_command
+module.main()
+'''
+        with tempfile.TemporaryDirectory(prefix='castorice-interruption-qa-') as directory:
+            marker = Path(directory) / 'switched'
+            worker = subprocess.Popen(['python3', '-c', paused_installer, installer_args[1], str(marker), *installer_args[2:]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                deadline = time.monotonic() + 240
+                while not marker.is_file() or marker.read_text() != str(worker.pid):
+                    assert worker.poll() is None, 'Installer exited before the interruption checkpoint'
+                    assert time.monotonic() < deadline, 'Installer did not reach the interruption checkpoint'
+                    time.sleep(.1)
+                assert all(path.resolve() != target for path, target in previous.items()), 'Interruption checkpoint precedes the real switch'
+                competing = run(*installer_args, check=False)
+                assert competing.returncode != 0 and 'Another CastoriceUI installation is running' in competing.stderr
+                assert worker.poll() is None, 'Gated installer exited before SIGTERM'
+                worker.terminate()
+                output, errors = worker.communicate(timeout=600)
+                assert worker.returncode != 0, 'Interrupted installer unexpectedly completed'
+                assert 'Installer interrupted; restoring recorded state' in errors, errors
+                transaction = max(Path('/var/backups').glob('castoriceui-v*/transaction.json'), key=lambda path: path.stat().st_mtime_ns)
+                assert json.loads(transaction.read_text())['phase'] == 'rolled-back'
+            finally:
+                if worker.poll() is None:
+                    worker.kill(); worker.communicate(timeout=30)
         assert all(path.resolve() == target for path, target in previous.items())
         assert call('GET', '/api/v2/health')[1]['version'] == version
         retried = run(*installer_args)
@@ -252,7 +278,7 @@ def main() -> None:
         assert database.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     run("nginx", "-t")
     assert run("systemctl", "is-active", "castoriceui-backend").stdout.strip() == "active"
-    print(json.dumps({"phase": args.phase, "version": version, "archiveSha256": hashlib.sha256(args.archive.read_bytes()).hexdigest(), "customConfigAndPort": True, "customProtectedUnits": True, "tcp443ConflictAnd2087Redirect": True, "competingInstallerRejected": args.phase == "install", "interruptedInstallerRetry": args.phase == "install", "immutableSuiteReusedForFailureInjection": args.phase == "install", "freshInstallRollbackRetry": args.phase == "install", "realHttpsInitializationOrLogin": True, "sqliteIntegrity": "ok"}))
+    print(json.dumps({"phase": args.phase, "debian": platform.freedesktop_os_release()['VERSION_ID'], "version": version, "archiveSha256": hashlib.sha256(args.archive.read_bytes()).hexdigest(), "customConfigAndPort": True, "customProtectedUnits": True, "tcp443ConflictAnd2087Redirect": True, "competingInstallerRejected": args.phase == "install", "interruptedInstallerRetry": args.phase == "install", "interruptedAfterSwitch": args.phase == "install", "sigtermAndRollbackVerified": args.phase == "install", "immutableSuiteReusedForFailureInjection": args.phase == "install", "freshInstallRollbackRetry": args.phase == "install", "realHttpsInitializationOrLogin": True, "sqliteIntegrity": "ok"}))
 
 
 if __name__ == "__main__":
