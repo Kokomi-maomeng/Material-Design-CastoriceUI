@@ -51,8 +51,10 @@ def run(engine, context):
                 if state.get("server_fallback"):
                     route.fulfill(body=state["server_images"][profile], content_type="image/png", headers={"X-Background-Stale": "1", "Retry-After": "2"}); return
                 route.fulfill(status=503, json={"error": "background_temporarily_unavailable"}, headers={"Retry-After": "2"}); return
-            body = b"\x89PNG\r\n\x1a\ninvalid" if state["corrupt"] else image(state["images"])
-            if not state["corrupt"]: state["server_images"][profile] = body
+            corrupt = state["corrupt"]
+            state["corrupt"] = False
+            body = b"\x89PNG\r\n\x1a\ninvalid" if corrupt else image(state["images"])
+            if not corrupt: state["server_images"][profile] = body
             route.fulfill(body=body, content_type="image/png", headers={"Cache-Control": "no-store"}); return
         if path == "bootstrap": data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": appearance}
         elif path == "auth/session" and not state["authenticated"]:
@@ -133,11 +135,19 @@ def run(engine, context):
     if persistent_cache:
         page.reload(wait_until="networkidle")
     else:
-        # A fresh profile forces decoding without relying on broken storage.
+        # Storage-disabled WebKit cannot retain a blob across navigation.
+        # Resize must now keep this document's image without any request;
+        # a subsequent reload exercises corrupt decoding and bounded recovery.
         previous = page.locator(".auth-page").get_attribute("style")
-        with page.expect_response(lambda response: "profile=landscape-1280" in response.url):
-            page.set_viewport_size({"width": 1200, "height": 1000})
-        assert page.locator(".auth-page").get_attribute("style") == previous, "decode failure cleared the current image"
+        count = state["images"]
+        page.set_viewport_size({"width": 1200, "height": 1000})
+        page.wait_for_timeout(2300)
+        assert page.locator(".auth-page").get_attribute("style") == previous, "resize cleared the current image"
+        assert state["images"] == count, "resize requested another background"
+        with page.expect_response(lambda response: "profile=landscape-1280" in response.url and "retry=1" in response.url):
+            page.reload(wait_until="domcontentloaded")
+        page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
+        assert state["images"] == count + 2, "cold corrupt image did not recover with one decode retry"
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     state["corrupt"] = False
     page.wait_for_timeout(2300)
