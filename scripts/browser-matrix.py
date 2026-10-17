@@ -301,7 +301,7 @@ with sync_playwright() as playwright:
                             if section == "network":
                                 assert page.locator(".sparkline").first.evaluate("element => getComputedStyle(element).height") == "200px"
                             if screenshot_root := os.environ.get("CASTORICEUI_BROWSER_SCREENSHOTS"):
-                                if engine == "chromium" and language == "en" and width in (1440, 390) and section in ("overview", "traffic", "services"):
+                                if engine == "chromium" and language == "zh" and theme == "dark" and motion == "reduce" and width in (1440, 390):
                                     page.evaluate("scrollTo(0, 0)")
                                     target = Path(screenshot_root)
                                     target.mkdir(parents=True, exist_ok=True)

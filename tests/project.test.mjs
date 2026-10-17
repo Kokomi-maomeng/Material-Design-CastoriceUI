@@ -218,7 +218,7 @@ test("v3.1 keeps chart time, responsive mobile sizing, setup order, and toast mo
   assert.match(chart, /Intl\.DateTimeFormat/);
   assert.match(chart, /ResizeObserver/);
   assert.match(chart, /viewWidth/);
-  assert.match(chart, /MIN_VIEW_WIDTH/);
+  // Real viewport geometry is covered by scripts/browser-v521.py.
   assert.match(chart, /index === data\.length - 1/);
   assert.match(styles, /\.chart--traffic \.native-chart \{ width: 100%; min-width: 0; \}/);
   assert.match(network, /const pick = \(event: PointerEvent<SVGSVGElement>\)/);
