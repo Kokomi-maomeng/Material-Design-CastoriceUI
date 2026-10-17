@@ -56,7 +56,7 @@ it("uses a valid two-second entry without requesting, and waits for new bytes af
   expect(second.result.current).toMatch(/^blob:/); expect(fetchImage).toHaveBeenCalledTimes(1);
 });
 
-it("does not renew a server fallback's TTL or replace it later in the same visit", async () => {
+it("keeps a server fallback fixed for the page and retries after its client TTL", async () => {
   const config = appearance(2);
   fetchImage.mockResolvedValue(response(30, true));
   const first = renderHook(() => useLoginBackground(config));
@@ -118,4 +118,16 @@ it("uses a cache valid at page entry even when bootstrap takes longer than its T
   await tick(5000);
   hook.rerender({ settings: config }); await tick();
   expect(hook.result.current).toMatch(/^blob:/); expect(fetchImage).not.toHaveBeenCalled();
+});
+
+it("gives a displayed fallback the same short cache without renewing it on hits", async () => {
+  const config = appearance(2); fetchImage.mockResolvedValue(response(30, true));
+  const first = renderHook(() => useLoginBackground(config)); await tick(); first.unmount();
+  const savedAt = cachePut.mock.calls[0][1].headers.get("X-Background-Saved-At");
+  await tick(500);
+  const second = renderHook(() => useLoginBackground(config)); await tick();
+  expect(second.result.current).toMatch(/^blob:/); expect(fetchImage).toHaveBeenCalledTimes(1);
+  expect(cachePut).toHaveBeenCalledTimes(1); expect(cachePut.mock.calls[0][1].headers.get("X-Background-Saved-At")).toBe(savedAt);
+  second.unmount(); await tick(1600);
+  renderHook(() => useLoginBackground(config)); await tick(); expect(fetchImage).toHaveBeenCalledTimes(2);
 });

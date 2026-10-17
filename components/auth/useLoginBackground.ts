@@ -82,17 +82,16 @@ export function useLoginBackground(appearance: LoginAppearance, enteredAt?: numb
         const blob = await response.blob();
         if (!await show(blob)) { retryDecode = true; throw new Error("background_decode_failed"); }
         retryDecode = false;
-        const age = Number(response.headers.get("X-Background-Age"));
         // A new image's client TTL starts only when decoding has completed.
         // Reusing an existing cache entry never extends that deadline.
         const stale = response.headers.get("X-Background-Stale") === "1";
-        await persist({ key, blob, fetchedAt: !stale && Number.isFinite(age) && age >= 0 ? Date.now() : 0, stale });
+        await persist({ key, blob, fetchedAt: Date.now(), stale });
         // A decoded response is final for this visit, including a server
         // fallback. Retrying behind a visible image made it jump later.
       } catch {
         if (disposed) return;
         const retained = fallback && await show(fallback.blob);
-        if (retained && fallback) await persist({ ...fallback, stale: true });
+        if (retained && fallback) await persist({ ...fallback, fetchedAt: Date.now(), stale: true });
         shouldRetry = !retained && !activeUrl.current;
       } finally {
         window.clearTimeout(timeout);
@@ -105,7 +104,7 @@ export function useLoginBackground(appearance: LoginAppearance, enteredAt?: numb
       // Bootstrap/session requests can outlast a short TTL. Decide from page
       // entry, before those requests, rather than when their config arrives.
       const age = entry ? cacheCheckedAt - entry.fetchedAt : Infinity;
-      if (entry && !entry.stale && seconds > 0 && age >= 0 && age < seconds * 1000 && await show(entry.blob)) return;
+      if (entry && seconds > 0 && age >= 0 && age < seconds * 1000 && await show(entry.blob)) return;
       await refresh();
     });
     return () => {
