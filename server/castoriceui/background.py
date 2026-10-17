@@ -41,7 +41,7 @@ def background_setting(value: object) -> dict:
         "fit": choice("fit", {"cover", "contain"}, "cover"),
         "cacheSeconds": seconds if type(seconds) is int and seconds in CACHE_SECONDS else 0,
         "glass": choice("glass", {"clear", "default", "tinted"}, "default"),
-        "glassEnabled": old.get("glassEnabled") if type(old.get("glassEnabled")) is bool else True,
+        "glassEnabled": old.get("glassEnabled") if type(old.get("glassEnabled")) is bool else False,
     }
 
 

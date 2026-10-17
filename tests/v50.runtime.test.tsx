@@ -6,8 +6,29 @@ import { I18nProvider } from "../lib/i18n";
 import { emptyDashboard } from "../lib/empty-dashboard";
 import { backgroundProfile, BACKGROUND_TIMES, pendingCriticalAlerts } from "../lib/login-background";
 import { formatBytes, formatDecimalBytes, formatDuration, formatTimeSpan } from "../lib/format";
+import { AuthPage } from "../components/auth/AuthPage";
+import * as backgroundHook from "../components/auth/useLoginBackground";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
+
+it("keeps default Material on a card even with a saved glass flag and hides its glass controls", async () => {
+  localStorage.setItem("castorice-language", "en");
+  const configured = { type: "default" as const, url: "", value: "", fit: "cover" as const, glassEnabled: true };
+  vi.spyOn(api, "fetchBackgroundOptions").mockResolvedValue({ files: [], directory: "/var/lib/castoriceui/login-backgrounds", selected: configured, configured });
+  vi.spyOn(backgroundHook, "useLoginBackground").mockReturnValue("");
+  const auth = render(<I18nProvider><AuthPage bootstrap={{ setupRequired: false, bootstrapAvailable: false, appearance: configured }} onAuthenticated={vi.fn()} /></I18nProvider>);
+  expect(auth.container.querySelector(".auth-card")?.getAttribute("data-glass")).toBe("solid");
+  auth.unmount();
+  render(<I18nProvider><SettingsDialog open onClose={vi.fn()} mode="light" color="violet" onMode={vi.fn()} onColor={vi.fn()} uiSettings={emptyDashboard.uiSettings} onUiSettings={vi.fn()} nodeName="QA node" trafficLimitBytes={1_000_000_000} onEditQuota={vi.fn()} onSaveNodeName={vi.fn()} onToast={vi.fn()} /></I18nProvider>);
+  fireEvent.click(screen.getByText("Sign-in background"));
+  await waitFor(() => expect(api.fetchBackgroundOptions).toHaveBeenCalled());
+  expect(screen.queryByRole("switch", { name: "Liquid Glass" })).toBeNull();
+  expect(screen.queryByRole("slider")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Sign-in background source" }));
+  fireEvent.click(await screen.findByRole("option", { name: "Image API" }));
+  expect(screen.getByRole("switch", { name: "Liquid Glass" }).getAttribute("aria-checked")).toBe("false");
+  expect(screen.queryByRole("slider")).toBeNull();
+});
 
 it("uses the full pending critical summary even when the dashboard page has no critical rows", () => {
   expect(pendingCriticalAlerts({ critical: 2 }, [])).toBe(2);
@@ -32,7 +53,7 @@ it("formats duration and byte units identically across languages without changin
   expect([2, 30, 60, 120, 3600, 86400].map(formatTimeSpan)).toEqual(["2s", "30s", "1min", "2min", "1h", "1d"]);
 });
 
-it("saves all glass and duration controls together, defaults to middle, disables and restores the preset slider", async () => {
+it("defaults to a card and reveals the preserved glass slider only when enabled", async () => {
   localStorage.setItem("castorice-language", "en");
   vi.spyOn(api, "fetchBackgroundOptions").mockResolvedValue({ files: [], directory: "/var/lib/castoriceui/login-backgrounds", selected: { type: "url", url: "/api/v2/auth/background", fit: "cover" }, configured: { type: "url", value: "https://images.example.com/random", fit: "contain" } });
   const save = vi.spyOn(api, "updateLoginBackground").mockResolvedValue({ type: "url", url: "/api/v2/auth/background", fit: "contain" });
@@ -40,16 +61,18 @@ it("saves all glass and duration controls together, defaults to middle, disables
   fireEvent.click(screen.getByText("Sign-in background"));
   await waitFor(() => expect(screen.getByDisplayValue("https://images.example.com/random")).toBeTruthy());
   expect(screen.queryByText("Image position")).toBeNull();
-  fireEvent.click(screen.getByText("Liquid Glass"));
+  expect(screen.queryByRole("slider")).toBeNull();
+  const toggle = screen.getByRole("switch", { name: "Liquid Glass" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(toggle);
   const slider = screen.getByRole("slider", { name: "Glass transparency" });
   expect(slider).toHaveProperty("value", "1");
   fireEvent.change(slider, { target: { value: "2" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: "Use card appearance" }));
-  expect(slider).toHaveProperty("disabled", true);
-  expect(slider).toHaveProperty("value", "2");
-  fireEvent.click(screen.getByRole("checkbox", { name: "Use card appearance" }));
-  expect(slider).toHaveProperty("disabled", false);
-  fireEvent.click(screen.getByRole("button", { name: "Background duration" }));
+  fireEvent.click(toggle);
+  expect(screen.queryByRole("slider")).toBeNull();
+  fireEvent.click(toggle);
+  expect(screen.getByRole("slider")).toHaveProperty("value", "2");
+  fireEvent.click(screen.getByRole("button", { name: "Cache duration" }));
   expect(await screen.findAllByRole("option")).toHaveLength(BACKGROUND_TIMES.length);
   fireEvent.click(screen.getByRole("option", { name: /^1min$/ }));
   fireEvent.click(screen.getByRole("button", { name: "Save sign-in background" }));

@@ -1,0 +1,27 @@
+/* Settings rhythm is scoped here; each visual option keeps its own design. */
+.settings-dialog .theme-section > h3 { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; font-size: 14px; line-height: 24px; }
+.settings-dialog .theme-section > h3 > .material-symbols-rounded { font-size: 22px; }
+.settings-dialog .theme-section { margin-top: 24px; }
+.settings-dialog .theme-section:first-child { margin-top: 0; }
+.settings-dialog .settings-disclosure { margin-top: 0; padding: 0; }
+.settings-dialog .settings-disclosure > summary,
+.settings-dialog .settings-row { min-height: 76px; padding: 16px 0; border-top: 1px solid var(--outline-variant); }
+.settings-dialog .settings-disclosure > summary { border-top: 0; }
+.settings-dialog .settings-disclosure > summary:hover { padding-inline: 10px; }
+.settings-dialog .settings-disclosure > summary strong,
+.settings-dialog .settings-row strong { font-size: 14px; font-weight: 650; line-height: 22px; }
+.settings-dialog .settings-disclosure > summary small,
+.settings-dialog .settings-row small { margin-top: 3px; font-size: 12px; line-height: 18px; }
+.settings-dialog .settings-disclosure > summary > span:first-child,
+.settings-dialog .settings-row > span:first-child { min-width: 0; }
+.settings-dialog .settings-disclosure > summary > span:first-child > .material-symbols-rounded,
+.settings-dialog .settings-row > span:first-child > .material-symbols-rounded { flex-shrink: 0; font-size: 24px; }
+.settings-dialog .background-settings .field > span,
+.settings-dialog .background-settings .glass-toggle-row strong { font-size: 12px; line-height: 18px; font-weight: 600; }
+.settings-dialog .background-settings .field-hint { margin-top: 2px; line-height: 1.6; }
+.settings-dialog .settings-about__content { padding-top: 16px; border-top: 1px solid var(--outline-variant); }
+.settings-dialog .disclosure-content { padding-bottom: 16px; }
+.settings-dialog .background-settings { gap: 16px; padding: 0 2px 16px; }
+.settings-dialog .glass-toggle-row { min-height: 60px; padding-block: 10px; }
+.settings-dialog .glass-slider { padding: 4px 2px 12px; }
+.settings-dialog .glass-slider > div { font-size: 12px; line-height: 18px; }

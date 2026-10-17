@@ -6,6 +6,7 @@ import binascii
 import ipaddress
 import json
 import re
+import secrets
 import socket
 import ssl
 import queue
@@ -14,7 +15,7 @@ import time
 import yaml
 from typing import Any
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from . import __version__
 
@@ -401,7 +402,7 @@ def _public_https_get_before(value: str, headers: dict[str, str], max_bytes: int
             response = connection.getresponse()
             # Redirect/JSON envelopes are small; do not read 30 MB at every
             # hop before discovering that this was not the final image.
-            image_envelope = headers.get("Accept", "").startswith("image/") and (response.status in {301, 302, 303, 307, 308} or response.headers.get_content_type() == "application/json")
+            image_envelope = headers.get("Accept", "").startswith("image/") and (not 200 <= response.status < 300 or response.headers.get_content_type() == "application/json")
             response_limit = min(max_bytes, 65_536) if image_envelope else max_bytes
             chunks = []
             total = 0
@@ -437,18 +438,31 @@ def _image_mime(body: bytes) -> str:
     raise ValueError("Background API did not return PNG, JPEG, or WebP content")
 
 
+def _fresh_image_api_url(value: str) -> str:
+    # Vary only the initial random-image API request. Returned image URLs and
+    # signed URLs retain their exact queries; no visitor identity is added.
+    parsed = urlsplit(value)
+    signed = {"signature", "sig", "x-amz-signature", "x-goog-signature", "x-oss-signature"}
+    if not any(key.lower() in signed for key, _ in parse_qsl(parsed.query)):
+        query = parsed.query + ("&" if parsed.query else "") + "_castorice_refresh=" + secrets.token_hex(8)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
+    return value
+
+
 def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, max_bytes: int = 30_000_000, viewport: tuple[int, int] | None = None) -> tuple[bytes, str, str]:
-    """Fetch a bounded public image response, redirect, or small JSON object containing an image URL."""
-    current = normalize_https_image_url(value, allowed_hosts)
+    """Fetch an image/API within one deadline and at most five public hops."""
+    origin = normalize_https_image_url(value, allowed_hosts)
+    current = _fresh_image_api_url(origin)
+    rerolled = False
     deadline = time.monotonic() + 15
-    request_headers = {"Accept": "image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": f"CastoriceUI/{__version__}", "Cache-Control": "no-cache"}
+    request_headers = {"Accept": "image/webp,image/png,image/jpeg,application/json;q=0.8", "User-Agent": f"CastoriceUI/{__version__}", "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"}
     if viewport:
         width, height = viewport
         request_headers.update({"Viewport-Width": str(width), "Sec-CH-Viewport-Width": str(width), "Width": str(width), "DPR": "1"})
         # A fixed coarse hint lets auto-layout providers distinguish portrait
         # without forwarding the visitor's real user agent or any identity.
         request_headers["User-Agent"] += " (Mobile; portrait)" if height > width else " (Desktop; landscape)"
-    for _ in range(5):
+    for hop in range(5):
         try:
             status, headers, body = _public_https_get(
                 current,
@@ -463,6 +477,12 @@ def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, ma
                 raise ValueError("Background redirect response exceeds 64 KiB")
             from urllib.parse import urljoin
             current = normalize_https_image_url(urljoin(current, headers["Location"]), allowed_hosts)
+            continue
+        if status in {404, 410} and hop > 0 and not rerolled and current != origin:
+            # A random API can select a deleted CDN image. Reroll once inside
+            # the same total time/hop budget instead of caching that failure.
+            current = _fresh_image_api_url(origin)
+            rerolled = True
             continue
         if not 200 <= status < 300:
             raise ValueError(f"Background API returned HTTP {status}")
