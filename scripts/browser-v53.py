@@ -22,7 +22,8 @@ SHOTS = Path(os.environ['CASTORICEUI_QA_SHOTS']) if os.environ.get('CASTORICEUI_
 
 def run(engine, context):
     context.add_init_script("""localStorage.setItem('castorice-language','en');
-      const qaRealNow=Date.now;Date.now=()=>Number(localStorage.getItem('qaBackgroundNow'))||qaRealNow();
+      const qaRealNow=Date.now,qaRealOrigin=performance.timeOrigin;Date.now=()=>Number(localStorage.getItem('qaBackgroundNow'))||qaRealNow();
+      Object.defineProperty(performance,'timeOrigin',{get:()=>Number(localStorage.getItem('qaBackgroundNow'))||qaRealOrigin});
       window.__qaBackgrounds=[]; new MutationObserver(()=>{const s=document.querySelector('.auth-page')?.style.backgroundImage;
       if(s?.includes('blob:') && window.__qaBackgrounds.at(-1)!==s)window.__qaBackgrounds.push(s)}).observe(document,{attributes:true,childList:true,subtree:true});""")
     page = context.new_page(); errors = []; page.on('pageerror', lambda error: errors.append(str(error)))

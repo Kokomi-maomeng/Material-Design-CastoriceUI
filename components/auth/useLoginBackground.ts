@@ -8,8 +8,9 @@ const MAX_IMAGE_BYTES = 30_000_000;
 type StoredImage = { key: string; blob: Blob; fetchedAt: number; stale: boolean };
 let lastImage: StoredImage | undefined;
 
-export function useLoginBackground(appearance: LoginAppearance): string {
+export function useLoginBackground(appearance: LoginAppearance, enteredAt?: number): string {
   const [source, setSource] = useState("");
+  const [cacheCheckedAt] = useState(() => enteredAt ?? Date.now());
   const activeUrl = useRef("");
   const [profile] = useState(() => backgroundProfile(innerWidth, innerHeight));
   const key = appearance.url ? backgroundCacheKey(appearance, profile) : "";
@@ -101,7 +102,9 @@ export function useLoginBackground(appearance: LoginAppearance): string {
     void stored().then(async (entry) => {
       if (disposed) return;
       fallback = entry;
-      const age = entry ? Date.now() - entry.fetchedAt : Infinity;
+      // Bootstrap/session requests can outlast a short TTL. Decide from page
+      // entry, before those requests, rather than when their config arrives.
+      const age = entry ? cacheCheckedAt - entry.fetchedAt : Infinity;
       if (entry && !entry.stale && seconds > 0 && age >= 0 && age < seconds * 1000 && await show(entry.blob)) return;
       await refresh();
     });
@@ -110,7 +113,7 @@ export function useLoginBackground(appearance: LoginAppearance): string {
       controller?.abort();
       window.clearTimeout(retryTimer);
     };
-  }, [key, seconds]);
+  }, [key, seconds, cacheCheckedAt]);
 
   return key ? source : "";
 }

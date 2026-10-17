@@ -105,9 +105,10 @@ function pageFromHash(): PageId {
 export function CastoriceApp() {
   const { language, t } = useI18n();
   const [bootstrap, setBootstrap] = useState<BootstrapState | null>(null);
+  const [pageEnteredAt] = useState(() => performance.timeOrigin || Date.now());
   // The document owns the decoded image, including while authenticated.
   // AuthPage remounts on logout; its lifecycle must not renew the image.
-  const loginBackground = useLoginBackground(bootstrap?.appearance ?? { type: "default", url: "", fit: "cover" });
+  const loginBackground = useLoginBackground(bootstrap?.appearance ?? { type: "default", url: "", fit: "cover" }, pageEnteredAt);
   const [session, setSession] = useState<SessionState | null>(null);
   const [bootError, setBootError] = useState(false);
   const [page, setPage] = useState<PageId>("overview");

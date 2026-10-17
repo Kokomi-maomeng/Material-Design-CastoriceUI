@@ -109,3 +109,13 @@ it("keeps the document image when the viewport class changes after expiry", asyn
   await tick(5000);
   expect(result.current).toBe(shown); expect(fetchImage).toHaveBeenCalledTimes(1);
 });
+
+it("uses a cache valid at page entry even when bootstrap takes longer than its TTL", async () => {
+  const config = appearance(2);
+  entry = { blob: async () => blob(), headers: new Headers({ "X-Background-Saved-At": String(Date.now() - 500) }) };
+  const initial: LoginAppearance = { type: "default", url: "", fit: "cover" };
+  const hook = renderHook(({ settings }) => useLoginBackground(settings), { initialProps: { settings: initial } });
+  await tick(5000);
+  hook.rerender({ settings: config }); await tick();
+  expect(hook.result.current).toMatch(/^blob:/); expect(fetchImage).not.toHaveBeenCalled();
+});
