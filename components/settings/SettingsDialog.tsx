@@ -55,7 +55,7 @@ export function SettingsDialog({
   const [backgroundFit, setBackgroundFit] = useState<"cover" | "contain">("cover");
   const [backgroundSeconds, setBackgroundSeconds] = useState<NonNullable<LoginAppearance["cacheSeconds"]>>(0);
   const [glass, setGlass] = useState<NonNullable<LoginAppearance["glass"]>>("default");
-  const [glassEnabled, setGlassEnabled] = useState(true);
+  const [glassEnabled, setGlassEnabled] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -81,7 +81,7 @@ export function SettingsDialog({
         setBackgroundFit(result.configured.fit ?? "cover");
         setBackgroundSeconds(result.configured.cacheSeconds ?? 0);
         setGlass(result.configured.glass ?? "default");
-        setGlassEnabled(result.configured.glassEnabled ?? true);
+        setGlassEnabled(result.configured.glassEnabled ?? false);
       })
       .catch(() => undefined);
   }, [open]);
@@ -166,7 +166,7 @@ export function SettingsDialog({
       actions={<Button onClick={closeSettings}>{t("完成", "Done")}</Button>}
     >
       <section className="theme-section general-settings-group">
-        <h3>{t("常规", "General")}</h3>
+        <h3><Icon name="tune" /><span>{t("常规", "General")}</span></h3>
         <details className="settings-disclosure general-setting-item">
           <summary><span><Icon name="translate" /><span><strong>{t("语言", "Language")}</strong><small>{preference === "system" ? t("跟随系统", "Follow system") : preference === "zh" ? "中文" : "English"}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
@@ -210,7 +210,7 @@ export function SettingsDialog({
         </div>
       </details>
       <section className="theme-section theme-style-group">
-        <h3>{t("主题风格", "Theme style")}</h3>
+        <h3><Icon name="palette" /><span>{t("主题风格", "Theme style")}</span></h3>
         <details className="settings-disclosure theme-style-item">
           <summary>
             <span><Icon name="contrast" /><span><strong>{t("显示模式", "Display mode")}</strong><small>{mode === "light" ? t("浅色", "Light") : mode === "dark" ? t("深色", "Dark") : t("跟随系统", "System")}</small></span></span>
@@ -260,6 +260,7 @@ export function SettingsDialog({
               onChange={(value) => {
                 const next = value as typeof backgroundType;
                 setBackgroundType(next);
+                if (next !== backgroundType) setGlassEnabled(false);
                 setBackgroundValue(
                   next === "server" ? (backgroundFiles[0] ?? "") : "",
                 );
@@ -292,7 +293,7 @@ export function SettingsDialog({
               />
               <small className="field-hint">
                 {t(
-                  "支持图片、重定向或图片链接 JSON，单张最大 30 MB。按屏幕尺寸分组，背景时间到期后再次访问时更新；请求失败时保留上一张图片。",
+                  "支持图片、重定向或图片链接 JSON，单张最大 30 MB。缓存到期后下次访问时更新；不缓存时每次访问请求新图，失败时回退到上一张。",
                   "Supports images, redirects, or image-link JSON, up to 30 MB per image. Screen sizes have separate caches. The next visit after expiry refreshes the image; failures retain the last image.",
                 )}
               </small>
@@ -300,16 +301,15 @@ export function SettingsDialog({
           ) : null}
           {backgroundType !== "default" ? <div className="form-grid background-layout-controls">
             <div className="field"><span>{t("缩放方式", "Image fit")}</span><MaterialSelect ariaLabel={t("缩放方式", "Image fit")} value={backgroundFit} options={[{ value: "cover", label: t("填满并裁切", "Cover and crop") }, { value: "contain", label: t("完整显示", "Contain") }]} onChange={(value) => setBackgroundFit(value as typeof backgroundFit)} /></div>
-            <div className="field"><span>{t("背景时间", "Background duration")}</span><MaterialSelect ariaLabel={t("背景时间", "Background duration")} value={String(backgroundSeconds)} options={BACKGROUND_TIMES.map((seconds) => ({ value: String(seconds), label: seconds ? formatTimeSpan(seconds) : t("立即刷新", "Refresh immediately") }))} disabled={backgroundType === "server"} onChange={(value) => setBackgroundSeconds(Number(value) as typeof backgroundSeconds)} /></div>
+            <div className="field"><span>{t("缓存时间", "Cache duration")}</span><MaterialSelect ariaLabel={t("缓存时间", "Cache duration")} value={String(backgroundSeconds)} options={BACKGROUND_TIMES.map((seconds) => ({ value: String(seconds), label: seconds ? formatTimeSpan(seconds) : t("不缓存", "No cache") }))} disabled={backgroundType === "server"} onChange={(value) => setBackgroundSeconds(Number(value) as typeof backgroundSeconds)} /></div>
           </div> : null}
-          <details className="glass-settings settings-disclosure">
-            <summary><span><Icon name="blur_on" /><span><strong>{t("液态玻璃", "Liquid Glass")}</strong><small>{glassEnabled ? glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default") : t("卡片显示", "Card appearance")}</small></span></span><Icon name="expand_more" /></summary>
-            <label className="glass-card-toggle"><input type="checkbox" checked={!glassEnabled} onChange={(event) => setGlassEnabled(!event.target.checked)} /><span>{t("使用卡片显示", "Use card appearance")}</span></label>
-            <div className={`glass-slider ${glassEnabled ? "" : "is-disabled"}`}>
-              <input type="range" min="0" max="2" step="1" value={GLASS_PRESETS.indexOf(glass)} disabled={!glassEnabled} aria-label={t("玻璃透明效果", "Glass transparency")} aria-valuetext={glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default")} onChange={(event) => setGlass(GLASS_PRESETS[Number(event.target.value)])} />
+          {backgroundType !== "default" ? <div className="glass-settings">
+            <div className="settings-row settings-row--switch glass-toggle-row"><span><Icon name="water_drop" /><span><strong>{t("液态玻璃", "Liquid Glass")}</strong></span></span><SettingsSwitch checked={glassEnabled} label={t("液态玻璃", "Liquid Glass")} onChange={() => setGlassEnabled((enabled) => !enabled)} /></div>
+            {glassEnabled ? <div className="glass-slider">
+              <input type="range" min="0" max="2" step="1" value={GLASS_PRESETS.indexOf(glass)} aria-label={t("玻璃透明效果", "Glass transparency")} aria-valuetext={glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default")} onChange={(event) => setGlass(GLASS_PRESETS[Number(event.target.value)])} />
               <div aria-hidden="true"><span>{t("透明", "Clear")}</span><span>{t("默认", "Default")}</span><span>{t("色调", "Tinted")}</span></div>
-            </div>
-          </details>
+            </div> : null}
+          </div> : null}
           <Button
             variant="tonal"
             disabled={
@@ -317,7 +317,7 @@ export function SettingsDialog({
             }
             onClick={() => {
               setSaving(true);
-              void updateLoginBackground({ type: backgroundType, value: backgroundValue, fit: backgroundFit, cacheSeconds: backgroundSeconds, glass, glassEnabled })
+              void updateLoginBackground({ type: backgroundType, value: backgroundValue, fit: backgroundFit, cacheSeconds: backgroundSeconds, glass, glassEnabled: backgroundType !== "default" && glassEnabled })
                 .then(() => onToast(t("登录背景已保存", "Sign-in background saved")))
                 .catch(() => onToast(t("登录背景保存失败，请检查图片地址或服务器目录", "Unable to save the sign-in background. Check the image URL or server directory.")))
                 .finally(() => setSaving(false));
@@ -329,7 +329,7 @@ export function SettingsDialog({
       </details>
       </section>
       <section className="theme-section page-customization-group">
-        <h3>{t("页面自定义", "Page customization")}</h3>
+        <h3><Icon name="dashboard_customize" /><span>{t("页面自定义", "Page customization")}</span></h3>
         <div className="settings-row settings-row--switch page-customization-switch">
           <span><Icon name="checklist" /><span><strong>{t("显示初始化向导页面", "Show Setup page")}</strong></span></span>
           <SettingsSwitch checked={draftUiSettings.showSetup} label={t("显示初始化向导页面", "Show Setup page")} disabled={uiSaving} onChange={() => void saveUiSettings({ showSetup: !draftUiSettings.showSetup })} />

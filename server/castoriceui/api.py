@@ -120,7 +120,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     def send_image(self, path: Path, mime: str) -> None:
         self.stream_image(path, mime)
 
-    def stream_image(self, path: Path, mime: str, stale: bool = False, retry_after: int = 0) -> None:
+    def stream_image(self, path: Path, mime: str, stale: bool = False, retry_after: int = 0, fetched_at: float = 0) -> None:
         try:
             with path.open("rb") as stream:
                 # An atomic refresh may replace this path between get() and
@@ -133,6 +133,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+                if fetched_at:
+                    self.send_header("X-Background-Age", str(round(max(0, time.time() - fetched_at), 3)))
                 if stale:
                     self.send_header("X-Background-Stale", "1")
                     self.send_header("Retry-After", str(retry_after))
@@ -281,7 +283,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     # this uses the same global fetch/byte/concurrency budgets.
                     seconds = 0 if parse_qs(parsed_request.query).get("retry") == ["1"] else setting["cacheSeconds"]
                     image = self.app.backgrounds.get(setting["value"], self.app.config.external_background_hosts, profile, seconds)
-                    self.stream_image(image.path, image.mime, image.stale, image.retry_after)
+                    self.stream_image(image.path, image.mime, image.stale, image.retry_after, image.fetched_at)
                     return
                 raise ValueError("No background is selected")
             except BackgroundUnavailable as error:
@@ -428,7 +430,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if type(seconds) is not int:
                     raise ValueError("cacheSeconds must be an integer")
                 glass = text(payload.get("glass", "default"), "glass")
-                glass_enabled = boolean(payload.get("glassEnabled", True), "glassEnabled")
+                glass_enabled = boolean(payload.get("glassEnabled", False), "glassEnabled")
                 if fit not in {"cover", "contain"} or seconds not in CACHE_SECONDS or glass not in {"clear", "default", "tinted"}:
                     raise ValueError("Invalid background appearance")
                 if background_type == "url":

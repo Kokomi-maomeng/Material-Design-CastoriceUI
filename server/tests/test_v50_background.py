@@ -175,7 +175,7 @@ class BackgroundTests(unittest.TestCase):
     def test_legacy_position_is_removed_and_defaults_migrate_safely(self):
         setting = background_setting({"type": "url", "value": URL, "position": "left", "fit": "contain"})
         self.assertNotIn("position", setting)
-        self.assertEqual((setting["value"], setting["fit"], setting["cacheSeconds"], setting["glass"], setting["glassEnabled"]), (URL, "contain", 0, "default", True))
+        self.assertEqual((setting["value"], setting["fit"], setting["cacheSeconds"], setting["glass"], setting["glassEnabled"]), (URL, "contain", 0, "default", False))
         for value in (None, [], {"type": [], "glass": {}, "fit": [], "cacheSeconds": True}):
             self.assertEqual(background_setting(value)["cacheSeconds"], 0)
 
@@ -221,6 +221,36 @@ class BackgroundTests(unittest.TestCase):
                 self.assertNotIn("Set-Cookie", sent)
                 self.assertNotIn("Server", sent)
 
+    def test_refresh_varies_only_initial_api_request_and_keeps_signed_urls_intact(self):
+        headers = http.client.HTTPMessage(); headers["Content-Type"] = "image/png"
+        with patch("castoriceui.security._public_https_get", return_value=(200, headers, PNG)) as request:
+            for _ in range(2): fetch_https_image_api(URL + "?format=png")
+            targets = [call.args[0] for call in request.call_args_list]
+            self.assertNotEqual(*targets)
+            self.assertTrue(all(target.startswith(URL + "?format=png&_castorice_refresh=") for target in targets))
+        signed = URL + "?X-Amz-Signature=synthetic"
+        with patch("castoriceui.security._public_https_get", return_value=(200, headers, PNG)) as request:
+            fetch_https_image_api(signed)
+            self.assertEqual(request.call_args.args[0], signed)
+        envelope = http.client.HTTPMessage(); envelope["Content-Type"] = "application/json"
+        destination = URL + "/image?asset=synthetic"
+        with patch("castoriceui.security._public_https_get", side_effect=[(200, envelope, json.dumps({"url": destination}).encode()), (200, headers, PNG)]) as request:
+            fetch_https_image_api(URL)
+            self.assertEqual(request.call_args_list[1].args[0], destination)
+
+    def test_deleted_random_cdn_image_rerolls_origin_once_inside_hop_budget(self):
+        redirect = http.client.HTTPMessage(); redirect["Location"] = URL + "/deleted"
+        headers = http.client.HTTPMessage(); headers["Content-Type"] = "image/png"
+        with patch("castoriceui.security._public_https_get", side_effect=[(302, redirect, b""), (404, headers, b"missing"), (302, redirect, b""), (200, headers, PNG)]) as request:
+            self.assertEqual(fetch_https_image_api(URL)[0], PNG)
+            calls = [call.args[0] for call in request.call_args_list]
+            self.assertTrue(calls[0].startswith(URL + "?_castorice_refresh="))
+            self.assertTrue(calls[2].startswith(URL + "?_castorice_refresh="))
+            self.assertNotEqual(calls[0], calls[2]); self.assertEqual(calls[1], calls[3])
+        with patch("castoriceui.security._public_https_get", side_effect=[(302, redirect, b""), (404, headers, b"missing"), (302, redirect, b""), (404, headers, b"missing")]) as request:
+            with self.assertRaisesRegex(ValueError, "HTTP 404"): fetch_https_image_api(URL)
+            self.assertEqual(request.call_count, 4)
+
 
 class BackgroundHttpTests(unittest.TestCase):
     def setUp(self):
@@ -262,6 +292,17 @@ class BackgroundHttpTests(unittest.TestCase):
         self.assertNotIn("value", appearance); self.assertNotIn("position", appearance)
         self.assertEqual(appearance["cacheSeconds"], 0); self.assertEqual(appearance["glass"], "default")
         self.assertNotIn(URL.encode(), self.request("/api/v2/bootstrap")[2])
+
+    def test_http_age_describes_original_fetch_without_renewing_cached_ttl(self):
+        self.storage.set_setting("login_background", {"type": "url", "value": URL, "cacheSeconds": 60})
+        with patch("castoriceui.background.fetch_https_image_api", return_value=(PNG, "image/png", URL)) as fetch:
+            self.assertEqual(self.request("/api/v2/auth/background")[0], 200)
+            image = self.server.backgrounds.entries["landscape-1920"]
+            from dataclasses import replace
+            self.server.backgrounds.entries["landscape-1920"] = replace(image, fetched_at=time.time() - 40)
+            status, headers, _ = self.request("/api/v2/auth/background")
+            self.assertEqual(status, 200); self.assertGreaterEqual(float(headers["X-Background-Age"]), 40)
+            self.assertEqual(fetch.call_count, 1)
 
     def test_slow_image_fetch_leaves_health_responsive(self):
         entered, release = threading.Event(), threading.Event()

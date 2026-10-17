@@ -115,11 +115,11 @@ def run(engine, context):
     # API but discard every entry on navigation, even in a temporary profile.
     # Such browsers use the server's last-image fallback on reload (backend
     # coverage verifies that path), and current-tab memory on decode failures.
-    page.wait_for_function("async()=> (await (await caches.open('castorice-login-background-v5')).keys()).length>0", timeout=5000)
-    page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v5');await c.put('/__qa_cache_probe',new Response('independent-persistence-probe'))}")
+    page.wait_for_function("async()=> (await (await caches.open('castorice-login-background-v6')).keys()).length>0", timeout=5000)
+    page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v6');await c.put('/__qa_cache_probe',new Response('independent-persistence-probe'))}")
     page.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
-    persistent_cache = page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v5');const r=await c.match('/__qa_cache_probe');const persisted=r&&await r.text()==='independent-persistence-probe';await c.delete('/__qa_cache_probe');return !!persisted}")
+    persistent_cache = page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v6');const r=await c.match('/__qa_cache_probe');const persisted=r&&await r.text()==='independent-persistence-probe';await c.delete('/__qa_cache_probe');return !!persisted}")
     print(json.dumps({"engine": engine, "independentCachePersistence": persistent_cache}), flush=True)
     state["server_fallback"] = not persistent_cache
     count = state["images"]
@@ -128,7 +128,7 @@ def run(engine, context):
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     state["failed"] = False
     page.wait_for_timeout(2300)
-    assert state["images"] >= count + 2, "failed background did not retry"
+    assert state["images"] == count + 1, "visible fallback triggered a delayed image swap"
     state["corrupt"] = True
     if persistent_cache:
         page.reload(wait_until="networkidle")
@@ -160,7 +160,10 @@ def run(engine, context):
     state["hold"] = False
     page.wait_for_timeout(200)
     assert page.locator(".auth-page").get_attribute("style") == previous, "failed viewport cleared the decoded background"
-    page.wait_for_function("previous=>document.querySelector('.auth-page').getAttribute('style')!==previous", arg=previous)
+    page.wait_for_timeout(2300)
+    assert page.locator(".auth-page").get_attribute("style") == previous, "failed viewport replaced a visible image later"
+    page.reload(wait_until="networkidle")
+    page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.wait_for_timeout(500)
 
@@ -221,12 +224,12 @@ def run(engine, context):
     for width, height in ((1440, 1000), (390, 844), (320, 480)):
         page.set_viewport_size({"width": width, "height": height})
         fit = page.get_by_role("button", name="Image fit", exact=True)
-        duration = page.get_by_role("button", name="Background duration", exact=True)
+        duration = page.get_by_role("button", name="Cache duration", exact=True)
         fit.scroll_into_view_if_needed(); duration.scroll_into_view_if_needed()
         a, b = fit.bounding_box(), duration.bounding_box()
         assert abs(a["width"] - b["width"]) < 1 and abs(a["height"] - b["height"]) < 1, (engine, a, b)
         duration.click()
-        options = page.get_by_role("listbox", name="Background duration")
+        options = page.get_by_role("listbox", name="Cache duration")
         assert options.evaluate("e=>getComputedStyle(e).scrollbarGutter==='auto'")
         if height < 600: assert options.evaluate("e=>e.scrollHeight>e.clientHeight"), "long menu lost scrolling"
         expect(options.locator("[aria-selected='true']")).to_be_focused()
@@ -234,13 +237,14 @@ def run(engine, context):
         expect(page.get_by_role("option", name="10min", exact=True)).to_be_focused()
         page.keyboard.press("Enter")
         page.locator(".md-select-menu").wait_for(state="detached")
-    page.get_by_text("Liquid Glass", exact=True).click()
+    toggle = page.get_by_role("switch", name="Liquid Glass", exact=True)
+    if toggle.get_attribute("aria-checked") != "true": toggle.click()
     slider = page.get_by_role("slider", name="Glass transparency")
     expect(slider).to_have_value("1")
-    page.get_by_role("checkbox", name="Use card appearance").check()
-    expect(slider).to_be_disabled()
-    page.get_by_role("checkbox", name="Use card appearance").uncheck()
-    slider.fill("2")
+    toggle.click()
+    expect(page.get_by_role("slider", name="Glass transparency")).to_have_count(0)
+    toggle.click()
+    page.get_by_role("slider", name="Glass transparency").fill("2")
     page.get_by_role("button", name="Save sign-in background", exact=True).click()
     page.wait_for_function("document.querySelector('.toast')")
     assert state["saved"]["cacheSeconds"] == 600 and state["saved"]["glass"] == "tinted" and "position" not in state["saved"]
