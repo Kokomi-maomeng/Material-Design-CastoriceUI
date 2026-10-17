@@ -7,6 +7,7 @@ let revision = 0;
 let entry: { blob: () => Promise<Blob>; headers: Headers } | undefined;
 let objectCount = 0;
 const fetchImage = vi.fn();
+const cachePut = vi.fn();
 const blob = () => new Blob(["synthetic"], { type: "image/png" });
 const response = (age = 0, stale = false) => ({ ok: true, headers: new Headers({ "X-Background-Age": String(age), "X-Background-Stale": stale ? "1" : "0" }), blob: async () => blob() });
 const appearance = (cacheSeconds: LoginAppearance["cacheSeconds"] = 0): LoginAppearance => ({ type: "url", url: "/api/v2/auth/background", fit: "cover", cacheSeconds, revision: `background-regression-${++revision}` });
@@ -22,7 +23,8 @@ beforeEach(() => {
   vi.stubGlobal("URL", TestURL);
   vi.stubGlobal("Image", class { src = ""; decode() { return Promise.resolve(); } });
   vi.stubGlobal("fetch", fetchImage);
-  vi.stubGlobal("caches", { open: async () => ({ match: async () => entry, put: vi.fn(), keys: async () => [], delete: vi.fn() }), keys: async () => [], delete: vi.fn() });
+  cachePut.mockReset();
+  vi.stubGlobal("caches", { open: async () => ({ match: async () => entry, put: cachePut, keys: async () => [], delete: vi.fn() }), keys: async () => [], delete: vi.fn() });
   fetchImage.mockReset(); fetchImage.mockResolvedValue(response());
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -82,4 +84,28 @@ it("retries a cold failure within a finite budget and aborts an obsolete request
   const pending = renderHook(() => useLoginBackground(pendingConfig)); await tick();
   const signal = fetchImage.mock.calls[0][1].signal;
   expect(signal.aborted).toBe(false); pending.unmount(); expect(signal.aborted).toBe(true);
+});
+
+it("starts the client TTL after decoding finishes, without subtracting transfer time", async () => {
+  let decoded!: () => void;
+  vi.stubGlobal("Image", class { src = ""; decode() { return new Promise<void>((resolve) => { decoded = resolve; }); } });
+  fetchImage.mockResolvedValue(response(1));
+  const config = appearance(2);
+  const { result } = renderHook(() => useLoginBackground(config));
+  await tick(5000); expect(result.current).toBe("");
+  const completedAt = Date.now();
+  await act(async () => { decoded(); });
+  expect(result.current).toMatch(/^blob:/);
+  expect(cachePut.mock.calls[0][1].headers.get("X-Background-Saved-At")).toBe(String(completedAt));
+});
+
+it("keeps the document image when the viewport class changes after expiry", async () => {
+  vi.stubGlobal("innerWidth", 1920); vi.stubGlobal("innerHeight", 1080);
+  const config = appearance(2);
+  const { result } = renderHook(() => useLoginBackground(config));
+  await tick(); const shown = result.current;
+  vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 844);
+  act(() => window.dispatchEvent(new Event("resize")));
+  await tick(5000);
+  expect(result.current).toBe(shown); expect(fetchImage).toHaveBeenCalledTimes(1);
 });

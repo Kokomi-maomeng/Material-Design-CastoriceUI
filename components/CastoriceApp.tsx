@@ -37,6 +37,7 @@ import type {
   TrafficQuotaSettings,
 } from "../lib/types";
 import { AuthPage } from "./auth/AuthPage";
+import { useLoginBackground } from "./auth/useLoginBackground";
 import { SettingsDialog, SettingsSwitch } from "./settings/SettingsDialog";
 
 export { SettingsSwitch };
@@ -104,6 +105,9 @@ function pageFromHash(): PageId {
 export function CastoriceApp() {
   const { language, t } = useI18n();
   const [bootstrap, setBootstrap] = useState<BootstrapState | null>(null);
+  // The document owns the decoded image, including while authenticated.
+  // AuthPage remounts on logout; its lifecycle must not renew the image.
+  const loginBackground = useLoginBackground(bootstrap?.appearance ?? { type: "default", url: "", fit: "cover" });
   const [session, setSession] = useState<SessionState | null>(null);
   const [bootError, setBootError] = useState(false);
   const [page, setPage] = useState<PageId>("overview");
@@ -216,11 +220,6 @@ export function CastoriceApp() {
         setToast({ id: toastSequence.current, message: t("服务器未确认注销；当前会话仍保留，请重试。", "The server did not confirm sign-out. Your session remains active; try again.") });
         return;
       }
-    }
-    try {
-      setBootstrap(await fetchBootstrap());
-    } catch {
-      setBootError(true);
     }
     setSigningOut(false);
     setSession(null);
@@ -456,6 +455,7 @@ export function CastoriceApp() {
     return (
       <AuthPage
         bootstrap={bootstrap}
+        background={loginBackground}
         onAuthenticated={(next) => {
           setSession(next);
           setBootstrap((current) =>

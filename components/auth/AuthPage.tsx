@@ -8,7 +8,7 @@ import { MaterialSelect } from "../ui/MaterialSelect";
 import { useLoginBackground } from "./useLoginBackground";
 import { LiquidGlass } from "./LiquidGlass";
 
-export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void }) {
+export function AuthPage({ bootstrap, onAuthenticated, background: documentBackground }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void; background?: string }) {
   const { preference, setPreference, t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -16,7 +16,8 @@ export function AuthPage({ bootstrap, onAuthenticated }: { bootstrap: BootstrapS
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const initialize = bootstrap.setupRequired;
-  const background = useLoginBackground(bootstrap.appearance);
+  const ownBackground = useLoginBackground(documentBackground === undefined ? bootstrap.appearance : { type: "default", url: "", fit: "cover" });
+  const background = documentBackground ?? ownBackground;
   const [glassTone, setGlassTone] = useState<"light" | "dark">("dark");
   const glass = background && bootstrap.appearance.type !== "default" && bootstrap.appearance.glassEnabled === true ? bootstrap.appearance.glass ?? "default" : "solid";
   const style = background ? { backgroundImage: `url("${background}")`, backgroundSize: bootstrap.appearance.fit, backgroundRepeat: "no-repeat" } : undefined;

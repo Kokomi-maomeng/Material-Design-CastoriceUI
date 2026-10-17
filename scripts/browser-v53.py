@@ -29,7 +29,7 @@ def run(engine, context):
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode='live', generatedAt='2026-01-01T00:00:00Z')
     appearance = {'type': 'default', 'url': '', 'fit': 'cover', 'cacheSeconds': 0, 'glass': 'clear', 'glassEnabled': True, 'revision': 'v53-default'}
-    state = {'authenticated': False, 'requests': 0, 'hold': False, 'fail': False, 'corrupt': False, 'stale': False}
+    state = {'authenticated': False, 'requests': 0, 'hold': False, 'fail': False, 'corrupt': False, 'stale': False, 'bootstrapRequests': 0}
 
     def route_api(route):
         path = urlsplit(route.request.url).path.removeprefix('/api/v2/')
@@ -42,7 +42,9 @@ def run(engine, context):
                 state['corrupt'] = False
                 route.fulfill(body=b'corrupt', content_type='image/png'); return
             deliver(route); return
-        if path == 'bootstrap': data = {'setupRequired': False, 'bootstrapAvailable': False, 'appearance': appearance}
+        if path == 'bootstrap':
+            state['bootstrapRequests'] += 1
+            data = {'setupRequired': False, 'bootstrapAvailable': False, 'appearance': appearance}
         elif path == 'auth/session' and not state['authenticated']:
             route.fulfill(status=401, json={'error': 'authentication_required'}); return
         elif path == 'auth/logout': state['authenticated'] = False; data = {'ok': True}
@@ -63,6 +65,7 @@ def run(engine, context):
         response = route.fetch(); route.fulfill(response=response, headers={**response.headers, 'Content-Security-Policy': "img-src 'self' data: blob:"})
     context.route(BASE + '/', policy)
     page.goto(BASE, wait_until='networkidle')
+    page.get_by_role('heading', name='Welcome back', exact=True).wait_for(timeout=20000)
     expect(page.locator('.auth-card')).to_have_attribute('data-glass', 'solid'); assert state['requests'] == 0
     appearance.update(type='url', url='/api/v2/auth/background', glassEnabled=False, revision='v53-images')
     page.reload(wait_until='networkidle'); page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
@@ -87,7 +90,7 @@ def run(engine, context):
     page.evaluate("localStorage.setItem('qaBackgroundNow',String(Date.now()))")
     appearance['cacheSeconds'] = 2; appearance['revision'] = 'v53-two-seconds'
     page.reload(wait_until='networkidle'); page.wait_for_function('window.__qaBackgrounds.length===1')
-    page.wait_for_function("async()=>!!(await(await caches.open('castorice-login-background-v6')).match('/api/v2/auth/background?profile=landscape-1920&revision=v53-two-seconds'))")
+    page.wait_for_function("async()=>!!(await(await caches.open('castorice-login-background-v7')).match('/api/v2/auth/background?profile=landscape-1920&revision=v53-two-seconds'))")
     count = state['requests']; page.reload(wait_until='networkidle'); page.wait_for_function('window.__qaBackgrounds.length===1')
     assert state['requests'] == count + (0 if persistent else 1), (engine, persistent, count, state['requests'])
     page.evaluate("localStorage.setItem('qaBackgroundNow',String(Date.now()+2100))")
@@ -98,6 +101,41 @@ def run(engine, context):
     page.wait_for_function('window.__qaBackgrounds.length===1')
     count = state['requests']; page.wait_for_timeout(2400)
     assert state['requests'] == count and page.evaluate('window.__qaBackgrounds.length') == 1
+
+    # Login/logout are not document navigations, even beyond the two-second TTL.
+    # Assert the very first inserted login-page DOM already has its image.
+    retained = page.locator('.auth-page').evaluate('e=>e.style.backgroundImage')
+    bootstraps = state['bootstrapRequests']
+    for cycle in range(2):
+        page.get_by_role('textbox', name='Username', exact=True).fill('qa-admin')
+        page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
+        page.get_by_role('button', name='Sign in', exact=True).click()
+        page.locator('.user-menu').wait_for()
+        page.evaluate("localStorage.setItem('qaBackgroundNow',String(Date.now()+5000));window.__qaLogoutPaint=[];window.__qaLogoutObserver=new MutationObserver(()=>{const e=document.querySelector('.auth-page');if(e)window.__qaLogoutPaint.push(e.style.backgroundImage)});window.__qaLogoutObserver.observe(document,{childList:true,subtree:true,attributes:true})")
+        page.locator('.user-menu').click()
+        page.get_by_role('menuitem', name='Sign out', exact=True).click()
+        page.locator('.auth-page').wait_for()
+        assert page.locator('.auth-page').evaluate('e=>e.style.backgroundImage') == retained
+        assert page.evaluate('window.__qaLogoutPaint.every(s=>s===document.querySelector(".auth-page").style.backgroundImage)')
+        page.evaluate('window.__qaLogoutObserver.disconnect()')
+        assert state['requests'] == count and state['bootstrapRequests'] == bootstraps
+    # A page refreshed while already authenticated prepares its image before
+    # logout, rather than delaying that work until the login page reappears.
+    page.get_by_role('textbox', name='Username', exact=True).fill('qa-admin')
+    page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
+    page.get_by_role('button', name='Sign in', exact=True).click()
+    page.locator('.user-menu').wait_for()
+    count = state['requests']
+    page.reload(wait_until='networkidle'); page.locator('.user-menu').wait_for()
+    page.wait_for_function("async()=>!!(await(await caches.open('castorice-login-background-v7')).match('/api/v2/auth/background?profile=landscape-1920&revision=v53-two-seconds'))")
+    assert state['requests'] == count + 1
+    count = state['requests']; bootstraps = state['bootstrapRequests']
+    page.evaluate("localStorage.setItem('qaBackgroundNow',String(Date.now()+5000))")
+    page.locator('.user-menu').click(); page.get_by_role('menuitem', name='Sign out', exact=True).click()
+    page.locator('.auth-page').wait_for()
+    assert page.locator('.auth-page').evaluate('e=>e.style.backgroundImage.includes("blob:")')
+    assert state['requests'] == count and state['bootstrapRequests'] == bootstraps
+    lifecycle = {'logoutCycles': 3, 'expiredTtlKeptImage': True, 'firstLogoutPaintHasImage': True, 'authenticatedReloadPreloads': True, 'logoutBackgroundRequests': 0, 'logoutBootstrapRequests': 0}
     page.evaluate("localStorage.removeItem('qaBackgroundNow')")
 
     # Server fallback is displayed once; it must not schedule a later swap.
@@ -168,7 +206,7 @@ def run(engine, context):
     assert set(metrics['backgroundLabels']) == {'12px'}, metrics
     if SHOTS: page.screenshot(path=str(SHOTS / f'{engine}-settings.png'), full_page=True)
     assert not errors, errors
-    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'opticalCases': optical, 'lensProof': lens_proof, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
+    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'opticalCases': optical, 'lensProof': lens_proof, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
 
 
 if __name__ == '__main__':

@@ -115,11 +115,11 @@ def run(engine, context):
     # API but discard every entry on navigation, even in a temporary profile.
     # Such browsers use the server's last-image fallback on reload (backend
     # coverage verifies that path), and current-tab memory on decode failures.
-    page.wait_for_function("async()=> (await (await caches.open('castorice-login-background-v6')).keys()).length>0", timeout=5000)
-    page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v6');await c.put('/__qa_cache_probe',new Response('independent-persistence-probe'))}")
+    page.wait_for_function("async()=> (await (await caches.open('castorice-login-background-v7')).keys()).length>0", timeout=5000)
+    page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v7');await c.put('/__qa_cache_probe',new Response('independent-persistence-probe'))}")
     page.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
-    persistent_cache = page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v6');const r=await c.match('/__qa_cache_probe');const persisted=r&&await r.text()==='independent-persistence-probe';await c.delete('/__qa_cache_probe');return !!persisted}")
+    persistent_cache = page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v7');const r=await c.match('/__qa_cache_probe');const persisted=r&&await r.text()==='independent-persistence-probe';await c.delete('/__qa_cache_probe');return !!persisted}")
     print(json.dumps({"engine": engine, "independentCachePersistence": persistent_cache}), flush=True)
     state["server_fallback"] = not persistent_cache
     count = state["images"]
@@ -147,21 +147,14 @@ def run(engine, context):
     count = state["images"]; page.wait_for_timeout(2300)
     assert state["images"] == count, "background polls without an entry/resize event"
 
-    # Keep the visible image while a different, uncached viewport is pending
-    # or unavailable; publish that viewport's image only after it decodes.
+    # A resize keeps the document image, including after its cache TTL expires.
+    # Only the subsequent reload selects another viewport resource.
     previous = page.locator(".auth-page").get_attribute("style")
-    state["hold"] = True
-    with page.expect_request(lambda request: "profile=landscape-2560" in request.url):
-        page.set_viewport_size({"width": 2560, "height": 1440})
-    page.wait_for_timeout(200)
-    assert page.locator(".auth-page").get_attribute("style") == previous, "pending viewport cleared the decoded background"
-    with page.expect_response(lambda response: "profile=landscape-2560" in response.url):
-        state.pop("held").fulfill(status=503, json={"error": "background_temporarily_unavailable"}, headers={"Retry-After": "2"})
-    state["hold"] = False
-    page.wait_for_timeout(200)
-    assert page.locator(".auth-page").get_attribute("style") == previous, "failed viewport cleared the decoded background"
+    count = state["images"]
+    page.set_viewport_size({"width": 2560, "height": 1440})
     page.wait_for_timeout(2300)
-    assert page.locator(".auth-page").get_attribute("style") == previous, "failed viewport replaced a visible image later"
+    assert page.locator(".auth-page").get_attribute("style") == previous, "resize replaced the document image"
+    assert state["images"] == count, "resize requested a new document image"
     page.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     page.set_viewport_size({"width": 1440, "height": 1000})
@@ -214,11 +207,12 @@ def run(engine, context):
     page.locator(".alert-row").filter(has_text="Critical episode 1").get_by_role("button", name="Acknowledge", exact=True).click()
     page.wait_for_function("!document.querySelector('.notification-button')?.classList.contains('has-critical')")
     assert not any(row["acknowledged"] for row in warnings)
-    # Authenticated reload does not transiently mount login and fetch an image.
+    # Authenticated reload prepares the document image without mounting login.
     count = state["images"]
     page.reload(wait_until="networkidle")
     page.locator(".top-app-bar").wait_for()
-    assert state["images"] == count
+    assert state["images"] == count + 1
+    assert page.locator(".auth-page").count() == 0
     page.get_by_role("button", name="Settings", exact=True).click()
     page.get_by_text("Sign-in background", exact=True).click()
     for width, height in ((1440, 1000), (390, 844), (320, 480)):
@@ -255,7 +249,7 @@ def run(engine, context):
     page.get_by_role("menuitem", name="Sign out", exact=True).click()
     page.locator(".auth-card").wait_for()
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
-    assert state["images"] == logout_images + 1, "logout fetched once using an outdated appearance"
+    assert state["images"] == logout_images, "logout replaced the document image before a page refresh"
     assert not errors, errors
     print(json.dumps({"engine": engine, "glassThemeViewportCases": cases, "backgroundRequests": state["images"], "distinctProfiles": len(set(state["profiles"])), "pageErrors": len(errors), "cachePersistence": persistent_cache, "reloadFallback": "browser-cache" if persistent_cache else "server-cache", "synthetic": True}))
 
