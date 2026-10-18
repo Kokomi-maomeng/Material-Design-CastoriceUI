@@ -11,6 +11,8 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
+import { Collapse } from "../ui/Collapse";
+import { AnimatedDetails } from "../ui/AnimatedDetails";
 export function SettingsDialog({
   open,
   onClose,
@@ -167,36 +169,36 @@ export function SettingsDialog({
     >
       <section className="theme-section general-settings-group">
         <h3><Icon name="tune" /><span>{t("常规", "General")}</span></h3>
-        <details className="settings-disclosure general-setting-item">
+        <AnimatedDetails className="settings-disclosure general-setting-item">
           <summary><span><Icon name="translate" /><span><strong>{t("语言", "Language")}</strong><small>{preference === "system" ? t("跟随系统", "Follow system") : preference === "zh" ? "中文" : "English"}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
             <div className="field"><span>{t("语言", "Language")}</span><MaterialSelect ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "Follow system") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as LanguagePreference)} /></div>
           </div>
-        </details>
-        <details className="settings-disclosure general-setting-item">
+        </AnimatedDetails>
+        <AnimatedDetails className="settings-disclosure general-setting-item">
           <summary><span><Icon name="dns" /><span><strong>{t("节点显示名称", "Node display name")}</strong><small>{nodeName}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
             <label className="field"><span>{t("节点显示名称", "Node display name")}</span><div className="settings-inline-field"><input value={draftNodeName} maxLength={80} onChange={(event) => setDraftNodeName(event.target.value)} /><Button compact disabled={saving || !draftNodeName.trim() || draftNodeName.trim() === nodeName} onClick={() => { setSaving(true); void onSaveNodeName(draftNodeName.trim()).finally(() => setSaving(false)); }}>{saving ? t("保存中…", "Saving…") : t("保存", "Save")}</Button></div></label>
           </div>
-        </details>
-        <details className="settings-disclosure general-setting-item">
+        </AnimatedDetails>
+        <AnimatedDetails className="settings-disclosure general-setting-item">
           <summary><span><Icon name="title" /><span><strong>{t("面板标题", "Panel title")}</strong><small>{uiSettings.panelTitle}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
             <label className="field"><span>{t("面板标题", "Panel title")}</span><div className="settings-inline-field"><input value={draftPanelTitle} maxLength={40} onChange={(event) => setDraftPanelTitle(event.target.value)} /><Button compact disabled={saving || !draftPanelTitle.trim() || draftPanelTitle.trim() === uiSettings.panelTitle} onClick={() => { setSaving(true); void onUiSettings({ panelTitle: draftPanelTitle.trim() }).finally(() => setSaving(false)); }}>{saving ? t("保存中…", "Saving…") : t("保存", "Save")}</Button></div></label>
           </div>
-        </details>
-        <details className="settings-disclosure general-setting-item">
+        </AnimatedDetails>
+        <AnimatedDetails className="settings-disclosure general-setting-item">
           <summary><span><Icon name="timer" /><span><strong>{t("在线超时时长", "Inactivity timeout")}</strong><small>{`${draftUiSettings.idleTimeoutMinutes}min`}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
             <div className="field"><span>{t("在线超时时长", "Inactivity timeout")}</span><MaterialSelect ariaLabel={t("在线超时时长", "Inactivity timeout")} value={String(draftUiSettings.idleTimeoutMinutes)} options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: `${minutes}min` }))} onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })} /></div>
           </div>
-        </details>
+        </AnimatedDetails>
       </section>
       <div className="settings-row settings-row--action">
         <span><Icon name="data_usage" /><span><strong>{t("总流量额度", "Total traffic quota")}</strong><small>{formatDecimalBytes(trafficLimitBytes)}</small></span></span>
         <Button variant="tonal" compact icon="edit" onClick={onEditQuota}>{t("设置", "Set")}</Button>
       </div>
-      <details className="settings-disclosure security-settings">
+      <AnimatedDetails className="settings-disclosure security-settings">
         <summary>
           <span><Icon name="password" /><span><strong>{t("更换密码", "Change password")}</strong></span></span>
           <Icon name="expand_more" />
@@ -208,10 +210,10 @@ export function SettingsDialog({
           {passwordError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{passwordError}</span></div> : null}
           <Button variant="tonal" icon="password" disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword} onClick={() => void savePassword()}>{passwordSaving ? t("更改中…", "Changing…") : t("更换密码", "Change password")}</Button>
         </div>
-      </details>
+      </AnimatedDetails>
       <section className="theme-section theme-style-group">
         <h3><Icon name="palette" /><span>{t("主题风格", "Theme style")}</span></h3>
-        <details className="settings-disclosure theme-style-item">
+        <AnimatedDetails className="settings-disclosure theme-style-item">
           <summary>
             <span><Icon name="contrast" /><span><strong>{t("显示模式", "Display mode")}</strong><small>{mode === "light" ? t("浅色", "Light") : mode === "dark" ? t("深色", "Dark") : t("跟随系统", "System")}</small></span></span>
             <Icon name="expand_more" />
@@ -224,8 +226,8 @@ export function SettingsDialog({
               </button>
             ))}
           </div>
-        </details>
-        <details className="settings-disclosure theme-style-item">
+        </AnimatedDetails>
+        <AnimatedDetails className="settings-disclosure theme-style-item">
           <summary>
             <span><Icon name="palette" /><span><strong>{t("主题色彩", "Theme color")}</strong><small>{t("选择面板的 Material 配色", "Choose the panel's Material color palette")}</small></span></span>
             <span className="disclosure-status"><i className="selected-color-dot" style={{ background: colors.find((item) => item.id === color)?.value }} /><Icon name="expand_more" /></span>
@@ -233,8 +235,8 @@ export function SettingsDialog({
           <div className="color-options disclosure-content">
             {colors.map((item) => <button key={item.id} className={color === item.id ? "is-selected" : ""} onClick={() => onColor(item.id)}><span style={{ background: item.value }}>{color === item.id ? <Icon name="check" size={18} /> : null}</span><small>{t(item.zh, item.en)}</small></button>)}
           </div>
-        </details>
-      <details className="settings-disclosure theme-style-item">
+        </AnimatedDetails>
+      <AnimatedDetails className="settings-disclosure theme-style-item">
         <summary>
           <span>
             <Icon name="wallpaper" />
@@ -267,7 +269,7 @@ export function SettingsDialog({
               }}
             />
           </div>
-          {backgroundType === "server" ? (
+          <Collapse expanded={backgroundType === "server"}>
             <div className="field">
               <span>{t("允许图片", "Allowed image")}</span>
               <MaterialSelect
@@ -281,8 +283,8 @@ export function SettingsDialog({
               />
               <small className="field-hint">{t(`图片目录：${backgroundDirectory || "读取中…"}（仅读取该目录顶层的 PNG、JPEG、WebP）`, `Image directory: ${backgroundDirectory || "Loading…"} (top-level PNG, JPEG, and WebP files only)`)}</small>
             </div>
-          ) : null}
-          {backgroundType === "url" ? (
+          </Collapse>
+          <Collapse expanded={backgroundType === "url"}>
             <label className="field">
               <span>{t("图库 API 地址", "Image API URL")}</span>
               <input
@@ -298,18 +300,18 @@ export function SettingsDialog({
                 )}
               </small>
             </label>
-          ) : null}
-          {backgroundType !== "default" ? <div className="form-grid background-layout-controls">
+          </Collapse>
+          <Collapse expanded={backgroundType !== "default"}><div className="background-custom-controls"><div className="form-grid background-layout-controls">
             <div className="field"><span>{t("缩放方式", "Image fit")}</span><MaterialSelect ariaLabel={t("缩放方式", "Image fit")} value={backgroundFit} options={[{ value: "cover", label: t("填满并裁切", "Cover and crop") }, { value: "contain", label: t("完整显示", "Contain") }]} onChange={(value) => setBackgroundFit(value as typeof backgroundFit)} /></div>
             <div className="field"><span>{t("缓存时间", "Cache duration")}</span><MaterialSelect ariaLabel={t("缓存时间", "Cache duration")} value={String(backgroundSeconds)} options={BACKGROUND_TIMES.map((seconds) => ({ value: String(seconds), label: seconds ? formatTimeSpan(seconds) : t("不缓存", "No cache") }))} disabled={backgroundType === "server"} onChange={(value) => setBackgroundSeconds(Number(value) as typeof backgroundSeconds)} /></div>
-          </div> : null}
-          {backgroundType !== "default" ? <div className="glass-settings">
+          </div>
+          <div className="glass-settings">
             <div className="settings-row settings-row--switch glass-toggle-row"><span><Icon name="water_drop" /><span><strong>{t("液态玻璃", "Liquid Glass")}</strong></span></span><SettingsSwitch checked={glassEnabled} label={t("液态玻璃", "Liquid Glass")} onChange={() => setGlassEnabled((enabled) => !enabled)} /></div>
-            {glassEnabled ? <div className="glass-slider">
+            <Collapse expanded={glassEnabled}><div className="glass-slider">
               <input type="range" min="0" max="2" step="1" value={GLASS_PRESETS.indexOf(glass)} aria-label={t("玻璃透明效果", "Glass transparency")} aria-valuetext={glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default")} onChange={(event) => setGlass(GLASS_PRESETS[Number(event.target.value)])} />
               <div aria-hidden="true"><span>{t("透明", "Clear")}</span><span>{t("默认", "Default")}</span><span>{t("色调", "Tinted")}</span></div>
-            </div> : null}
-          </div> : null}
+            </div></Collapse>
+          </div></div></Collapse>
           <Button
             variant="tonal"
             disabled={
@@ -326,7 +328,7 @@ export function SettingsDialog({
             {t("保存登录背景", "Save sign-in background")}
           </Button>
         </div>
-      </details>
+      </AnimatedDetails>
       </section>
       <section className="theme-section page-customization-group">
         <h3><Icon name="dashboard_customize" /><span>{t("页面自定义", "Page customization")}</span></h3>
@@ -334,7 +336,7 @@ export function SettingsDialog({
           <span><Icon name="checklist" /><span><strong>{t("显示初始化向导页面", "Show Setup page")}</strong></span></span>
           <SettingsSwitch checked={draftUiSettings.showSetup} label={t("显示初始化向导页面", "Show Setup page")} disabled={uiSaving} onChange={() => void saveUiSettings({ showSetup: !draftUiSettings.showSetup })} />
         </div>
-        <details className="settings-disclosure theme-style-item">
+        <AnimatedDetails className="settings-disclosure theme-style-item">
           <summary>
             <span>
               <Icon name="dashboard_customize" />
@@ -362,7 +364,7 @@ export function SettingsDialog({
               );
             })}
           </div>
-        </details>
+        </AnimatedDetails>
       </section>
       <section className="theme-section settings-about-section">
         <h3 className="settings-about__heading"><Icon name="info" /><span>{t("关于详情", "About")}</span></h3>

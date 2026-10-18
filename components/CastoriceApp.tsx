@@ -625,7 +625,7 @@ export function CastoriceApp() {
   })();
 
   return (
-    <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""}`}>
+    <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""} ${signingOut ? "is-signing-out" : ""}`} aria-busy={signingOut} inert={signingOut}>
       <aside className={`navigation-rail ${drawerOpen ? "is-open" : ""}`}>
         <div className="brand">
           <span className="brand-mark">

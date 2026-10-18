@@ -1,5 +1,7 @@
 "use client";
 
+import { AnimatedDetails } from "../ui/AnimatedDetails";
+
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 import { updateNetworkTargets } from "../../lib/api";
 import { formatLocalDateTime } from "../../lib/format";
@@ -323,7 +325,7 @@ export function NetworkPage({
                 <span>{t("解析协议族", "Address family")}</span>
                 <MaterialSelect ariaLabel={t("解析协议族", "Address family")} value={String(item.ipVersion)} onChange={(value) => change(index, "ipVersion", value)} options={[{ value: "0", label: t("自动", "Automatic") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }]} />
               </label>
-              <details style={{ gridColumn: "1 / -1" }}><summary>{t("阈值与业务验证", "Thresholds and service checks")}</summary><div className="form-grid">{(["latencyMs", "lossPercent", "tcpPort", "dnsPort"] as const).map((key) => <label key={key}><span>{key === "latencyMs" ? t("延迟阈值 (ms)", "Latency threshold (ms)") : key === "lossPercent" ? t("丢包阈值 (%)", "Loss threshold (%)") : key === "tcpPort" ? t("TCP 服务端口", "TCP service port") : t("DNS 服务端口", "DNS resolver port")}</span><input type="number" min={key.endsWith("Port") ? 1 : 0} max={key === "lossPercent" ? 100 : key.endsWith("Port") ? 65535 : 60000} value={item[key] ?? ""} onChange={(event) => change(index, key, event.target.value)} placeholder={key.endsWith("Port") ? t("未启用", "Disabled") : t("沿用全局阈值", "Use global threshold")} /></label>)}<label><span>{t("DNS 验证名称", "DNS check name")}</span><input value={item.dnsName ?? ""} onChange={(event) => change(index, "dnsName", event.target.value)} placeholder="example.com" /></label></div></details>
+              <AnimatedDetails style={{ gridColumn: "1 / -1" }}><summary>{t("阈值与业务验证", "Thresholds and service checks")}</summary><div className="form-grid">{(["latencyMs", "lossPercent", "tcpPort", "dnsPort"] as const).map((key) => <label key={key}><span>{key === "latencyMs" ? t("延迟阈值 (ms)", "Latency threshold (ms)") : key === "lossPercent" ? t("丢包阈值 (%)", "Loss threshold (%)") : key === "tcpPort" ? t("TCP 服务端口", "TCP service port") : t("DNS 服务端口", "DNS resolver port")}</span><input type="number" min={key.endsWith("Port") ? 1 : 0} max={key === "lossPercent" ? 100 : key.endsWith("Port") ? 65535 : 60000} value={item[key] ?? ""} onChange={(event) => change(index, key, event.target.value)} placeholder={key.endsWith("Port") ? t("未启用", "Disabled") : t("沿用全局阈值", "Use global threshold")} /></label>)}<label><span>{t("DNS 验证名称", "DNS check name")}</span><input value={item.dnsName ?? ""} onChange={(event) => change(index, "dnsName", event.target.value)} placeholder="example.com" /></label></div></AnimatedDetails>
               <button
                 className="icon-button"
                 aria-label={t("删除目标", "Remove target")}
@@ -359,13 +361,13 @@ export function NetworkPage({
 function ProbeEvidence({ target }: { target: NetworkTarget }) {
   const { language, t } = useI18n();
   const status = (value: string | undefined, configured = true) => !configured ? t("未配置", "Not configured") : value === "passed" ? t("通过", "Passed") : value === "failed" ? t("失败", "Failed") : t("无法确认", "Unconfirmed");
-  return <details className="network-probe-evidence"><summary>{t("查看分层探测证据", "View probe layers")}</summary><dl className="monitoring-evidence-list">
+  return <AnimatedDetails className="network-probe-evidence"><summary>{t("查看分层探测证据", "View probe layers")}</summary><dl className="monitoring-evidence-list">
     <div><dt>{t("ICMP 采样", "ICMP sampled")}</dt><dd>{target.observedAt ? formatLocalDateTime(target.observedAt, language) : "—"}</dd></div>
     <div><dt>{t("发包 / 回包", "Sent / received")}</dt><dd>{target.sent ?? "—"} / {target.received ?? "—"}</dd></div>
     <div><dt>{t("本轮完整性", "Round completeness")}</dt><dd>{target.complete === true ? t("完整", "Complete") : target.complete === false ? t("未完成", "Incomplete") : "—"}</dd></div>
     {(["tcp", "dns"] as const).map((key) => { const layer = target.layers?.[key]; return <div key={key}><dt>{key.toUpperCase()}</dt><dd>{status(layer?.status, layer?.configured === true)}{layer?.observedAt ? ` · ${formatLocalDateTime(layer.observedAt, language)}` : ""}{typeof layer?.durationMs === "number" ? ` · ${layer.durationMs} ms` : ""}</dd></div>; })}
     {target.effectivePolicy ? <div><dt>{t("质量窗口", "Quality window")}</dt><dd>{target.effectivePolicy.windowSeconds}s · {target.qualityWindow?.sent ?? 0} {t("包", "packets")} · {target.qualityWindow?.loss ?? "—"}%</dd></div> : null}
-  </dl><p>{t("ICMP、TCP、DNS 分别判读；出站探测不能证明用户代理业务可用。", "ICMP, TCP and DNS are separate evidence. Outbound probes do not establish proxy business availability.")}</p></details>;
+  </dl><p>{t("ICMP、TCP、DNS 分别判读；出站探测不能证明用户代理业务可用。", "ICMP, TCP and DNS are separate evidence. Outbound probes do not establish proxy business availability.")}</p></AnimatedDetails>;
 }
 
 function NetworkMetric({

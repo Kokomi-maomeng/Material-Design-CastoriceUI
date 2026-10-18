@@ -1,3 +1,4 @@
+import { AnimatedDetails } from "../ui/AnimatedDetails";
 import { useEffect, useState } from "react";
 import { fetchMonitoringContext } from "../../lib/api";
 import { formatBytes, formatLocalDateTime } from "../../lib/format";
@@ -25,7 +26,7 @@ export function NetworkDiagnosis({ targets }: { targets: NetworkTarget[] }) {
   const classification = correlation?.classification;
   const description = classification === "multiple-targets" ? t("多个目标共同异常", "Multiple target directions affected") : classification === "target-direction" ? t("单个目标方向异常", "One target direction affected") : classification === "no-current-anomaly" ? t("当前完整样本未发现异常", "No anomaly in the current complete samples") : t("采样证据不足", "Insufficient sample evidence");
   const at = (value?: string) => value ? formatLocalDateTime(value, language) : "—";
-  return <details className="network-diagnosis" onToggle={(event) => setOpen(event.currentTarget.open)}><summary>{t("同期关联与官方事件", "Correlation and official incidents")}</summary>
+  return <AnimatedDetails className="network-diagnosis" onToggle={(event) => setOpen(event.currentTarget.open)}><summary>{t("同期关联与官方事件", "Correlation and official incidents")}</summary>
     {error ? <p role="alert">{t("诊断读取失败", "Unable to load diagnostics")}</p> : !data ? <p role="status">{t("正在读取诊断", "Loading diagnostics")}</p> : <>
       <dl className="monitoring-evidence-list"><div><dt>{t("当前候选结论", "Current candidate")}</dt><dd>{description} · {at(correlation?.observedAt)}</dd></div><div><dt>{t("异常目标", "Affected targets")}</dt><dd>{correlation?.affectedTargets?.map((id) => targets.find((target) => target.id === id)?.name ?? id).join(" / ") || "—"}{correlation?.ipVersions?.length ? ` · ${correlation.ipVersions.map((family) => `IPv${family}`).join(" / ")}` : ""}</dd></div>
       <div><dt>{t("完整正常目标", "Complete normal targets")}</dt><dd>{correlation?.normalSamples ?? "—"}</dd></div><div><dt>Cloudflare</dt><dd>{official?.status === "retrieved" ? t("已取得官方事件列表", "Official incident list retrieved") : t("官方状态无法确认", "Official status unconfirmed")} · {at(official?.observedAt)}</dd></div>
@@ -34,5 +35,5 @@ export function NetworkDiagnosis({ targets }: { targets: NetworkTarget[] }) {
       <p>{t("时间重叠仅是候选关联；出站探测、官方事件及资源计数不能单独证明线路或提供商根因。未保存的历史路由无法补推。", "Time overlap is a candidate association. Outbound probes, official incidents and resource counters alone do not establish a line or provider root cause. Unsaved historical routes cannot be reconstructed.")}</p>
     </>}
     <Button variant="text" icon="refresh" onClick={() => setRetry((value) => value + 1)}>{t("刷新诊断", "Refresh diagnostics")}</Button>
-  </details>;
+  </AnimatedDetails>;
 }

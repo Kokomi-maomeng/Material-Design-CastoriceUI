@@ -1,0 +1,30 @@
+/* Authentication invalidates immediately; only the new scene is animated. */
+.auth-page, .app-shell, .boot-state { animation: scene-enter var(--motion-enter-duration) var(--motion-standard) backwards; }
+.auth-card { animation: auth-card-enter 360ms var(--motion-standard) both; }
+.app-shell { transition: opacity 180ms var(--motion-standard); }
+.app-shell.is-signing-out { opacity: .65; }
+@keyframes scene-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes auth-card-enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* Intrinsic grid rows also follow content changes and reverse mid-flight. */
+.motion-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--motion-exit-duration) var(--motion-exit), opacity 140ms var(--motion-exit), visibility 0s linear var(--motion-exit-duration); }
+.motion-collapse.is-expanded { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows var(--motion-enter-duration) var(--motion-standard), opacity 220ms var(--motion-standard), visibility 0s; }
+.motion-collapse__content { min-height: 0; overflow: hidden; }
+.settings-dialog .background-settings { gap: 0; }
+.background-settings > .field,
+.background-settings > .motion-collapse > .motion-collapse__content > :first-child { margin: 0 0 16px; }
+.background-custom-controls { display: grid; gap: 16px; }
+
+/* JS owns measured native-details motion, including Firefox and older Safari. */
+.motion-details::details-content { block-size: auto; opacity: 1; overflow: visible; transition: none; }
+.motion-details[data-expanded="false"] > summary .disclosure-status > .material-symbols-rounded,
+.motion-details[data-expanded="false"] > summary > .material-symbols-rounded { transform: none; }
+
+@media (min-width: 901px) {
+  .app-main { width: calc(100% - var(--nav-width)); margin-right: 0; }
+  .app-shell--navigation-hidden .app-main { margin-left: calc(var(--nav-width) / 2); margin-right: calc(var(--nav-width) / 2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-page, .auth-card, .app-shell, .boot-state { animation: none; }
+  .motion-collapse { transition: none; }
+}

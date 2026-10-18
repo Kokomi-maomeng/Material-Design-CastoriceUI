@@ -1,5 +1,7 @@
 "use client";
 
+import { AnimatedDetails } from "../ui/AnimatedDetails";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchAlerts } from "../../lib/api";
 import { formatLocalDateTime, localDateBoundary } from "../../lib/format";
@@ -85,7 +87,7 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
               <div className="alert-row__times"><span>{t("开始", "Started")} <time dateTime={alert.startedAt}>{formatLocalDateTime(alert.startedAt, language)}</time></span>
                 {alert.resolvedAt ? <span>{t("恢复", "Recovered")} <time dateTime={alert.resolvedAt}>{formatLocalDateTime(alert.resolvedAt, language)}</time></span> : null}
                 {alert.acknowledgedAt ? <span>{t("确认", "Acknowledged")} <time dateTime={alert.acknowledgedAt}>{formatLocalDateTime(alert.acknowledgedAt, language)}</time></span> : null}</div>
-              {result?.logLocation ? <details className="alert-log-location"><summary>{t("日志位置", "Log location")}</summary><code>{result.logLocation.database}<br />alert_history / alert_evidence<br />episode_id = {alert.episodeId}</code><span>{t("采集记录", "Samples")}: monitoring_samples · {alert.logRef?.domain ?? 'alert'} / {alert.logRef?.target ?? alert.id}</span><code>{result.logLocation.journal}</code></details> : null}
+              {result?.logLocation ? <AnimatedDetails className="alert-log-location"><summary>{t("日志位置", "Log location")}</summary><code>{result.logLocation.database}<br />alert_history / alert_evidence<br />episode_id = {alert.episodeId}</code><span>{t("采集记录", "Samples")}: monitoring_samples · {alert.logRef?.domain ?? 'alert'} / {alert.logRef?.target ?? alert.id}</span><code>{result.logLocation.journal}</code></AnimatedDetails> : null}
             </div>
             <div className="alert-row__actions">{alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : null}{!alert.acknowledged ? <Button variant="tonal" compact disabled={busy || loading || loadError} onClick={() => void confirm(alert.episodeId)}>{t("确认", "Acknowledge")}</Button> : <Chip staticChip tone="success" icon="check">{t("已确认", "Acknowledged")}</Chip>}</div>
           </div>)}
