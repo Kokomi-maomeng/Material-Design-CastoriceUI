@@ -20,11 +20,40 @@ def settled(page):
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}""")
 
 
-def frames(locator):
-    return locator.evaluate("""async e=>{const rows=[],start=performance.now();do{
-      rows.push({ms:performance.now()-start,height:e.getBoundingClientRect().height,opacity:Number(getComputedStyle(e).opacity)});
-      await new Promise(requestAnimationFrame);
-    }while(performance.now()-start<350);return rows}""")
+def frames(locator, click, reduced):
+    # Sample the browser's actual CSS/WAAPI interpolation at fixed timeline
+    # positions. A busy headless runner can paint fewer than three frames in
+    # 300ms; pausing the native animations keeps that scheduling out of the test.
+    # No keyframes, durations, styles or target geometry are replaced.
+    locator.evaluate("""e=>{
+      const state={animations:[],originalAnimate:e.animate};
+      const capture=a=>{if(!state.animations.includes(a)){a.pause();state.animations.push(a)}};
+      state.onRun=event=>{if(event.target===e)e.getAnimations().forEach(capture)};
+      e.animate=function(...args){const a=state.originalAnimate.apply(this,args);capture(a);return a};
+      e.addEventListener('transitionrun',state.onRun);e.__motionQA=state;
+    }""")
+    try:
+        click()
+        return locator.evaluate("""async(e,reduced)=>{
+          const state=e.__motionQA,deadline=performance.now()+3000;
+          while(!reduced&&!state.animations.length&&performance.now()<deadline)await new Promise(requestAnimationFrame);
+          if(!reduced&&!state.animations.length)throw new Error('Expected a native browser animation');
+          const duration=Math.max(0,...state.animations.map(a=>{const t=a.effect.getTiming();return Number(t.delay)+Number(t.duration)}));
+          const rows=[];
+          for(const progress of reduced?[1]:[0,.25,.5,.75,.96]){
+            for(const a of state.animations)a.currentTime=duration*progress;
+            await new Promise(requestAnimationFrame);
+            const style=getComputedStyle(e);
+            rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0});
+          }
+          return rows;
+        }""", reduced)
+    finally:
+        locator.evaluate("""async e=>{const s=e.__motionQA;e.removeEventListener('transitionrun',s.onRun);e.animate=s.originalAnimate;
+          for(const a of s.animations)a.finish();
+          await Promise.all(s.animations.map(a=>a.finished.catch(()=>{})));
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));delete e.__motionQA;
+        }""")
 
 
 def moving(rows, label):
@@ -76,24 +105,23 @@ def run(engine, browser):
         if width <= 900: page.get_by_role('button', name='Open navigation', exact=True).click()
         page.get_by_role('button', name='Settings', exact=True).click()
         details = page.locator('.settings-disclosure').filter(has=page.get_by_text('Sign-in background', exact=True))
-        details.locator('summary').click()
-        opening = frames(details)
+        opening = frames(details, lambda: details.locator('summary').click(), reduced)
         if not reduced: moving(opening, 'native disclosure opening')
         settled(page)
         toggle = page.get_by_role('switch', name='Liquid Glass', exact=True)
         collapse = page.locator('.glass-settings > .motion-collapse')
-        toggle.click(); expansion = frames(collapse)
+        expansion = frames(collapse, lambda: toggle.click(), reduced)
         if not reduced: moving(expansion, 'glass expansion')
         slider = page.get_by_role('slider', name='Glass transparency', exact=True)
         slider.fill('2')
-        toggle.click(); closing = frames(collapse)
+        closing = frames(collapse, lambda: toggle.click(), reduced)
         if not reduced: moving(closing, 'glass collapse')
         expect(slider).to_have_count(0)
         assert collapse.get_attribute('inert') is not None
         toggle.click(); expect(slider).to_have_value('2'); settled(page)
         # Reverse the same control before its CSS transition has finished.
         toggle.click(); toggle.click(); expect(slider).to_have_value('2'); settled(page)
-        details.locator('summary').click(); collapse_details = frames(details)
+        collapse_details = frames(details, lambda: details.locator('summary').click(), reduced)
         if not reduced: moving(collapse_details, 'native disclosure closing')
         assert not details.evaluate('e=>e.open')
         details.locator('summary').press('Enter'); settled(page); assert details.evaluate('e=>e.open')
@@ -110,7 +138,7 @@ def run(engine, browser):
         page.get_by_role('button', name='Edit traffic quota', exact=True).click()
         reset = page.get_by_role('switch', name='Automatic traffic reset', exact=True)
         if reset.get_attribute('aria-checked') == 'true': reset.click(); settled(page)
-        reset.click(); schedule = page.locator('.quota-dialog .motion-collapse'); schedule_rows = frames(schedule)
+        schedule = page.locator('.quota-dialog .motion-collapse'); schedule_rows = frames(schedule, lambda: reset.click(), reduced)
         if not reduced: moving(schedule_rows, 'quota schedule')
         reset.click(); assert schedule.get_attribute('aria-hidden') == 'true'; settled(page)
         page.get_by_role('button', name='Cancel', exact=True).click(); page.locator('.md-dialog-layer').wait_for(state='detached')
@@ -124,8 +152,7 @@ def run(engine, browser):
             assert page.locator('.page-content').evaluate('e=>getComputedStyle(e).animationName') == 'page-enter'
         if width > 900:
             sidebar = page.get_by_role('button', name='Hide sidebar', exact=True)
-            sidebar.click()
-            margins = page.locator('.app-main').evaluate("""async e=>{const a=[];for(let i=0;i<22;i++){a.push(parseFloat(getComputedStyle(e).marginLeft));await new Promise(requestAnimationFrame)}return a}""")
+            margins = [r['marginLeft'] for r in frames(page.locator('.app-main'), lambda: sidebar.click(), reduced)]
             if not reduced: assert len({round(v,1) for v in margins}) >= 3, margins
             page.get_by_role('button', name='Show sidebar', exact=True).click(); settled(page)
         state['logoutFailure'] = True
@@ -150,7 +177,7 @@ def run(engine, browser):
         assert page.url.endswith('#/overview'), 'URL and rendered destination diverged after signing in again'
         assert not errors, errors
         assert state['settingsWrites'] == 0
-        cases.append({'width':width,'reducedMotion':reduced,'routes':len(routes),'glassIntermediateFrames':len({round(r['height'],1) for r in expansion}),'nativeSummaryKeyboard':True,'rapidReversal':True,'failedSignOutRestoresScreen':True,'logoutRemovesPrivateDom':True,'logoutKeepsDocumentImage':True,'postLoginOverview':True,'settingsWrites':0})
+        cases.append({'width':width,'reducedMotion':reduced,'routes':len(routes),'frameMeasurement':'native-browser-timeline','glassIntermediateFrames':len({round(r['height'],1) for r in expansion}),'nativeSummaryKeyboard':True,'rapidReversal':True,'failedSignOutRestoresScreen':True,'logoutRemovesPrivateDom':True,'logoutKeepsDocumentImage':True,'postLoginOverview':True,'settingsWrites':0})
         print(f'motion case passed: {engine}, {width}px, reduced={reduced}', file=sys.stderr, flush=True)
         context.close()
     print(json.dumps({'engine':engine,'motionCases':cases,'passed':True,'pageErrors':0,'apiRoutesMocked':True}))
