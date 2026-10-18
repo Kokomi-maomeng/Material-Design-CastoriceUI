@@ -229,6 +229,7 @@ export function CastoriceApp() {
     setConnections([]);
     hasLiveData.current = false;
     setUserMenuOpen(false);
+    setPage("overview");
     window.history.replaceState(null, "", "#/overview");
   }, [t]);
   const loadDashboard = useCallback(async () => {
@@ -625,7 +626,7 @@ export function CastoriceApp() {
   })();
 
   return (
-    <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""}`}>
+    <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""} ${signingOut ? "is-signing-out" : ""}`} aria-busy={signingOut} inert={signingOut}>
       <aside className={`navigation-rail ${drawerOpen ? "is-open" : ""}`}>
         <div className="brand">
           <span className="brand-mark">
