@@ -115,7 +115,7 @@ def run(engine, browser):
         reset.click(); assert schedule.get_attribute('aria-hidden') == 'true'; settled(page)
         page.get_by_role('button', name='Cancel', exact=True).click(); page.locator('.md-dialog-layer').wait_for(state='detached')
         # Every route keeps the existing entrance animation and its exact heading.
-        routes = [('accounts','Account status'),('connections','Active connections'),('traffic','Traffic analytics'),('subscriptions','Subscription management'),('network','Network quality'),('services','Services'),('alerts','Alerts'),('audit','Audit log'),('setup','Setup'),('overview','Motion QA')]
+        routes = [('overview','Motion QA'),('accounts','Account status'),('connections','Active connections'),('traffic','Traffic analytics'),('subscriptions','Subscription management'),('network','Network quality'),('services','Services'),('alerts','Alerts'),('setup','Setup'),('audit','Audit log')]
         for route, heading in routes:
             if width <= 900: page.get_by_role('button', name='Open navigation', exact=True).click()
             nav = page.locator('.navigation-rail nav button').filter(has_text={'accounts':'Account status','connections':'Connections','traffic':'Traffic','subscriptions':'Subscriptions','network':'Network','services':'Services','alerts':'Alerts','audit':'Audit','setup':'Setup','overview':'Overview'}[route])
@@ -133,6 +133,7 @@ def run(engine, browser):
         page.get_by_role('status').filter(has_text='The server did not confirm').wait_for(); settled(page)
         assert page.locator('.app-shell').get_attribute('inert') is None
         assert page.locator('.app-shell').evaluate('e=>Number(getComputedStyle(e).opacity)') == 1
+        expect(page.get_by_role('heading', name='Audit log', exact=True)).to_be_visible()
         state['logoutFailure'] = False
         count = (state['backgrounds'], state['bootstraps'])
         page.locator('.user-menu').click(); page.get_by_role('menuitem', name='Sign out', exact=True).click()
@@ -142,9 +143,14 @@ def run(engine, browser):
         assert page.locator('.auth-page').evaluate('e=>e.style.backgroundImage.includes("blob:")')
         assert page.locator('.auth-card').evaluate('e=>getComputedStyle(e).animationName') == ('none' if reduced else 'auth-card-enter')
         settled(page)
+        page.get_by_role('textbox', name='Username', exact=True).fill('qa-admin')
+        page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
+        page.get_by_role('button', name='Sign in', exact=True).click()
+        page.get_by_role('heading', name='Motion QA', exact=True).wait_for(); settled(page)
+        assert page.url.endswith('#/overview'), 'URL and rendered destination diverged after signing in again'
         assert not errors, errors
         assert state['settingsWrites'] == 0
-        cases.append({'width':width,'reducedMotion':reduced,'routes':len(routes),'glassIntermediateFrames':len({round(r['height'],1) for r in expansion}),'nativeSummaryKeyboard':True,'rapidReversal':True,'failedSignOutRestoresScreen':True,'logoutRemovesPrivateDom':True,'logoutKeepsDocumentImage':True,'settingsWrites':0})
+        cases.append({'width':width,'reducedMotion':reduced,'routes':len(routes),'glassIntermediateFrames':len({round(r['height'],1) for r in expansion}),'nativeSummaryKeyboard':True,'rapidReversal':True,'failedSignOutRestoresScreen':True,'logoutRemovesPrivateDom':True,'logoutKeepsDocumentImage':True,'postLoginOverview':True,'settingsWrites':0})
         print(f'motion case passed: {engine}, {width}px, reduced={reduced}', file=sys.stderr, flush=True)
         context.close()
     print(json.dumps({'engine':engine,'motionCases':cases,'passed':True,'pageErrors':0,'apiRoutesMocked':True}))

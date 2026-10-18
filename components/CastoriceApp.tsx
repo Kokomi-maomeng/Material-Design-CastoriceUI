@@ -229,6 +229,7 @@ export function CastoriceApp() {
     setConnections([]);
     hasLiveData.current = false;
     setUserMenuOpen(false);
+    setPage("overview");
     window.history.replaceState(null, "", "#/overview");
   }, [t]);
   const loadDashboard = useCallback(async () => {
