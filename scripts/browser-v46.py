@@ -66,10 +66,17 @@ def run(engine, timezone, browser):
     page.goto(BASE_URL, wait_until="networkidle")
     page.locator(".traffic-hero").wait_for()
 
+    def settled():
+        page.evaluate("""async()=>{await document.fonts.ready;
+          await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}""")
+
     def open_page(section):
+        titles = {"overview": dashboard["overview"]["nodeName"], "traffic": "Traffic analytics", "connections": "Active connections", "accounts": "Account status", "network": "Network quality", "services": "Services", "subscriptions": "Subscription management", "alerts": "Alerts", "audit": "Audit log", "setup": "Setup"}
         page.evaluate("section=>location.hash='/'+section", section)
+        page.get_by_role("heading", level=1, name=titles[section], exact=True).wait_for()
         page.locator("#main-content .page-loading").wait_for(state="detached")
-        page.locator("#main-content h1").wait_for()
+        settled()
 
     def geometry():
         return page.evaluate("()=>{let r=document.querySelector('.app-main').getBoundingClientRect();return {x:r.x,width:r.width,scroll:scrollY,overflow:getComputedStyle(document.documentElement).overflowY}}")
@@ -95,8 +102,10 @@ def run(engine, timezone, browser):
                 page.get_by_role("button", name="Hide sidebar", exact=True).click()
                 assert not page.locator(".drawer-scrim").is_visible()
                 page.get_by_role("button", name="Show sidebar", exact=True).click()
+                page.get_by_role("button", name="Hide sidebar", exact=True).wait_for()
             else:
                 page.get_by_role("button", name="Open navigation", exact=True).click()
+            settled()
             page.evaluate("scrollTo({top:100,behavior:'instant'})")
             before = geometry()
             page.get_by_role("button", name="Settings", exact=True).click()
@@ -177,7 +186,7 @@ def run(engine, timezone, browser):
     page.get_by_role("button", name="Acknowledge all", exact=True).click()
     page.get_by_role("button", name="Pending 0", exact=True).wait_for()
     assert len(history) == 135 and all(item["acknowledged"] for item in history)
-    assert not page.locator(".notification-badge").count()
+    expect(page.locator(".notification-badge")).to_have_count(0)
     assert not errors, errors
     context.close()
     return {"engine": engine, "timeZone": timezone, "dialogCases": cases, "pendingPersistenceAndPagination": True, "localTime": expected, "javascriptErrors": errors}
