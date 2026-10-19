@@ -1,38 +1,10 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
-type Frame = { width: number; height: number; x: number; y: number; imageWidth: number; imageHeight: number; radius: number };
-
-// A rounded lens bends only the rim. The center stays optically clear rather
-// than turning the whole image into an opaque frosted sheet.
-function lensMap(width: number, height: number, radius: number): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(width); canvas.height = Math.ceil(height);
-  const context = canvas.getContext("2d");
-  if (!context) return "";
-  const image = context.createImageData(canvas.width, canvas.height);
-  const rim = 20;
-  for (let y = 0; y < canvas.height; y++) {
-    for (let x = 0; x < canvas.width; x++) {
-      const px = x + .5 - width / 2, py = y + .5 - height / 2;
-      const qx = Math.abs(px) - (width / 2 - radius), qy = Math.abs(py) - (height / 2 - radius);
-      const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
-      const depth = -(outside + Math.min(Math.max(qx, qy), 0) - radius);
-      const bend = depth > 0 && depth < rim ? Math.sin(depth / rim * Math.PI) * .42 : 0;
-      const nx = outside > 0 ? Math.max(qx, 0) / outside * Math.sign(px) : qx > qy ? Math.sign(px) : 0;
-      const ny = outside > 0 ? Math.max(qy, 0) / outside * Math.sign(py) : qy >= qx ? Math.sign(py) : 0;
-      const i = (y * canvas.width + x) * 4;
-      image.data[i] = Math.round((.5 - nx * bend) * 255);
-      image.data[i + 1] = Math.round((.5 - ny * bend) * 255);
-      image.data[i + 2] = 128; image.data[i + 3] = 255;
-    }
-  }
-  context.putImageData(image, 0, 0);
-  return canvas.toDataURL();
-}
+type Frame = { width: number; height: number; x: number; y: number; imageWidth: number; imageHeight: number };
 
 export function LiquidGlass({ background, fit, preset, onTone }: { background: string; fit: "cover" | "contain"; preset: "clear" | "default" | "tinted"; onTone: (tone: "light" | "dark") => void }) {
   const svg = useRef<SVGSVGElement>(null);
-  const id = "login-lens-" + useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const id = "login-glass-" + useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const [frame, setFrame] = useState<Frame>();
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
@@ -49,10 +21,13 @@ export function LiquidGlass({ background, fit, preset, onTone }: { background: s
     const image = new Image();
     const measure = () => {
       if (disposed || !image.naturalWidth) return;
-      const rect = card.getBoundingClientRect(), outer = page.getBoundingClientRect();
+      // Layout coordinates exclude the card's entrance transform. Measuring
+      // the animated bounding box left a scaled, misaligned image until resize.
+      const rect = { width: card.clientWidth, height: card.clientHeight };
+      const outer = { width: page.clientWidth, height: page.clientHeight };
       const scale = Math[fit === "contain" ? "min" : "max"](outer.width / image.naturalWidth, outer.height / image.naturalHeight);
       const imageWidth = image.naturalWidth * scale, imageHeight = image.naturalHeight * scale;
-      const next = { width: rect.width, height: rect.height, x: (outer.width - imageWidth) / 2 - (rect.left - outer.left), y: (outer.height - imageHeight) / 2 - (rect.top - outer.top), imageWidth, imageHeight, radius: parseFloat(getComputedStyle(card).borderTopLeftRadius) || 32 };
+      const next = { width: rect.width, height: rect.height, x: (outer.width - imageWidth) / 2 - card.offsetLeft - card.clientLeft, y: (outer.height - imageHeight) / 2 - card.offsetTop - card.clientTop, imageWidth, imageHeight };
       setFrame((old) => old && Object.keys(next).every((key) => old[key as keyof Frame] === next[key as keyof Frame]) ? old : next);
       try {
         const sample = document.createElement("canvas"); sample.width = sample.height = 24;
@@ -74,13 +49,9 @@ export function LiquidGlass({ background, fit, preset, onTone }: { background: s
     window.addEventListener("resize", schedule);
     return () => { disposed = true; cancelAnimationFrame(scheduled); observer.disconnect(); window.removeEventListener("resize", schedule); };
   }, [background, fit, onTone, reduced]);
-  const width = frame?.width ?? 0, height = frame?.height ?? 0, radius = frame?.radius ?? 32;
-  const map = useMemo(() => width && height ? lensMap(width, height, radius) : "", [width, height, radius]);
   return <svg ref={svg} className="auth-glass-optics" aria-hidden="true" focusable="false" width="100%" height="100%">
-    {frame && map && !reduced ? <>
+    {frame && !reduced ? <>
       <defs><filter id={id} x="0" y="0" width={frame.width} height={frame.height} filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
-        <feImage href={map} x="0" y="0" width={frame.width} height={frame.height} result="lens" />
-        <feDisplacementMap in="SourceGraphic" in2="lens" scale="32" xChannelSelector="R" yChannelSelector="G" />
         <feGaussianBlur stdDeviation={preset === "clear" ? .25 : preset === "tinted" ? 3 : 1.2} />
       </filter></defs>
       <image href={background} x={frame.x} y={frame.y} width={frame.imageWidth} height={frame.imageHeight} preserveAspectRatio="none" filter={`url(#${id})`} />

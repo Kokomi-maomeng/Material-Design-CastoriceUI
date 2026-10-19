@@ -63,6 +63,24 @@ it("uses a valid two-second entry without requesting, and waits for new bytes af
   expect(second.result.current).toMatch(/^blob:/); expect(fetchImage).toHaveBeenCalledTimes(1);
 });
 
+it("recovers when a cached image URL cannot be created in a stopped browser context", async () => {
+  const config = appearance(2);
+  entry = { blob: async () => blob(), headers: new Headers({ "X-Background-Saved-At": String(Date.now()) }) };
+  vi.mocked(URL.createObjectURL).mockImplementationOnce(() => { throw new DOMException("Context is stopped", "InvalidStateError"); });
+  const { result } = renderHook(() => useLoginBackground(config));
+  await tick();
+  expect(result.current).toMatch(/^blob:/);
+  expect(fetchImage).toHaveBeenCalledTimes(1);
+});
+
+it("does not reject image decoding or cleanup when object URL disposal is unavailable", async () => {
+  vi.mocked(URL.revokeObjectURL).mockImplementation(() => { throw new DOMException("Context is stopped", "InvalidStateError"); });
+  const config = appearance();
+  const { result, unmount } = renderHook(() => useLoginBackground(config));
+  await tick(); expect(result.current).toMatch(/^blob:/);
+  expect(() => unmount()).not.toThrow();
+});
+
 it("keeps a server fallback fixed for the page and retries after its client TTL", async () => {
   const config = appearance(2);
   fetchImage.mockResolvedValue(response(30, true));

@@ -13,6 +13,7 @@ import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
 import { Collapse } from "../ui/Collapse";
 import { AnimatedDetails } from "../ui/AnimatedDetails";
+import { PresetSlider } from "../ui/PresetSlider";
 export function SettingsDialog({
   open,
   onClose,
@@ -27,6 +28,7 @@ export function SettingsDialog({
   onEditQuota,
   onSaveNodeName,
   onToast,
+  onAppearance,
 }: {
   open: boolean;
   onClose: () => void;
@@ -41,6 +43,7 @@ export function SettingsDialog({
   onEditQuota: () => void;
   onSaveNodeName: (name: string) => Promise<void>;
   onToast: (message: string) => void;
+  onAppearance?: (appearance: LoginAppearance) => void;
 }) {
   const { preference, setPreference, t } = useI18n();
   const [draftNodeName, setDraftNodeName] = useState(nodeName);
@@ -51,13 +54,22 @@ export function SettingsDialog({
   const [backgroundType, setBackgroundType] = useState<
     "default" | "url" | "server"
   >("default");
-  const [backgroundValue, setBackgroundValue] = useState("");
+  const [backgroundValues, setBackgroundValues] = useState({ url: "", server: "" });
+  const [backgroundReady, setBackgroundReady] = useState(false);
+  const backgroundValue = backgroundType === "default" ? "" : backgroundValues[backgroundType];
+  const setBackgroundValue = (value: string) => {
+    if (backgroundType !== "default") setBackgroundValues((current) => ({ ...current, [backgroundType]: value }));
+  };
   const [backgroundFiles, setBackgroundFiles] = useState<string[]>([]);
   const [backgroundDirectory, setBackgroundDirectory] = useState("");
   const [backgroundFit, setBackgroundFit] = useState<"cover" | "contain">("cover");
   const [backgroundSeconds, setBackgroundSeconds] = useState<NonNullable<LoginAppearance["cacheSeconds"]>>(0);
   const [glass, setGlass] = useState<NonNullable<LoginAppearance["glass"]>>("default");
-  const [glassEnabled, setGlassEnabled] = useState(false);
+  const [glassFlags, setGlassFlags] = useState({ url: false, server: false });
+  const glassEnabled = backgroundType !== "default" && glassFlags[backgroundType];
+  const setGlassEnabled = (enabled: boolean) => {
+    if (backgroundType !== "default") setGlassFlags((current) => ({ ...current, [backgroundType]: enabled }));
+  };
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -74,19 +86,24 @@ export function SettingsDialog({
   }, [nodeName, open, uiSettings]);
   useEffect(() => {
     if (!open) return;
+    let active = true;
     void fetchBackgroundOptions()
       .then((result) => {
+        if (!active) return;
         setBackgroundFiles(result.files);
         setBackgroundDirectory(result.directory);
         setBackgroundType(result.configured.type);
-        setBackgroundValue(result.configured.value);
+        setBackgroundValues({ url: result.configured.type === "url" ? result.configured.value : "", server: result.configured.type === "server" ? result.configured.value : result.files[0] ?? "" });
         setBackgroundFit(result.configured.fit ?? "cover");
         setBackgroundSeconds(result.configured.cacheSeconds ?? 0);
         setGlass(result.configured.glass ?? "default");
-        setGlassEnabled(result.configured.glassEnabled ?? false);
+        setGlassFlags({ url: result.configured.type === "url" && result.configured.glassEnabled === true, server: result.configured.type === "server" && result.configured.glassEnabled === true });
+        setBackgroundReady(true);
+        onAppearance?.(result.selected);
       })
       .catch(() => undefined);
-  }, [open]);
+    return () => { active = false; setBackgroundReady(false); };
+  }, [open, onAppearance]);
   const saveUiSettings = async (next: Partial<UiSettings>) => {
     if (uiSaving) return;
     const previous = draftUiSettings;
@@ -258,14 +275,11 @@ export function SettingsDialog({
             <MaterialSelect
               ariaLabel={t("登录背景来源", "Sign-in background source")}
               value={backgroundType}
+              disabled={!backgroundReady}
               options={[{ value: "default", label: t("默认 Material 背景", "Default Material background") }, { value: "server", label: t("服务器图片", "Server image") }, { value: "url", label: t("图库 API", "Image API") }]}
               onChange={(value) => {
                 const next = value as typeof backgroundType;
                 setBackgroundType(next);
-                if (next !== backgroundType) setGlassEnabled(false);
-                setBackgroundValue(
-                  next === "server" ? (backgroundFiles[0] ?? "") : "",
-                );
               }}
             />
           </div>
@@ -306,21 +320,20 @@ export function SettingsDialog({
             <div className="field"><span>{t("缓存时间", "Cache duration")}</span><MaterialSelect ariaLabel={t("缓存时间", "Cache duration")} value={String(backgroundSeconds)} options={BACKGROUND_TIMES.map((seconds) => ({ value: String(seconds), label: seconds ? formatTimeSpan(seconds) : t("不缓存", "No cache") }))} disabled={backgroundType === "server"} onChange={(value) => setBackgroundSeconds(Number(value) as typeof backgroundSeconds)} /></div>
           </div>
           <div className="glass-settings">
-            <div className="settings-row settings-row--switch glass-toggle-row"><span><Icon name="water_drop" /><span><strong>{t("液态玻璃", "Liquid Glass")}</strong></span></span><SettingsSwitch checked={glassEnabled} label={t("液态玻璃", "Liquid Glass")} onChange={() => setGlassEnabled((enabled) => !enabled)} /></div>
+            <div className="settings-row settings-row--switch glass-toggle-row"><span><Icon name="water_drop" /><span><strong>{t("液态玻璃", "Liquid Glass")}</strong></span></span><SettingsSwitch checked={glassEnabled} label={t("液态玻璃", "Liquid Glass")} onChange={() => setGlassEnabled(!glassEnabled)} /></div>
             <Collapse expanded={glassEnabled}><div className="glass-slider">
-              <input type="range" min="0" max="2" step="1" value={GLASS_PRESETS.indexOf(glass)} aria-label={t("玻璃透明效果", "Glass transparency")} aria-valuetext={glass === "clear" ? t("透明", "Clear") : glass === "tinted" ? t("色调", "Tinted") : t("默认", "Default")} onChange={(event) => setGlass(GLASS_PRESETS[Number(event.target.value)])} />
-              <div aria-hidden="true"><span>{t("透明", "Clear")}</span><span>{t("默认", "Default")}</span><span>{t("色调", "Tinted")}</span></div>
+              <PresetSlider value={GLASS_PRESETS.indexOf(glass)} labels={[t("透明", "Clear"), t("默认", "Default"), t("色调", "Tinted")]} ariaLabel={t("玻璃透明效果", "Glass transparency")} onChange={(index) => setGlass(GLASS_PRESETS[index])} />
             </div></Collapse>
           </div></div></Collapse>
           <Button
             variant="tonal"
             disabled={
-              saving || (backgroundType !== "default" && !backgroundValue)
+              saving || !backgroundReady || (backgroundType !== "default" && !backgroundValue)
             }
             onClick={() => {
               setSaving(true);
               void updateLoginBackground({ type: backgroundType, value: backgroundValue, fit: backgroundFit, cacheSeconds: backgroundSeconds, glass, glassEnabled: backgroundType !== "default" && glassEnabled })
-                .then(() => onToast(t("登录背景已保存", "Sign-in background saved")))
+                .then((appearance) => { onAppearance?.(appearance); onToast(t("登录背景已保存", "Sign-in background saved")); })
                 .catch(() => onToast(t("登录背景保存失败，请检查图片地址或服务器目录", "Unable to save the sign-in background. Check the image URL or server directory.")))
                 .finally(() => setSaving(false));
             }}

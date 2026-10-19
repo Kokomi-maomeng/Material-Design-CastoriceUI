@@ -8,6 +8,11 @@ const MAX_IMAGE_BYTES = 30_000_000;
 type StoredImage = { key: string; blob: Blob; fetchedAt: number; stale: boolean };
 let lastImage: StoredImage | undefined;
 
+function releaseImageUrl(url: string) {
+  if (!url) return;
+  try { URL.revokeObjectURL(url); } catch { /* A stopped document already owns no usable image URL. */ }
+}
+
 export function useLoginBackground(appearance: LoginAppearance, enteredAt?: number): string {
   const [source, setSource] = useState("");
   const [cacheCheckedAt] = useState(() => enteredAt ?? Date.now());
@@ -17,7 +22,7 @@ export function useLoginBackground(appearance: LoginAppearance, enteredAt?: numb
   const seconds = appearance.type === "url" ? appearance.cacheSeconds ?? 0 : 600;
 
   useEffect(() => () => {
-    if (activeUrl.current) URL.revokeObjectURL(activeUrl.current);
+    releaseImageUrl(activeUrl.current);
     activeUrl.current = "";
   }, []);
 
@@ -29,17 +34,22 @@ export function useLoginBackground(appearance: LoginAppearance, enteredAt?: numb
     let fallback: StoredImage | undefined;
     let controller: AbortController | undefined;
     const show = async (blob: Blob) => {
-      if (disposed || !blob.size || blob.size > MAX_IMAGE_BYTES || !["image/png", "image/jpeg", "image/webp"].includes(blob.type)) return false;
-      const url = URL.createObjectURL(blob);
-      const image = new Image();
-      image.src = url;
-      try { await image.decode(); } catch { URL.revokeObjectURL(url); return false; }
-      if (disposed) { URL.revokeObjectURL(url); return false; }
-      const previous = activeUrl.current;
-      activeUrl.current = url;
-      setSource(url);
-      if (previous) URL.revokeObjectURL(previous);
-      return true;
+      let url = "";
+      try {
+        if (disposed || !blob.size || blob.size > MAX_IMAGE_BYTES || !["image/png", "image/jpeg", "image/webp"].includes(blob.type)) return false;
+        // Creating/assigning a cached blob can also fail when WebKit stops a
+        // document during navigation, before decode() returns its promise.
+        url = URL.createObjectURL(blob);
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        if (disposed) { releaseImageUrl(url); return false; }
+        const previous = activeUrl.current;
+        activeUrl.current = url;
+        setSource(url);
+        releaseImageUrl(previous);
+        return true;
+      } catch { releaseImageUrl(url); return false; }
     };
     const stored = async (): Promise<StoredImage | undefined> => {
       if (lastImage?.key === key) return lastImage;

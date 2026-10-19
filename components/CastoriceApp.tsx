@@ -105,6 +105,10 @@ function pageFromHash(): PageId {
 export function CastoriceApp() {
   const { language, t } = useI18n();
   const [bootstrap, setBootstrap] = useState<BootstrapState | null>(null);
+  const [booting, setBooting] = useState(true);
+  const applyLoginAppearance = useCallback((appearance: BootstrapState["appearance"]) => {
+    setBootstrap((current) => current ? { ...current, appearance } : current);
+  }, []);
   const [pageEnteredAt] = useState(() => performance.timeOrigin || Date.now());
   // The document owns the decoded image, including while authenticated.
   // AuthPage remounts on logout; its lifecycle must not renew the image.
@@ -145,6 +149,9 @@ export function CastoriceApp() {
   const start = useCallback(async () => {
     try {
       const state = await fetchBootstrap();
+      // Start the image/cache lookup while session verification is in flight.
+      // Keep the boot screen until auth is known to avoid a sign-in flash.
+      setBootstrap(state);
       if (!state.setupRequired) {
         try {
           setSession(await fetchSession());
@@ -152,7 +159,7 @@ export function CastoriceApp() {
           if (!(error instanceof ApiError && error.status === 401)) throw error;
         }
       }
-      setBootstrap(state);
+      setBooting(false);
     } catch {
       setBootError(true);
     }
@@ -452,7 +459,7 @@ export function CastoriceApp() {
         </Button>
       </main>
     );
-  if (!bootstrap) return <PageLoading />;
+  if (!bootstrap || booting) return <PageLoading />;
   if (!session)
     return (
       <AuthPage
@@ -734,7 +741,7 @@ export function CastoriceApp() {
                 </div>
                 <Icon name="expand_more" size={18} className="user-menu__indicator" />
               </button>
-                <div className={`user-popover floating-surface ${userMenuOpen ? "is-open" : ""}`} role="menu" aria-hidden={!userMenuOpen}>
+                <div className={`user-popover floating-surface ${userMenuOpen ? "is-open" : ""}`} role="menu" aria-hidden={!userMenuOpen} inert={!userMenuOpen}>
                   <button role="menuitem" disabled={signingOut} onClick={() => void signOut()}>
                     <Icon name="logout" size={19} />
                     {signingOut ? t("正在注销…", "Signing out…") : t("注销", "Sign out")}
@@ -771,6 +778,7 @@ export function CastoriceApp() {
           onClose={() => setSettingsOpen(false)}
           mode={themeMode}
           color={themeColor}
+          onAppearance={applyLoginAppearance}
           onMode={setThemeMode}
           onColor={setThemeColor}
           uiSettings={uiSettings}

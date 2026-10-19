@@ -16,11 +16,11 @@ Supported server baseline: Debian 12/13, Python 3.11+, Nginx with TLS, systemd, 
 
 ## 1. Obtain and verify the release
 
-Download `CastoriceUI-v5.3.2.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v5.3.2), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
+Download `CastoriceUI-v5.4.0.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v5.4.0), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
 
 ```sh
-tar -xzf CastoriceUI-v5.3.2.tar.gz
-cd CastoriceUI-v5.3.2
+tar -xzf CastoriceUI-v5.4.0.tar.gz
+cd CastoriceUI-v5.4.0
 ```
 
 A source checkout uses an isolated environment. Debian marks its system Python as externally managed; keep pip installation inside the environment ([Debian guidance](https://wiki.debian.org/Python)).
@@ -95,14 +95,14 @@ Preflight is read-only. It checks actual loaded/active required units, optional 
 Before upgrading, record public/loopback health, enabled/active units, live symlink targets and HY2/sing-box/Nginx PIDs. Verify config and SQLite rollback media. The database backup uses SQLite's online backup API rather than copying a live `state.db` independently of WAL/SHM.
 
 ```sh
-sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v5.3.2.tar.gz --config /etc/castoriceui/config.json
+sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v5.4.0.tar.gz --config /etc/castoriceui/config.json
 ```
 
 The installer validates the archive, runs staged backend regressions and preflight, records config/units/site/links and a consistent SQLite backup, then installs into paired unique release directories. It atomically replaces each frontend/backend link. These are separate filesystem operations, so a brief panel-only mismatch can occur during the switch. It restarts only `castoriceui-backend`; proxy-core continuity is checked through PIDs. The probe timer is installed/enabled and runs a read-only inventory probe. Its custom unit/output settings are read from `/etc/castoriceui/protocol-probe.env`; start with [`protocol-probe.env.example`](../deploy/protocol-probe.env.example) when needed.
 
 A fresh backend is enabled for boot. An upgrade preserves the existing backend enable policy; an intentionally disabled service stays disabled. The upgrade starts the panel for acceptance but does not promise it will start after reboot if the operator intentionally disabled it.
 
-Failure produces a retained `/var/backups/castoriceui-v5.3.2-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
+Failure produces a retained `/var/backups/castoriceui-v5.4.0-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
 
 ## 6. Bootstrap and complete first use
 

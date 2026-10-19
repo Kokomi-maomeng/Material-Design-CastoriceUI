@@ -1,13 +1,21 @@
 """Shared browser readiness and native animation sampling; no application mocks."""
+import os
+import sys
 
 
 def settled(page):
+    if os.getenv('CASTORICEUI_QA_TRACE'):
+        print(page.evaluate("""()=>document.getAnimations().map(a=>({target:a.effect?.target?.className,state:a.playState,pending:a.pending,time:a.currentTime,iterations:a.effect?.getTiming().iterations,visibility:a.effect?.target instanceof Element?getComputedStyle(a.effect.target).visibility:null,closedDetails:a.effect?.target instanceof Element?!!a.effect.target.closest('details:not([open])'):null}))"""), file=sys.stderr, flush=True)
     page.evaluate("""async () => {
       await document.fonts.ready;
       const frame=()=>new Promise(requestAnimationFrame);
       await frame(); await frame();
-      await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity)
-        .map(a=>a.finished.catch(()=>{})));
+      // Retained CSS fill effects can already be finished, including effects
+      // inside a closed native details element. Their old finished promises
+      // are not a readiness signal in every engine.
+      const animations=document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity&&a.playState!=='finished'&&a.playState!=='idle');
+      await Promise.race([Promise.all(animations.map(a=>a.finished.catch(()=>{}))),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error('Animations did not settle: '+JSON.stringify(animations.map(a=>({target:a.effect?.target?.className,state:a.playState,pending:a.pending,time:a.currentTime}))))),10000))]);
       let stable=0, last=null; const deadline=performance.now()+10000;
       while(stable<3){
         if(performance.now()>deadline)throw new Error('Layout/scroll did not settle');
@@ -46,7 +54,7 @@ def frames(locator, click, reduced):
             for(const a of state.animations)a.currentTime=duration*progress;
             await new Promise(requestAnimationFrame);
             const style=getComputedStyle(e);
-            rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0});
+            rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0,backgroundColor:style.backgroundColor});
           }
           return rows;
         }""", reduced)
