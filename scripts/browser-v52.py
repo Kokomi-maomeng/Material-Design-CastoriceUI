@@ -14,6 +14,7 @@ import urllib.request
 import ssl
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
+from qa_browser import settled as settle_view
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'server'))
@@ -23,16 +24,6 @@ from castoriceui.dashboard import DashboardService
 from castoriceui.storage import Storage
 
 
-def settle_view(page):
-    """Wait for finite layout animations/scroll before the next distinct click."""
-    page.evaluate('window.qaStableFrames=0;window.qaLastScrollY=null')
-    page.wait_for_function('''() => {
-        const surfaces=document.querySelectorAll('.record-transition,.record-transition > div,.alert-filter,.alert-filter-calendar,.page-enter');
-        if (Array.from(surfaces).some(el=>el.getAnimations().some(a=>a.playState==='running'))) { window.qaStableFrames=0; return false; }
-        window.qaStableFrames=window.qaLastScrollY===scrollY ? window.qaStableFrames+1 : 0;
-        window.qaLastScrollY=scrollY;
-        return window.qaStableFrames>=3;
-    }''')
 
 
 def main():

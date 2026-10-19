@@ -9,6 +9,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 from browser_fixture import empty_dashboard
+from qa_browser import open_page as open_ready_page, settled
 
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
@@ -152,19 +153,9 @@ def open_page(page, section: str) -> None:
     }
     language = page.locator("html").get_attribute("lang") or "en"
     title = titles[section][0 if language.startswith("zh") else 1]
-    page.evaluate("section => { location.hash = '/' + section; }", section)
-    # The old view can still have a visible h1 before React handles hashchange.
-    # Wait for this view and its paint before inspecting responsive geometry.
-    page.get_by_role("heading", level=1, name=title, exact=True).wait_for()
-    page.locator("#main-content .page-loading").wait_for(state="detached")
+    open_ready_page(page, section, title)
     page.evaluate("scrollTo(0, 0)")
-    page.evaluate("""async () => {
-        await document.fonts.ready;
-        const finite = document.getAnimations().filter(animation =>
-            animation.playState === 'running' && Number.isFinite(animation.effect?.getComputedTiming().endTime));
-        await Promise.all(finite.map(animation => animation.finished.catch(() => {})));
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }""")
+    settled(page)
 
 
 with sync_playwright() as playwright:

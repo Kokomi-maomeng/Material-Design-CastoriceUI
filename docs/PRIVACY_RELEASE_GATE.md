@@ -39,6 +39,8 @@ Pre-commit checks effective `GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT`, includ
 
 `npm run scan:sensitive` checks working files and complete **local** history, including messages and tagger metadata. CI uses full checkout depth and runs this scan before installing dependencies. Packaging requires Node, Git, Python and tar; Python reads archive members without extracting their paths. Archives containing links, special entries, traversal paths or more than 128 MiB of member data are rejected. Scan errors return a nonzero exit code and do not print matching private values.
 
+Unchanged browser/VM domains can reuse CI evidence as defined in `AGENTS.md` and `scripts/ci.py`; this never replaces the per-commit source/history, Nginx, CodeQL or publication-object checks. Local release steps can reuse fresh, identically bound evidence and resume an interrupted historical-URL batch. Preserve the original check time, package/SHA binding and failed/unverified results; do not count a skipped job or a submitted cleanup ticket as successful acceptance.
+
 ## Human and platform checks remain necessary
 
 Source text in UTF-8 and BOM-marked UTF-16 receives a generic email scan; binary data still receives common-key and known-private-value matching. Random bytes in image signatures must not be mistaken for email addresses. Inspect images, their metadata, production screenshots and nested compressed content separately. OCR, unknown secrets and arbitrary binary encodings are not guaranteed by this tool.

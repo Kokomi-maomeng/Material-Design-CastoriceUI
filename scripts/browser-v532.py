@@ -7,6 +7,7 @@ import sys
 import time
 from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
+from qa_browser import settled, frames
 from browser_fixture import empty_dashboard
 
 BASE = os.environ.get('CASTORICEUI_BROWSER_URL', 'https://127.0.0.1:5173').rstrip('/')
@@ -14,46 +15,8 @@ spec = importlib.util.spec_from_file_location('background_fixture', Path(__file_
 background_fixture = importlib.util.module_from_spec(spec); spec.loader.exec_module(background_fixture)
 
 
-def settled(page):
-    page.evaluate("""async()=>{await document.fonts.ready;
-      await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}""")
 
 
-def frames(locator, click, reduced):
-    # Sample the browser's actual CSS/WAAPI interpolation at fixed timeline
-    # positions. A busy headless runner can paint fewer than three frames in
-    # 300ms; pausing the native animations keeps that scheduling out of the test.
-    # No keyframes, durations, styles or target geometry are replaced.
-    locator.evaluate("""e=>{
-      const state={animations:[],originalAnimate:e.animate};
-      const capture=a=>{if(!state.animations.includes(a)){a.pause();state.animations.push(a)}};
-      state.onRun=event=>{if(event.target===e)e.getAnimations().forEach(capture)};
-      e.animate=function(...args){const a=state.originalAnimate.apply(this,args);capture(a);return a};
-      e.addEventListener('transitionrun',state.onRun);e.__motionQA=state;
-    }""")
-    try:
-        click()
-        return locator.evaluate("""async(e,reduced)=>{
-          const state=e.__motionQA,deadline=performance.now()+3000;
-          while(!reduced&&!state.animations.length&&performance.now()<deadline)await new Promise(requestAnimationFrame);
-          if(!reduced&&!state.animations.length)throw new Error('Expected a native browser animation');
-          const duration=Math.max(0,...state.animations.map(a=>{const t=a.effect.getTiming();return Number(t.delay)+Number(t.duration)}));
-          const rows=[];
-          for(const progress of reduced?[1]:[0,.25,.5,.75,.96]){
-            for(const a of state.animations)a.currentTime=duration*progress;
-            await new Promise(requestAnimationFrame);
-            const style=getComputedStyle(e);
-            rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0});
-          }
-          return rows;
-        }""", reduced)
-    finally:
-        locator.evaluate("""async e=>{const s=e.__motionQA;e.removeEventListener('transitionrun',s.onRun);e.animate=s.originalAnimate;
-          for(const a of s.animations)a.finish();
-          await Promise.all(s.animations.map(a=>a.finished.catch(()=>{})));
-          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));delete e.__motionQA;
-        }""")
 
 
 def moving(rows, label):
