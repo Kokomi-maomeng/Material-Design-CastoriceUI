@@ -27,7 +27,11 @@ def run(engine, context):
       Object.defineProperty(performance,'timeOrigin',{get:()=>Number(localStorage.getItem('qaBackgroundNow'))||qaRealOrigin});
       window.__qaBackgrounds=[]; new MutationObserver(()=>{const s=document.querySelector('.auth-page')?.style.backgroundImage;
       if(s?.includes('blob:') && window.__qaBackgrounds.at(-1)!==s)window.__qaBackgrounds.push(s)}).observe(document,{attributes:true,childList:true,subtree:true});""")
-    page = context.new_page(); errors = []; page.on('pageerror', lambda error: errors.append(str(error)))
+    page = context.new_page(); errors = []; phase = 'initial'
+    def page_error(error):
+        detail = {'message': str(error), 'stack': error.stack, 'phase': phase}
+        errors.append(detail); print(json.dumps({'pageError': detail}), file=sys.stderr, flush=True)
+    page.on('pageerror', page_error)
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode='live', generatedAt='2026-01-01T00:00:00Z')
     appearance = {'type': 'default', 'url': '', 'fit': 'cover', 'cacheSeconds': 0, 'glass': 'clear', 'glassEnabled': True, 'revision': 'v53-default'}
@@ -73,6 +77,7 @@ def run(engine, context):
     page.reload(wait_until='networkidle'); page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     expect(page.locator('.auth-card')).to_have_attribute('data-glass', 'solid')
 
+    phase = 'cache-persistence'
     # Probe storage independently: some WebKit temporary profiles lose Cache API
     # entries across navigation. That limitation must not weaken no-flash checks.
     page.evaluate("async()=>{await(await caches.open('castorice-v53-probe')).put('/qa-probe',new Response('persisted'))}")
@@ -87,6 +92,7 @@ def run(engine, context):
     page.wait_for_function("window.__qaBackgrounds.length===1")
     assert state['requests'] == previous_count + 1
 
+    phase = 'cache-expiry'
     # Freeze only Date.now for an exact cache boundary. Slow WebKit navigation
     # can otherwise consume the entire two-second TTL before a reload starts.
     page.evaluate("localStorage.setItem('qaBackgroundNow',String(Date.now()))")
@@ -104,6 +110,7 @@ def run(engine, context):
     count = state['requests']; page.wait_for_timeout(2400)
     assert state['requests'] == count and page.evaluate('window.__qaBackgrounds.length') == 1
 
+    phase = 'authentication-lifecycle'
     # Login/logout are not document navigations, even beyond the two-second TTL.
     # Assert the very first inserted login-page DOM already has its image.
     retained = page.locator('.auth-page').evaluate('e=>e.style.backgroundImage')
@@ -140,6 +147,7 @@ def run(engine, context):
     lifecycle = {'logoutCycles': 3, 'expiredTtlKeptImage': True, 'firstLogoutPaintHasImage': True, 'authenticatedReloadPreloads': True, 'logoutBackgroundRequests': 0, 'logoutBootstrapRequests': 0}
     page.evaluate("localStorage.removeItem('qaBackgroundNow')")
 
+    phase = 'fallback-and-corrupt-decode'
     # Server fallback is displayed once; it must not schedule a later swap.
     state['stale'] = True; page.reload(wait_until='networkidle'); page.wait_for_function('window.__qaBackgrounds.length===1')
     count = state['requests']; page.wait_for_timeout(2300)
@@ -163,6 +171,7 @@ def run(engine, context):
         for fit in ('cover', 'contain'):
             appearance['fit'] = fit
             for width, height in ((1536, 960), (390, 844), (320, 480)):
+                phase = f'optics-{preset}-{fit}-{width}'
                 page.set_viewport_size({'width': width, 'height': height}); page.reload(wait_until='networkidle')
                 page.locator('.auth-glass-optics image').wait_for(state='attached')
                 assert page.locator('feDisplacementMap,feImage').count() == 0, 'image distortion returned'
@@ -189,6 +198,7 @@ def run(engine, context):
                     SHOTS.mkdir(parents=True, exist_ok=True); page.screenshot(path=str(SHOTS / f'{engine}-{width}-{preset}.png'), full_page=True)
                 optical.append({'preset': preset, 'fit': fit, 'width': width})
 
+    phase = 'settings'
     page.set_viewport_size({'width': 1536, 'height': 960})
     page.get_by_role('textbox', name='Username', exact=True).fill('qa-admin')
     page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
@@ -219,6 +229,7 @@ def run(engine, context):
     if SHOTS: page.screenshot(path=str(SHOTS / f'{engine}-settings.png'), full_page=True)
     assert not errors, errors
     from qa_v54 import verify_controls
+    phase = 'shared-controls'
     controls = verify_controls(page, state, appearance, configured_url='https://images.example.com/random')
     assert not errors, errors
     print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
