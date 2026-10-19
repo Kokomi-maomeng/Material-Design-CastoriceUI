@@ -20,6 +20,39 @@ def ordered(suite, base):
     return sorted(names, key=lambda name: "scripts/" + name not in changed)
 
 
+def valid_reports(name, reports):
+    """Move the existing release coverage gate into CI, before acceptance."""
+    def one(key, check):
+        final = [r for r in reports if key in r]
+        return len(final) == 1 and check(final[0])
+    if name == "browser-matrix.py":
+        return one("layoutCases", lambda r: r.get("layoutCases") == r.get("uniqueConditions") == 400 and not r.get("javascriptErrors"))
+    if name == "browser-v46.py":
+        return len(reports) == 3 and {r.get("timeZone") for r in reports} == {"Asia/Shanghai", "America/New_York", "Europe/Berlin"} and all(r.get("dialogCases") == 75 and r.get("pendingPersistenceAndPagination") and not r.get("javascriptErrors") for r in reports)
+    if name in ("browser-v51.py", "browser-v52.py"):
+        expected = 6 if name == "browser-v51.py" else 12
+        return one("apiRoutesMocked", lambda r: r["apiRoutesMocked"] is False and len(r.get("cases", [])) == expected and not r.get("backendErrors")
+                   and (name != "browser-v52.py" or all(all(c.get(k) for k in ("immediateToggle", "scrollPreserved", "combinedFilters", "calendarPortal", "logLocator")) for c in r["cases"]))
+                   and (name != "browser-v51.py" or sum(c.get("realLogoutAndLoginReturn") is True for c in r["cases"]) == 2))
+    if name == "browser-v532.py":
+        return one("motionCases", lambda r: r.get("passed") and r.get("pageErrors") == 0 and len(r["motionCases"]) == 4
+                   and all(c.get("routes") == 10 and c.get("frameMeasurement") == "native-browser-timeline"
+                           and (c.get("reducedMotion") or c.get("glassIntermediateFrames", 0) >= 3)
+                           and all(c.get(k) for k in ("nativeSummaryKeyboard", "rapidReversal", "failedSignOutRestoresScreen", "logoutRemovesPrivateDom", "logoutKeepsDocumentImage", "postLoginOverview"))
+                           and c.get("settingsWrites") == 0 for c in r["motionCases"]))
+    if name == "browser-v53.py":
+        return one("opticalCases", lambda r: r.get("passed") and len(r["opticalCases"]) == 18 and not r.get("pageErrors")
+                   and r.get("lensProof", {}).get("differentRenderedPixels") and r.get("documentLifecycle", {}).get("firstLogoutPaintHasImage")
+                   and r["documentLifecycle"].get("logoutCycles") == 3 and r["documentLifecycle"].get("authenticatedReloadPreloads"))
+    if name == "browser-v50.py":
+        return one("glassThemeViewportCases", lambda r: r["glassThemeViewportCases"] == 32 and r.get("pageErrors") == 0)
+    if name == "browser-v521.py":
+        return one("chartCases", lambda r: len(r["chartCases"]) == 20 and r.get("pageErrors") == 0 and all(c.get("ranges") == 5 for c in r["chartCases"]))
+    if name == "browser-first-run.py":
+        return one("realBackendFirstRun", lambda r: r["realBackendFirstRun"] and not r.get("pageErrors"))
+    return bool(reports)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("engine", choices=("chromium", "firefox", "webkit"))
@@ -54,13 +87,7 @@ def main():
             except ValueError:
                 pass
         # A silent early return cannot become accepted browser evidence.
-        passed = exit_code == 0 and bool(reports)
-        if name == "browser-matrix.py":
-            passed = passed and any(r.get("layoutCases") == r.get("uniqueConditions") == 400 and not r.get("javascriptErrors") for r in reports)
-        if name in ("browser-v51.py", "browser-v52.py"):
-            passed = passed and any(r.get("apiRoutesMocked") is False and r.get("cases") and not r.get("backendErrors") for r in reports)
-        if name == "browser-v532.py":
-            passed = passed and any(len(r.get("motionCases", [])) == 4 and r.get("passed") for r in reports)
+        passed = exit_code == 0 and valid_reports(name, reports)
         result = {"suite": name, "engine": args.engine, "passed": passed, "exitCode": exit_code,
                   "seconds": round(time.monotonic() - start, 2)}
         write(log.with_suffix(".json"), {**result, "reports": reports})
