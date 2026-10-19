@@ -63,13 +63,16 @@ it("drags continuously, snaps on release, and uses full presets for keyboard inp
     return <PresetSlider value={value} labels={["Clear", "Default", "Tinted"]} ariaLabel="Glass" onChange={(next) => { changes(next); setValue(next); }} />;
   }
   render(<Fixture />); const slider = screen.getByRole("slider");
-  fireEvent.pointerDown(slider); fireEvent.change(slider, { target: { value: ".68" } });
+  fireEvent.pointerDown(slider); fireEvent.input(slider, { target: { value: ".68" } });
   expect(slider).toHaveProperty("value", "0.68");
   expect(slider.getAttribute("aria-valuetext")).toBe("Default");
   fireEvent.pointerUp(slider); expect(slider).toHaveProperty("value", "1");
   fireEvent.keyDown(slider, { key: "ArrowRight" }); expect(slider).toHaveProperty("value", "2");
   fireEvent.keyDown(slider, { key: "Home" }); expect(slider).toHaveProperty("value", "0");
   fireEvent.keyDown(slider, { key: "ArrowRight" }); expect(slider).toHaveProperty("value", "1");
+  fireEvent.pointerDown(slider); fireEvent.pointerCancel(slider);
+  fireEvent.input(slider, { target: { value: "1.72" } }); expect(slider).toHaveProperty("value", "1.72");
+  fireEvent.change(slider); expect(slider).toHaveProperty("value", "2");
   expect(changes.mock.calls.every(([value]) => Number.isInteger(value))).toBe(true);
 });
 
