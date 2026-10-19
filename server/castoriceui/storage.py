@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .alert_policy import present, sql_level
+from .migrations import retire_external_monitoring
 from .auth import dummy_password_check, hash_password, token_hash, validate_password, validate_username, verify_password
 
 
@@ -139,7 +140,6 @@ class Storage:
                     episode_id TEXT PRIMARY KEY, first_json TEXT NOT NULL,
                     last_json TEXT NOT NULL, worst_json TEXT NOT NULL, updated_at TEXT NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS probe_nonces (nonce TEXT PRIMARY KEY, captured_at INTEGER NOT NULL);
                 """
             )
             sample_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(samples)")}
@@ -150,6 +150,7 @@ class Storage:
             delta_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(traffic_deltas)")}
             if "coverage_state" not in delta_columns:
                 connection.execute("ALTER TABLE traffic_deltas ADD COLUMN coverage_state TEXT NOT NULL DEFAULT 'source_start'")
+            retire_external_monitoring(connection)
             self._initialize_traffic_ledger(connection)
             self._prune_monitoring(connection, int(time.time()))
 
@@ -722,8 +723,7 @@ class Storage:
             page = min(max(1, int(page)), total_pages)
             rows = connection.execute(f"SELECT * FROM alert_history{where} ORDER BY started_at DESC, episode_id DESC LIMIT ? OFFSET ?", (*parameters, page_size, (page - 1) * page_size)).fetchall()
             summary = self.pending_summary(connection)
-        return {"items": [self.alert_payload(row) for row in rows], "total": total, "page": page, "pageSize": page_size, "totalPages": total_pages, "summary": summary,
-                "logLocation": {"database": self.path, "journal": "journalctl -u castoriceui-backend"}}
+        return {"items": [self.alert_payload(row) for row in rows], "total": total, "page": page, "pageSize": page_size, "totalPages": total_pages, "summary": summary}
 
     @staticmethod
     def _prune_monitoring(connection: sqlite3.Connection, captured: int) -> None:

@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from castoriceui.alert_policy import AlertPolicy, level, present
 from castoriceui.alert_archive import archive
 from castoriceui.storage import Storage
-from castoriceui.external_probe import service_evidence
 from castoriceui.config import AppConfig
 
 
@@ -39,35 +38,7 @@ class AlertNoiseTests(unittest.TestCase):
         policy.apply([], [], now=405, prune=False)
         self.assertEqual(len(policy.apply([network], [], now=580)), 1)
 
-    def test_one_missing_device_produces_one_info_reminder_for_two_protocols(self):
-        policy = AlertPolicy()
-        records = [{**event("monitor-external-qa-" + protocol, "warning"), "reason": "external_observer_unavailable", "evidence": {"agentId": "qa", "protocol": protocol}} for protocol in ("anytls", "hysteria2")]
-        self.assertEqual(policy.apply(records, [], now=0), [])
-        result = policy.apply(records, [], now=600)
-        self.assertEqual([(item["id"], item["severity"]) for item in result], [("observer-qa", "info")])
-        self.assertNotIn("evidence", result[0]["titleEn"])
-        failure = {**records[0], "reason": "external_business_failure", "evidence": {"agentId": "qa", "protocol": "anytls", "result": {"failedStage": "authentication"}}}
-        policy.apply([failure], [], now=601)
-        result = policy.apply([failure], [], now=901)
-        self.assertEqual(result[0]["severity"], "info")
-        self.assertIn("authentication", result[0]["titleEn"])
 
-    def test_external_warning_requires_two_current_failing_devices(self):
-        with tempfile.TemporaryDirectory() as folder:
-            storage = Storage(str(Path(folder) / "state.db"))
-            config = AppConfig(external_probe_secret="x" * 32, external_probe_agents=["qa-one", "qa-two"], external_probe_protocols={"qa-one": ["anytls"], "qa-two": ["anytls"]})
-            now = int(time.time())
-            for agent in config.external_probe_agents:
-                for at in (now - 2, now - 1):
-                    storage.record_monitoring("external", agent, {"agentId": agent, "observedAt": at, "agentHealthy": True, "protocols": {"anytls": {"status": "failed", "failedStage": "forwarding"}}}, now=at)
-            services = service_evidence(config, storage, set(), now=now)
-            self.assertEqual([item["evidence"]["failedObserverCount"] for item in services], [2, 2])
-            self.assertTrue(all(level({"id": "monitor-" + item["id"], "reason": item["stateReason"], "evidence": item["evidence"]}) == "warning" for item in services))
-            for at in (now, now + 1):
-                storage.record_monitoring("external", "qa-two", {"agentId": "qa-two", "observedAt": at, "agentHealthy": True, "protocols": {"anytls": {"status": "passed"}}}, now=at)
-            services = service_evidence(config, storage, set(), now=now + 1)
-            self.assertEqual(services[0]["evidence"]["failedObserverCount"], 1)
-            self.assertEqual(level({"id": "monitor-" + services[0]["id"], "reason": services[0]["stateReason"], "evidence": services[0]["evidence"]}), "info")
 
     def test_duplicate_collector_and_integration_do_not_create_two_notices(self):
         policy = AlertPolicy()
@@ -145,7 +116,8 @@ class AlertLogTests(unittest.TestCase):
         self.assertEqual(page["summary"]["info"], 1)
         self.assertEqual(page["summary"]["warning"], 0)
         self.assertEqual(page["items"][0]["episodeId"], episode)
-        self.assertEqual(page["logLocation"]["database"], self.storage.path)
+        self.assertNotIn("logLocation", page)
+        self.assertNotIn(self.storage.path, json.dumps(page))
         with self.storage.connect() as connection:
             self.assertEqual(json.loads(connection.execute("SELECT payload_json FROM alert_history").fetchone()[0]), item)
 

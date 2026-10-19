@@ -14,7 +14,7 @@
 .setup-completed button > .setup-status-icon--ready { color: var(--success); }
 .setup-completed button > .setup-status-icon--error { color: var(--error); }
 .setup-complete-message { display: flex; align-items: center; gap: 14px; padding: 18px; border-radius: 18px; background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
-.setup-complete-message > .material-symbols-rounded { font-size: 32px; }
+.setup-complete-message > .material-symbols-rounded { font-size: 2rem; }
 .setup-complete-message strong, .setup-complete-message p { display: block; margin: 0; }
 .setup-complete-message p { margin-top: 3px; opacity: .82; }
 

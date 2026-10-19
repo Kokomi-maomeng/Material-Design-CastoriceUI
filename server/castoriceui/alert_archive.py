@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import secrets
 from datetime import datetime, timedelta, timezone
+from .migrations import retired_alert_id
 
 
 def capacity(storage, limit: int = 10000) -> dict:
@@ -88,6 +89,8 @@ def restore(storage, path: Path) -> int:
         connection.execute("BEGIN IMMEDIATE")
         for record in payload["records"]:
             row = record["history"]
+            if retired_alert_id(row.get("alert_id", "")):
+                continue
             if not row.get("resolved_at") or not row.get("acknowledged_at"):
                 raise ValueError("Archive contains a protected episode")
             existing = connection.execute("SELECT * FROM alert_history WHERE episode_id=?", (row["episode_id"],)).fetchone()

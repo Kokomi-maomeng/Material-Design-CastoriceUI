@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .migrations import retired_config
 from .security import normalize_https_base_url, normalize_loopback_endpoint, validate_interface_name
 
 
@@ -111,15 +112,12 @@ class AppConfig:
     hysteria_binary: str = "/usr/local/bin/hysteria"
     singbox_binary: str = "/usr/bin/sing-box"
     protocol_status_path: str = "/run/castoriceui/protocol-status.json"
-    external_probe_secret: str = ""
-    external_probe_agents: list[str] = field(default_factory=list)
-    external_probe_protocols: dict[str, list[str]] = field(default_factory=dict)
-
     @classmethod
     def load(cls, path: str | Path) -> "AppConfig":
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("Configuration root must be an object")
+        raw = retired_config(raw)
         allowed = set(cls.__dataclass_fields__)
         unknown = sorted(set(raw) - allowed)
         if unknown:
@@ -136,17 +134,6 @@ class AppConfig:
     def _validate(self) -> None:
         if type(self.alert_retention_days) is not int or not 7 <= self.alert_retention_days <= 3650 or type(self.alert_history_limit) is not int or not 100 <= self.alert_history_limit <= 100000:
             raise ValueError("Invalid alert retention policy")
-        if not isinstance(self.external_probe_secret, str) or (self.external_probe_secret and len(self.external_probe_secret) < 32):
-            raise ValueError("external_probe_secret must be empty or at least 32 characters")
-        if not isinstance(self.external_probe_agents, list) or len(self.external_probe_agents) > 8 or any(not isinstance(item, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", item) for item in self.external_probe_agents):
-            raise ValueError("Invalid external_probe_agents")
-        if (not isinstance(self.external_probe_protocols, dict)
-                or set(self.external_probe_protocols) - set(self.external_probe_agents)
-                or any(not isinstance(value, list) or not value
-                       or any(not isinstance(item, str) or item not in {"anytls", "hysteria2"} for item in value)
-                       or len(value) != len(set(value))
-                       for value in self.external_probe_protocols.values())):
-            raise ValueError("Invalid external_probe_protocols")
         try:
             listen_address = ipaddress.ip_address(self.listen_host)
         except ValueError as error:

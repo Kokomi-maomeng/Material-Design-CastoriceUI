@@ -18,6 +18,22 @@ VIEWPORTS = ((2560, 1440), (1440, 1000), (768, 1024), (390, 844), (320, 700))
 PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "subscriptions", "alerts", "audit", "setup")
 
 
+def check_typography(page, case):
+    problems = page.evaluate('''() => {
+      const family = getComputedStyle(document.body).fontFamily;
+      return [...document.querySelectorAll('body *')].flatMap(el => {
+        if (el.closest('[aria-hidden="true"], [inert]') || el.classList.contains('material-symbols-rounded')) return [];
+        const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
+        if (!rect.width || !rect.height || style.visibility === 'hidden' || style.display === 'none') return [];
+        if (![...el.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) return [];
+        const scale = el.tagName.toLowerCase() === 'text' ? Math.abs(el.getScreenCTM()?.d ?? 1) : 1;
+        const pixels = parseFloat(style.fontSize) * scale;
+        return style.fontFamily !== family || pixels < 11.5 ? [{tag:el.tagName, className:el.getAttribute('class'), pixels, family:style.fontFamily}] : [];
+      });
+    }''')
+    assert not problems, (case, 'inconsistent typography', problems)
+
+
 def synthetic_dashboard(page) -> dict[str, object]:
     """Load the typed empty payload and add only synthetic, publishable QA data."""
     dashboard = empty_dashboard(page.context, page, BASE_URL)
@@ -289,6 +305,7 @@ with sync_playwright() as playwright:
                             assert heading, (engine, language, theme, motion, section, "missing heading")
                             results.append({"engine": engine, "language": language, "theme": theme, "motion": motion, "width": width, "height": height, "page": section, "heading": heading, "actual": actual})
                             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"), (engine, language, width, section, "document overflow")
+                            check_typography(page, (engine, language, theme, motion, width, section))
                             if section == "traffic":
                                 assert page.locator(".chart--traffic").evaluate("element => element.scrollWidth <= element.clientWidth + 2"), (engine, language, width, section, "chart clipping")
                                 if width >= 901:

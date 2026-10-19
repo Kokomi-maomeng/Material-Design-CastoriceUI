@@ -9,7 +9,7 @@
 
 .sparkline-chart { outline: none; cursor: crosshair; touch-action: pan-y; }
 .service-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.service-health-card { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; border-radius: 14px; font-size: 12px; }
+.service-health-card { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; border-radius: 14px; font-size: var(--text-xs); }
 .service-health-card.is-healthy { background: var(--success-container); color: var(--on-success-container); }
 .service-health-card.is-warning { background: var(--warning-container); color: var(--on-warning-container); }
 
@@ -25,7 +25,7 @@
 .donut-wrap { min-height: 350px; }
 .chart--donut { flex: 0 0 220px; width: 100%; height: 220px; }
 .donut-center { text-align: center; }
-.donut-center strong, .donut-center.is-inspecting strong { min-height: 28px; font-size: 22px; line-height: 28px; font-variant-numeric: tabular-nums; }
+.donut-center strong, .donut-center.is-inspecting strong { min-height: 28px; font-size: 1.375rem; line-height: 28px; font-variant-numeric: tabular-nums; }
 .donut-center span { min-height: 18px; max-width: 112px; overflow: hidden; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .chart-legend > button { min-height: 38px; }
 .chart-legend > button b { min-width: 72px; font-variant-numeric: tabular-nums; text-align: right; }
@@ -39,7 +39,7 @@
 .content-grid--traffic-secondary .traffic-disclosure.is-collapsed { min-height: 0; }
 .protocol-panel .donut-wrap { min-height: 0; padding: 2px 18px 16px; }
 .protocol-panel .chart--donut { flex-basis: 172px; height: 172px; max-width: 205px; }
-.protocol-panel .donut-center strong, .protocol-panel .donut-center.is-inspecting strong { font-size: 18px; }
+.protocol-panel .donut-center strong, .protocol-panel .donut-center.is-inspecting strong { font-size: 1.125rem; }
 .protocol-panel .chart-legend > button { min-height: 32px; padding-block: 5px; }
 .protocol-panel .chart-legend { gap: 2px; }
 .md-anchored-popover { overflow-wrap: anywhere; }

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 const styleModules = [
   "app/styles/foundations.css",
+  "app/styles/data-panels.css",
   "app/styles/onboarding.css",
   "app/styles/themes.css",
   "app/styles/account-settings.css",

@@ -10,8 +10,6 @@ def level(payload: dict[str, Any]) -> str:
     if key.startswith(("collector-", "integration-", "network-probe-")) or key == "certificate-evidence":
         return "info"
     if key.startswith("monitor-"):
-        if key.startswith("monitor-external-"):
-            return "warning" if (payload.get("evidence") or {}).get("failedObserverCount", 0) >= 2 else "info"
         return "warning" if reason == "certificate_maintenance_failed" else "info"
     if key == "certificate-unreadable":
         return "info"
@@ -44,9 +42,6 @@ def present(payload: dict[str, Any]) -> dict[str, Any]:
     metrics = payload.get("evidence") or {}
     if key.startswith("network-"):
         result["logRef"] = {"domain": "network", "target": key.removeprefix("network-probe-") if key.startswith("network-probe-") else key[8:]}
-    elif key.startswith("monitor-external-") or key.startswith("observer-"):
-        agent = metrics.get("agentId") or (key.removeprefix("observer-") if key.startswith("observer-") else key.removeprefix("monitor-external-").rsplit("-", 1)[0])
-        result["logRef"] = {"domain": "external", "target": str(agent)}
     elif key.startswith("service-"):
         result["logRef"] = {"domain": "lifecycle", "target": "cores"}
     elif key.startswith("monitor-"):
@@ -58,22 +53,6 @@ def present(payload: dict[str, Any]) -> dict[str, Any]:
         zh, en = {"system": ("主机指标", "Host metrics"), "runtime": ("服务状态", "Service status"), "network": ("网络测量", "Network measurements")}.get(key[10:], ("监控数据", "Monitoring data"))
         title_zh, title_en = f"{zh}采集暂时中断", f"{en} collection is interrupted"
         detail_zh, detail_en = "请检查面板后台采集任务是否正常运行", "Check that the panel's collection tasks are running"
-    elif key.startswith("monitor-external-"):
-        metrics = (payload.get("evidence") or {})
-        agent = str(metrics.get("agentId") or key.removeprefix("monitor-external-").rsplit("-", 1)[0])
-        protocol = "HY2" if metrics.get("protocol") == "hysteria2" or key.endswith("-hysteria2") else "AnyTLS"
-        if reason == "external_business_failure" or metrics.get("businessIncidentActive"):
-            stage = (metrics.get("result") or {}).get("failedStage", "")
-            zh, en = {"transport": ("连接", "connection"), "tls": ("TLS 握手", "TLS handshake"), "quic": ("QUIC 握手", "QUIC handshake"), "authentication": ("认证", "authentication"), "forwarding": ("转发请求", "forwarding request")}.get(stage, ("连接测试", "connection check"))
-            title_zh, title_en = f"{protocol} 从 {agent} 发起的{zh}连续失败", f"{protocol} {en} repeatedly failed from {agent}"
-            detail_zh = "请检查该设备的代理连接及两端网络；连续两轮测试正常后恢复"
-            detail_en = "Check this device's proxy connection and network path; two successful checks confirm recovery"
-            if reason == "external_observer_unavailable":
-                title_zh, title_en = f"{protocol} 上次连接测试失败，等待恢复检查", f"{protocol} last connection check failed; recovery check pending"
-                detail_zh, detail_en = "观测设备暂未上报，请检查设备联网及探测任务", "The observer is not reporting; check its network and probe task"
-        else:
-            title_zh, title_en = f"观测设备 {agent} 暂未上报", f"Observer {agent} is not reporting"
-            detail_zh, detail_en = "请检查设备是否开机、联网，以及探测任务是否运行", "Check that the device is awake, connected and running its probe task"
     elif key.startswith("monitor-") and result["severity"] == "info":
         if "singbox-inventory" in key or reason in {"inventory_missing", "inventory_stale", "inventory_invalid", "inventory_permission_denied", "core_generation_changed", "probe_unavailable"}:
             title_zh, title_en = "协议监听检查暂不可用", "Protocol listener checks are unavailable"
@@ -148,15 +127,11 @@ class AlertPolicy:
                 domain = {"traffic": "system", "connections": "runtime", "system": "system", "network": "network"}.get(key[12:])
                 if domain in collector_ids or key in {"integration-alerts", "integration-audit"}:
                     continue
-            # One offline device is one reminder, even when it checks two protocols.
-            if key.startswith("monitor-external-") and reason == "external_observer_unavailable" and not item.get("evidence", {}).get("businessIncidentActive"):
-                agent = str(item.get("evidence", {}).get("agentId") or key.removeprefix("monitor-external-").rsplit("-", 1)[0])
-                item["id"] = key = "observer-" + agent
             if key in seen:
                 continue
             seen.add(key)
             first = self.since.setdefault(key, now)
-            delay = 600 if key.startswith("observer-") else 300 if item["severity"] == "info" and not key.startswith(("network-", "traffic-")) else 180 if item["severity"] == "info" and key.startswith("network-") else 0
+            delay = 300 if item["severity"] == "info" and not key.startswith(("network-", "traffic-")) else 180 if item["severity"] == "info" and key.startswith("network-") else 0
             if key in active or now - first >= delay:
                 result.append(item)
         if prune:
