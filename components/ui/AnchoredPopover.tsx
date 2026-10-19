@@ -45,7 +45,7 @@ export function AnchoredPopover({
   onPointerEnter,
   onPointerLeave,
 }: AnchoredPopoverProps) {
-  const present = usePresence(open, 180);
+  const present = usePresence(open);
   const popupRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<PopoverPosition>({
     left: VIEWPORT_EDGE,
@@ -135,6 +135,7 @@ export function AnchoredPopover({
       role="dialog"
       aria-label={ariaLabel}
       aria-hidden={!open}
+      inert={!open}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       style={{

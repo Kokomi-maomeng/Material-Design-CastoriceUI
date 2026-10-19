@@ -29,7 +29,7 @@ export function MaterialDatePicker({ value, onChange, ariaLabel, allowEmpty = fa
   const [position, setPosition] = useState({ left: 0, top: 0, width: 328, maxHeight: 430, placement: "bottom" as "top" | "bottom", ready: false });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
-  const present = usePresence(open, 180);
+  const present = usePresence(open);
   const selected = parseDate(value);
   const locale = language === "zh" ? "zh-CN" : "en";
   const weekdays = t("日,一,二,三,四,五,六", "S,M,T,W,T,F,S").split(",");
@@ -94,7 +94,7 @@ export function MaterialDatePicker({ value, onChange, ariaLabel, allowEmpty = fa
         <span>{!value && allowEmpty ? t("不限日期", "Any date") : new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit" }).format(selected)}</span>
       </button>
       {present ? createPortal(
-        <div ref={popupRef} onPointerDown={(event) => event.stopPropagation()} className={`md-date-picker md-floating-panel ${portalClassName} ${open ? "is-open" : "is-closing"}`} data-placement={position.placement} role="dialog" aria-modal="false" aria-hidden={!open} aria-label={ariaLabel} style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}>
+        <div ref={popupRef} onPointerDown={(event) => event.stopPropagation()} className={`md-date-picker md-floating-panel ${portalClassName} ${open ? "is-open" : "is-closing"}`} data-placement={position.placement} role="dialog" aria-modal="false" aria-hidden={!open} inert={!open} aria-label={ariaLabel} style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}>
           <div className="md-date-picker__headline"><small>{t("选择日期", "Select date")}</small><strong>{new Intl.DateTimeFormat(locale, { weekday: "short", month: "short", day: "numeric" }).format(selected)}</strong></div>
           <div className="md-date-picker__month">
             <button type="button" className="md-date-picker__period" aria-label={t("选择年份和月份", "Choose year and month")} onClick={() => setView((current) => current === "day" ? "year" : current === "year" ? "month" : "day")}>
@@ -106,6 +106,7 @@ export function MaterialDatePicker({ value, onChange, ariaLabel, allowEmpty = fa
               <button type="button" aria-label={view === "year" ? t("下一组年份", "Next years") : view === "month" ? t("下一年", "Next year") : t("下个月", "Next month")} onClick={() => setMonth((current) => view === "year" ? new Date(current.getFullYear() + 20, current.getMonth(), 1) : view === "month" ? new Date(current.getFullYear() + 1, current.getMonth(), 1) : new Date(current.getFullYear(), current.getMonth() + 1, 1))}><Icon name="chevron_right" /></button>
             </span>
           </div>
+          <div className="md-date-picker__body" key={`${view}-${month.getFullYear()}-${month.getMonth()}`}>
           {view === "day" ? <div className="md-date-picker__grid">
             {weekdays.map((weekday, index) => <span className="md-date-picker__weekday" key={`${weekday}-${index}`}>{weekday}</span>)}
             {days.map((day, index) => day === null ? <span key={`empty-${index}`} /> : (
@@ -128,6 +129,7 @@ export function MaterialDatePicker({ value, onChange, ariaLabel, allowEmpty = fa
           {view === "year" ? <div className="md-date-picker__year-grid" role="listbox" aria-label={t("选择年份", "Choose year")}>
             {years.map((year) => <button type="button" role="option" aria-selected={year === selected.getFullYear()} key={year} className={year === selected.getFullYear() ? "is-selected" : ""} onClick={() => { setMonth((current) => new Date(year, current.getMonth(), 1)); setView("month"); }}>{year}</button>)}
           </div> : null}
+          </div>
           <div className="md-date-picker__actions">
             {allowEmpty ? <button type="button" onClick={() => { onChange(""); setOpen(false); }}>{t("清除", "Clear")}</button> : null}
             <button type="button" onClick={() => setOpen(false)}>{t("取消", "Cancel")}</button>

@@ -20,6 +20,14 @@
 .motion-details[data-expanded="false"] > summary .disclosure-status > .material-symbols-rounded,
 .motion-details[data-expanded="false"] > summary > .material-symbols-rounded { transform: none; }
 
+/* Selection feedback and full exits on shared interactive surfaces. */
+.md-floating-panel.is-closing[data-placement] { animation-duration: var(--motion-exit-duration); }
+:is(.md-select-list > button, .md-date-picker button, .theme-mode-grid > button, .color-options button, .md-pagination > button) { transition: background-color 180ms var(--motion-standard), color 180ms var(--motion-standard), border-color 180ms var(--motion-standard), box-shadow 180ms var(--motion-standard); }
+.md-select-list > button > .material-symbols-rounded, .color-options .is-selected .material-symbols-rounded { animation: control-check-in 180ms var(--motion-standard) both; }
+.md-date-picker__body { animation: calendar-view-in 180ms var(--motion-standard) both; }
+@keyframes control-check-in { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: none; } }
+@keyframes calendar-view-in { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
 @media (min-width: 901px) {
   .app-main { width: calc(100% - var(--nav-width)); margin-right: 0; }
   .app-shell--navigation-hidden .app-main { margin-left: calc(var(--nav-width) / 2); margin-right: calc(var(--nav-width) / 2); }
@@ -27,4 +35,6 @@
 @media (prefers-reduced-motion: reduce) {
   .auth-page, .auth-card, .app-shell, .boot-state { animation: none; }
   .motion-collapse { transition: none; }
+  .md-date-picker__body, .md-select-list > button > .material-symbols-rounded, .color-options .is-selected .material-symbols-rounded { animation: none; }
+  :is(.md-select-list > button, .md-date-picker button, .theme-mode-grid > button, .color-options button, .md-pagination > button, .md-preset-slider__thumb, .md-preset-slider__track i, .md-preset-slider__labels > span) { transition: none !important; }
 }

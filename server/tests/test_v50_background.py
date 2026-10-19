@@ -304,6 +304,18 @@ class BackgroundHttpTests(unittest.TestCase):
             self.assertEqual(status, 200); self.assertGreaterEqual(float(headers["X-Background-Age"]), 40)
             self.assertEqual(fetch.call_count, 1)
 
+    def test_visual_settings_preserve_image_identity_but_source_changes_invalidate(self):
+        def appearance():
+            return json.loads(self.request("/api/v2/bootstrap")[2])["appearance"]
+        initial = appearance()
+        self.storage.set_setting("login_background", {"type": "url", "value": URL, "glassEnabled": True, "glass": "tinted", "fit": "contain", "cacheSeconds": 60})
+        changed = appearance()
+        self.assertEqual(initial["revision"], changed["revision"])
+        self.assertTrue(changed["glassEnabled"])
+        self.assertEqual(changed["glass"], "tinted")
+        self.storage.set_setting("login_background", {"type": "url", "value": URL + "?different=1"})
+        self.assertNotEqual(initial["revision"], appearance()["revision"])
+
     def test_slow_image_fetch_leaves_health_responsive(self):
         entered, release = threading.Event(), threading.Event()
         def slow(*_a, **_kw):

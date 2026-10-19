@@ -40,7 +40,7 @@ export function MaterialSelect({
   const searchRef = useRef<HTMLInputElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
-  const present = usePresence(open, 180);
+  const present = usePresence(open);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -174,6 +174,7 @@ export function MaterialSelect({
           className={`md-select-menu md-floating-panel ${popupClassName} ${open ? "is-open" : "is-closing"}`}
           data-placement={position.placement}
           aria-hidden={!open}
+          inert={!open}
           role="group"
           style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight, visibility: position.ready ? undefined : "hidden" }}
         >

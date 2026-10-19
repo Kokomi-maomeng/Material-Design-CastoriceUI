@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
+from qa_browser import settled
 
 sys.path.insert(0, str(Path(__file__).parent))
 from importlib.util import spec_from_file_location, module_from_spec
@@ -156,24 +157,34 @@ def run(engine, context):
     assert state['requests'] == count + 2
     count = state['requests']; page.wait_for_timeout(2300); assert state['requests'] == count
 
-    optical = []; lens_proof = None
+    optical = []; optical_proof = None
     for preset in ('clear', 'default', 'tinted'):
         appearance.update(glassEnabled=True, glass=preset, revision='v53-optics-' + preset)
         for fit in ('cover', 'contain'):
             appearance['fit'] = fit
             for width, height in ((1536, 960), (390, 844), (320, 480)):
                 page.set_viewport_size({'width': width, 'height': height}); page.reload(wait_until='networkidle')
-                page.locator('feDisplacementMap').wait_for(state='attached')
+                page.locator('.auth-glass-optics image').wait_for(state='attached')
+                assert page.locator('feDisplacementMap,feImage').count() == 0, 'image distortion returned'
                 expect(page.locator('.auth-card')).to_have_attribute('data-glass', preset)
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
-                if lens_proof is None:
-                    page.evaluate("async()=>{await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}")
-                    refracted = hashlib.sha256(page.screenshot()).hexdigest()
-                    page.locator('feDisplacementMap').evaluate("e=>e.setAttribute('scale','0')")
+                settled(page)
+                blur = float(page.locator('feGaussianBlur').get_attribute('stdDeviation'))
+                assert blur == {'clear': .25, 'default': 1.2, 'tinted': 3}[preset]
+                # The photo stays registered with the page after card entrance,
+                # including fit=contain and scrollable narrow login pages.
+                assert page.locator('.auth-glass-optics image').evaluate('''e=>{
+                  const card=e.closest('.auth-card'),page=card.parentElement;
+                  return Math.abs((page.clientWidth-Number(e.getAttribute('width')))/2-card.offsetLeft-card.clientLeft-Number(e.getAttribute('x')))<1
+                    && Math.abs((page.clientHeight-Number(e.getAttribute('height')))/2-card.offsetTop-card.clientTop-Number(e.getAttribute('y')))<1;
+                }''')
+                if optical_proof is None:
+                    glass = hashlib.sha256(page.screenshot()).hexdigest()
+                    page.locator('.auth-glass-optics').evaluate("e=>e.style.visibility='hidden'")
                     plain = hashlib.sha256(page.screenshot()).hexdigest()
-                    assert refracted != plain, 'lens markup did not change rendered pixels'
-                    page.locator('feDisplacementMap').evaluate("e=>e.setAttribute('scale','32')")
-                    lens_proof = {'refractedSha256': refracted, 'zeroDisplacementSha256': plain, 'differentRenderedPixels': True}
+                    assert glass != plain, 'glass optics did not change rendered pixels'
+                    page.locator('.auth-glass-optics').evaluate("e=>e.style.visibility=''")
+                    optical_proof = {'glassSha256': glass, 'hiddenOpticsSha256': plain, 'differentRenderedPixels': True, 'noDisplacement': True}
                 if SHOTS and fit == 'cover' and width in (1536, 390):
                     SHOTS.mkdir(parents=True, exist_ok=True); page.screenshot(path=str(SHOTS / f'{engine}-{width}-{preset}.png'), full_page=True)
                 optical.append({'preset': preset, 'fit': fit, 'width': width})
@@ -207,7 +218,10 @@ def run(engine, context):
     assert set(metrics['backgroundLabels']) == {'12px'}, metrics
     if SHOTS: page.screenshot(path=str(SHOTS / f'{engine}-settings.png'), full_page=True)
     assert not errors, errors
-    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'opticalCases': optical, 'lensProof': lens_proof, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
+    from qa_v54 import verify_controls
+    controls = verify_controls(page, state, appearance, configured_url='https://images.example.com/random')
+    assert not errors, errors
+    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
 
 
 if __name__ == '__main__':

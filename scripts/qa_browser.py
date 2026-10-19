@@ -32,7 +32,7 @@ def frames(locator, click, reduced):
       const capture=a=>{if(!state.animations.includes(a)){a.pause();state.animations.push(a)}};
       state.onRun=event=>{if(event.target===e)e.getAnimations().forEach(capture)};
       e.animate=function(...args){const a=state.originalAnimate.apply(this,args);capture(a);return a};
-      e.addEventListener('transitionrun',state.onRun);e.__motionQA=state;
+      e.addEventListener('transitionrun',state.onRun);e.addEventListener('animationstart',state.onRun);e.__motionQA=state;
     }""")
     try:
         click()
@@ -44,14 +44,16 @@ def frames(locator, click, reduced):
           const rows=[];
           for(const progress of reduced?[1]:[0,.25,.5,.75,.96]){
             for(const a of state.animations)a.currentTime=duration*progress;
-            await new Promise(requestAnimationFrame);
+            // Geometry/style reads synchronously flush the sampled timeline.
+            // Waiting for five display frames can outlast a short menu's real
+            // presence timeout on loaded CI hosts, even though it is paused.
             const style=getComputedStyle(e);
             rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0});
           }
           return rows;
         }""", reduced)
     finally:
-        locator.evaluate("""async e=>{const s=e.__motionQA;e.removeEventListener('transitionrun',s.onRun);e.animate=s.originalAnimate;
+        locator.evaluate("""async e=>{const s=e.__motionQA;e.removeEventListener('transitionrun',s.onRun);e.removeEventListener('animationstart',s.onRun);e.animate=s.originalAnimate;
           for(const a of s.animations)a.finish();
           await Promise.all(s.animations.map(a=>a.finished.catch(()=>{})));
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));delete e.__motionQA;

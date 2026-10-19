@@ -242,7 +242,10 @@ class ApiHandler(BaseHTTPRequestHandler):
         value = background_setting(self.app.storage.get_setting("login_background", {}))
         appearance = {key: item for key, item in value.items() if key != "value"}
         appearance["url"] = ""
-        appearance["revision"] = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:20]
+        # Optical settings do not change image bytes. Reuse the decoded photo
+        # when enabling glass, changing its preset or changing the image fit.
+        source = {key: value[key] for key in ("type", "value")}
+        appearance["revision"] = hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()[:20]
         try:
             if value["type"] == "url":
                 normalize_https_image_url(value["value"], self.app.config.external_background_hosts)
