@@ -90,7 +90,10 @@ def main():
         passed = exit_code == 0 and valid_reports(name, reports)
         result = {"suite": name, "engine": args.engine, "passed": passed, "exitCode": exit_code,
                   "seconds": round(time.monotonic() - start, 2)}
-        write(log.with_suffix(".json"), {**result, "reports": reports})
+        detail = {**result, "reports": reports}
+        if not passed:
+            detail["failureLog"] = log.read_text(encoding="utf-8", errors="replace")
+        write(log.with_suffix(".json"), detail)
         results.append(result)
         print(json.dumps(result), flush=True)
         if not passed:
