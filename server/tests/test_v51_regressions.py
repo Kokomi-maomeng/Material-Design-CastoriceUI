@@ -20,7 +20,6 @@ from castoriceui.alert_archive import archive, capacity, restore
 from castoriceui.collectors import http_json
 from castoriceui.config import AppConfig
 from castoriceui.dashboard import DashboardService
-from castoriceui.external_probe import accept, canonical, service_evidence
 from castoriceui.nginx_site import panel_site
 from castoriceui.storage import Storage
 from castoriceui.monitoring import NetworkPolicy
@@ -109,17 +108,6 @@ class AuditRegressions(IsolatedState):
         self.assertTrue(result['partial'])
         self.assertEqual(result['checkedCount'], 0)
 
-    def test_external_observers_only_require_assigned_protocols(self):
-        self.config.external_probe_secret = 'synthetic-reporting-secret-32-characters'
-        self.config.external_probe_agents = ['anytls-agent', 'hy2-agent']
-        self.config.external_probe_protocols = {'anytls-agent': ['anytls'], 'hy2-agent': ['hysteria2']}
-        for agent, protocols in self.config.external_probe_protocols.items():
-            payload = {'agentId': agent, 'nonce': agent + '-nonce-1234567890123456', 'observedAt': int(time.time()), 'agentHealthy': True, 'protocols': {protocols[0]: {'status': 'passed'}}}
-            signature = hmac.new(self.config.external_probe_secret.encode(), canonical(payload), hashlib.sha256).hexdigest()
-            self.assertTrue(accept(self.config, self.storage, payload, signature))
-        evidence = service_evidence(self.config, self.storage, set(), startup_age=200)
-        self.assertEqual(len(evidence), 2)
-        self.assertTrue(all(item['status'] == 'running' for item in evidence))
 
     def test_panel_preflight_rejects_unrelated_tls_and_wrong_upstream(self):
         template = (Path(__file__).resolve().parents[2] / 'deploy/nginx.conf.example').read_text()

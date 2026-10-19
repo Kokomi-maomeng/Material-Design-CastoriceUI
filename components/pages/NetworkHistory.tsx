@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchNetworkHistory } from "../../lib/api";
 import { formatLocalDateTime, formatTimeSpan, localTimeZone } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
@@ -33,11 +33,26 @@ export function NetworkHistory({ target }: { target: NetworkTarget }) {
 
 export function TimeTrend({ samples, label, step = 20, start: requestedStart, end: requestedEnd }: { samples: NetworkHistorySample[]; label: string; step?: number; start?: number; end?: number }) {
   const { language, t } = useI18n();
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(360);
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element || !samples.length) return;
+    const resize = () => {
+      const measured = element.getBoundingClientRect().width;
+      if (measured > 0) setWidth(Math.round(measured));
+    };
+    resize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [samples.length]);
   if (!samples.length) return null;
   const start = requestedStart ?? samples[0].capturedAt;
   const end = requestedEnd ?? samples[samples.length - 1].capturedAt;
   const maximum = Math.max(1, ...samples.map((item) => item.complete ? item.latency ?? 0 : 0));
-  const x = (at: number) => 34 + 252 * Math.max(0, Math.min(1, (at - start) / Math.max(1, end - start)));
+  const x = (at: number) => 44 + Math.max(1, width - 88) * Math.max(0, Math.min(1, (at - start) / Math.max(1, end - start)));
   const paths = (metric: "latency" | "loss", scale: number) => {
     const segments: string[][] = []; let segment: string[] = []; let previous: number | undefined;
     for (const sample of samples) {
@@ -54,5 +69,5 @@ export function TimeTrend({ samples, label, step = 20, start: requestedStart, en
     return segments.map((points, index) => points.length > 1 ? <polyline key={index} data-metric={metric} points={points.join(" ")} fill="none" stroke={metric === "latency" ? "var(--primary)" : "var(--warning)"} strokeWidth="2" /> : <circle key={index} data-metric={metric} cx={points[0].split(",")[0]} cy={points[0].split(",")[1]} r="2" fill={metric === "latency" ? "var(--primary)" : "var(--warning)"} />);
   };
   const time = (at: number) => formatLocalDateTime(new Date(at * 1000).toISOString(), language);
-  return <div className="network-time-trend"><svg viewBox="0 0 320 90" role="img" aria-label={label}><title>{label}</title><line x1="34" y1="72" x2="286" y2="72" stroke="var(--outline-variant)" /><text x="30" y="14" textAnchor="end" fill="var(--on-surface-variant)" fontSize="10">{maximum.toFixed(1)}</text><text x="30" y="75" textAnchor="end" fill="var(--on-surface-variant)" fontSize="10">0</text><text x="290" y="14" fill="var(--on-surface-variant)" fontSize="10">100%</text><text x="290" y="75" fill="var(--on-surface-variant)" fontSize="10">0%</text>{samples.filter((sample) => !sample.complete || sample.hasGaps).map((sample, index) => <line key={index} data-gap="true" x1={x(sample.capturedAt)} x2={x(sample.capturedAt)} y1="12" y2="72" stroke="var(--error)" strokeOpacity=".35" strokeDasharray="2 3" />)}{paths("latency", maximum)}{paths("loss", 100)}</svg><div className="network-time-trend__legend"><span style={{ color: "var(--primary)" }}>{t("延迟 ms", "Latency ms")}</span><span style={{ color: "var(--warning)" }}>{t("丢包 %", "Loss %")}</span></div><small>{time(start)} – {time(end)} · {localTimeZone()}</small></div>;
+  return <div ref={chartRef} className="network-time-trend"><svg viewBox={`0 0 ${width} 96`} role="img" aria-label={label}><title>{label}</title><line x1="44" y1="72" x2={width - 44} y2="72" stroke="var(--outline-variant)" /><text x="40" y="14" textAnchor="end" fill="var(--on-surface-variant)" className="chart-axis-label">{maximum.toFixed(1)}</text><text x="40" y="75" textAnchor="end" fill="var(--on-surface-variant)" className="chart-axis-label">0</text><text x={width - 40} y="14" fill="var(--on-surface-variant)" className="chart-axis-label">100%</text><text x={width - 40} y="75" fill="var(--on-surface-variant)" className="chart-axis-label">0%</text>{samples.filter((sample) => !sample.complete || sample.hasGaps).map((sample, index) => <line key={index} data-gap="true" x1={x(sample.capturedAt)} x2={x(sample.capturedAt)} y1="12" y2="72" stroke="var(--error)" strokeOpacity=".35" strokeDasharray="2 3" />)}{paths("latency", maximum)}{paths("loss", 100)}</svg><div className="network-time-trend__legend"><span style={{ color: "var(--primary)" }}>{t("延迟 ms", "Latency ms")}</span><span style={{ color: "var(--warning)" }}>{t("丢包 %", "Loss %")}</span></div><small>{time(start)} – {time(end)} · {localTimeZone()}</small></div>;
 }

@@ -29,7 +29,7 @@ export function ServiceCards({ services, metrics, compact = false }: {
   </Card>;
   const cards = services.map((service) => {
     const healthy = service.status === "running";
-    const unknown = service.status === "warning" && ["inventory_missing", "inventory_stale", "core_generation_changed", "probe_unavailable", "collector_stale", "statistics_unavailable", "external_observer_unavailable"].includes(service.stateReason ?? "");
+    const unknown = service.status === "warning" && ["inventory_missing", "inventory_stale", "core_generation_changed", "probe_unavailable", "collector_stale", "statistics_unavailable"].includes(service.stateReason ?? "");
     return <Card variant="outlined" className={`service-card ${healthy ? "" : service.status === "warning" ? "service-card--warning" : "service-card--abnormal"} ${compact ? "service-card--compact" : ""}`} key={service.id}>
       <div className="service-card__top">
         <span className={`service-icon service-icon--${healthy ? "running" : service.status === "warning" ? "warning" : "stopped"}`}><Icon name={service.icon} size={25} /></span>

@@ -187,6 +187,7 @@ def _install(archive: Path, config_path: Path) -> dict:
         source = extract(archive, staging, version)
         sys.path.insert(0, str(source / "server"))
         from castoriceui.config import AppConfig
+        from castoriceui.migrations import retired_config
         import preflight
         config = AppConfig.load(config_path)
         protected_units = {value.removesuffix(".service") + ".service" for value in (config.hysteria_unit, config.singbox_unit, config.nginx_unit)}
@@ -226,7 +227,7 @@ def _install(archive: Path, config_path: Path) -> dict:
                 lifecycle_hooks.append(hook)
         probe_environment = Path("/etc/castoriceui/protocol-probe.env")
         save(probe_environment, "protocol-probe.env")
-        shutil.copy2(config_path, backup / "config.json")
+        save(config_path, "config.json")
         for path, old in old_links.items():
             (backup / (path.parent.name + "-previous-target.txt")).write_text(str(old or ""))
         database = Path(config.database_path)
@@ -251,6 +252,22 @@ def _install(archive: Path, config_path: Path) -> dict:
         shutil.copytree(source / "frontend", frontend_release)
         record("prepared")
         modified = True
+        raw_config = json.loads(config_path.read_text(encoding="utf-8"))
+        cleaned_config = retired_config(raw_config)
+        if cleaned_config != raw_config:
+            metadata = config_path.stat()
+            config_fd, config_name = tempfile.mkstemp(prefix=".config-", dir=config_path.parent)
+            try:
+                with os.fdopen(config_fd, "w", encoding="utf-8") as handle:
+                    os.fchmod(handle.fileno(), metadata.st_mode & 0o777)
+                    os.fchown(handle.fileno(), metadata.st_uid, metadata.st_gid)
+                    json.dump(cleaned_config, handle, ensure_ascii=False, indent=2)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(config_name, config_path)
+            finally:
+                Path(config_name).unlink(missing_ok=True)
         event_helper.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(backend_release / "deploy/core-event.py", event_helper)
         os.chmod(event_helper, 0o755)

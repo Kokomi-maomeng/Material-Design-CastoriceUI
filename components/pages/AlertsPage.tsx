@@ -61,6 +61,10 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
     finally { setBusy(false); }
   };
   const severityName = (severity: AlertItem["severity"]) => severity === "critical" ? t("严重", "Critical") : severity === "warning" ? t("警告", "Warning") : t("提醒", "Info");
+  const sourceName = (alert: AlertItem) => {
+    if (alert.source === "Monitor evidence") return t("服务监控", "Service monitoring");
+    return (language === "zh" ? alert.sourceZh : alert.sourceEn) || alert.source || t("系统监控", "System monitoring");
+  };
   return <div className="page-content page-enter">
     <PageHeader eyebrow={t("主动监控", "Proactive monitoring")} title={t("告警中心", "Alerts")} />
     <IntegrationGate status={integration} name="告警规则" nameEn="Alert rules" description="设置流量、延迟和丢包阈值。" descriptionEn="Set traffic, latency, and packet-loss thresholds." onConfigure={onConfigure} />
@@ -87,7 +91,11 @@ export function AlertsPage({ alerts, onAcknowledge, onAcknowledgeAll, onToast, o
               <div className="alert-row__times"><span>{t("开始", "Started")} <time dateTime={alert.startedAt}>{formatLocalDateTime(alert.startedAt, language)}</time></span>
                 {alert.resolvedAt ? <span>{t("恢复", "Recovered")} <time dateTime={alert.resolvedAt}>{formatLocalDateTime(alert.resolvedAt, language)}</time></span> : null}
                 {alert.acknowledgedAt ? <span>{t("确认", "Acknowledged")} <time dateTime={alert.acknowledgedAt}>{formatLocalDateTime(alert.acknowledgedAt, language)}</time></span> : null}</div>
-              {result?.logLocation ? <AnimatedDetails className="alert-log-location"><summary>{t("日志位置", "Log location")}</summary><code>{result.logLocation.database}<br />alert_history / alert_evidence<br />episode_id = {alert.episodeId}</code><span>{t("采集记录", "Samples")}: monitoring_samples · {alert.logRef?.domain ?? 'alert'} / {alert.logRef?.target ?? alert.id}</span><code>{result.logLocation.journal}</code></AnimatedDetails> : null}
+              <AnimatedDetails className="alert-record-details"><summary>{t("记录详情", "Record details")}</summary>
+                <dl><div><dt>{t("监测来源", "Source")}</dt><dd>{sourceName(alert)}</dd></div>
+                  <div><dt>{t("发生次数", "Occurrences")}</dt><dd>{Math.max(1, alert.repeatCount ?? 1)}</dd></div>
+                  {alert.lastStartedAt && (alert.repeatCount ?? 1) > 1 ? <div><dt>{t("最近发生", "Last occurrence")}</dt><dd><time dateTime={alert.lastStartedAt}>{formatLocalDateTime(alert.lastStartedAt, language)}</time></dd></div> : null}</dl>
+              </AnimatedDetails>
             </div>
             <div className="alert-row__actions">{alert.status === "resolved" ? <Chip staticChip tone="success" icon="task_alt">{t("已恢复", "Recovered")}</Chip> : null}{!alert.acknowledged ? <Button variant="tonal" compact disabled={busy || loading || loadError} onClick={() => void confirm(alert.episodeId)}>{t("确认", "Acknowledge")}</Button> : <Chip staticChip tone="success" icon="check">{t("已确认", "Acknowledged")}</Chip>}</div>
           </div>)}

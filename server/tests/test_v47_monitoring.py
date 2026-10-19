@@ -19,7 +19,6 @@ import tarfile
 from castoriceui.collectors import ping_target, layered_probe, service_snapshots, cached_metadata, _metadata_cache
 from castoriceui.config import AppConfig
 from castoriceui.dashboard import DashboardService
-from castoriceui.external_probe import accept, canonical, service_evidence
 from castoriceui.monitoring import NetworkPolicy, periodic, correlate, maintenance_info
 from castoriceui.storage import Storage
 import test_service_health as health
@@ -52,24 +51,21 @@ class SupplementalEvidenceTests(unittest.TestCase):
             self.assertEqual(worst["effectivePolicy"], THRESHOLDS)
             self.assertEqual(worst["layers"]["tcp"]["status"], "passed")
 
-    def test_core_group_preserves_independent_errors_and_business_failure_title(self):
+    def test_core_group_preserves_independent_protocol_errors(self):
         with tempfile.TemporaryDirectory() as folder:
             storage = Storage(str(Path(folder) / "qa.sqlite"))
             dashboard = DashboardService(AppConfig(), storage)
             dashboard.alert_policy.since["monitor-vless"] = time.monotonic() - 601
-            dashboard.alert_policy.since["monitor-external-qa-anytls"] = time.monotonic() - 601
             services = [
                 {"id": "singbox", "name": "sing-box", "status": "stopped", "detail": "Core inactive"},
                 {"id": "anytls", "name": "AnyTLS", "status": "stopped", "detail": "Core inactive", "stateReason": "core_offline"},
                 {"id": "vless", "name": "VLESS", "status": "warning", "detail": "Independent mapping error", "stateReason": "configuration_unverified"},
-                {"id": "external-qa-anytls", "name": "AnyTLS external", "status": "warning", "detail": "Forwarding failed", "stateReason": "external_business_failure", "alertConfirmed": True},
             ]
             alerts = {x["id"]: x for x in dashboard.alerts({"trafficUsedBytes": 0, "trafficLimitBytes": 100}, services, [])}
             self.assertNotIn("service-anytls", alerts)
             self.assertEqual(alerts["service-singbox"]["affectedServices"], ["anytls"])
             self.assertIn("AnyTLS", alerts["service-singbox"]["descriptionZh"])
             self.assertIn("monitor-vless", alerts)
-            self.assertIn("repeatedly failed", alerts["monitor-external-qa-anytls"]["titleEn"])
 
     def test_confirmed_core_stop_overrides_stale_successful_statistics(self):
         with patch("castoriceui.collectors.service_state", return_value=("failed", 0)), patch("castoriceui.collectors.run", return_value="1.13.19"):
@@ -122,30 +118,6 @@ class SupplementalEvidenceTests(unittest.TestCase):
                 result = layered_probe({"address": "192.0.2.1", "ipVersion": 4, "dnsPort": 53})
             self.assertEqual(result["dns"]["status"], "failed")
 
-    def test_external_business_confirmation_recovery_and_observer_scope(self):
-        with tempfile.TemporaryDirectory() as folder:
-            storage = Storage(str(Path(folder) / "qa.sqlite"))
-            config = AppConfig(external_probe_secret="s" * 40, external_probe_agents=["qa"])
-            now = int(time.time())
-            def report(status, at, healthy=True):
-                # Receipt and evaluation share the fixture clock even on a slow VM.
-                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": at, "agentHealthy": healthy, "protocols": {"anytls": {"status": status, "failedStage": "authentication" if status == "failed" else ""}}}, now=now)
-            def get(active=set(), at=now):
-                return service_evidence(config, storage, active, now=at, startup_age=200)[0]
-            report("failed", now - 60)
-            self.assertFalse(get()["alertConfirmed"])
-            report("failed", now)
-            item = get()
-            self.assertTrue(item["alertConfirmed"])
-            self.assertEqual(item["stateReason"], "external_business_failure")
-            self.assertEqual(item["status"], "warning")
-            report("passed", now)
-            self.assertTrue(get({"external-qa-anytls"})["alertConfirmed"])
-            report("passed", now)
-            self.assertFalse(get({"external-qa-anytls"})["alertConfirmed"])
-            report("unavailable", now, False)
-            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
-            self.assertEqual(get(at=now+181)["stateReason"], "external_observer_unavailable")
 
     def test_expired_maintenance_is_visible_and_closed_window_is_not_expired(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -160,141 +132,13 @@ class SupplementalEvidenceTests(unittest.TestCase):
             path.write_text(json.dumps(data))
             self.assertEqual(maintenance_info(path)["state"], "invalid")
 
-    def test_external_clock_skew_uses_server_receipt_without_extending_expiry(self):
-        with tempfile.TemporaryDirectory() as folder:
-            storage = Storage(str(Path(folder) / "qa.sqlite"))
-            config = AppConfig(external_probe_secret="s" * 40, external_probe_agents=["qa"])
-            now = int(time.time())
-            def report(status, observed, received):
-                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": observed, "agentHealthy": True, "protocols": {"anytls": {"status": status}}}, now=received)
-            def get(at=now):
-                return service_evidence(config, storage, {"external-qa-anytls"}, now=at, startup_age=200)[0]
-            report("passed", now + .3, now)
-            report("passed", now + .3, now)
-            self.assertEqual(get()["stateReason"], "external_business_passed")
-            self.assertFalse(get()["alertConfirmed"])
-            self.assertEqual(get(now+181)["stateReason"], "external_observer_unavailable")
-            report("failed", now + .3, now)
-            report("failed", now + .3, now)
-            self.assertEqual(get()["stateReason"], "external_business_failure")
-            self.assertTrue(get()["alertConfirmed"])
-            report("passed", now + 61, now)
-            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
-            report("passed", now - 181, now)
-            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
-            report("passed", now, now - 181)
-            self.assertEqual(get()["stateReason"], "external_observer_unavailable")
 
-    def test_real_external_recovery_keeps_observer_and_business_incidents_distinct(self):
-        with tempfile.TemporaryDirectory() as folder:
-            storage = Storage(str(Path(folder) / "qa.sqlite"))
-            config = AppConfig(external_probe_secret="s" * 40, external_probe_agents=["qa"])
-            dashboard = DashboardService(config, storage)
-            dashboard.system_cache = {"trafficUsedBytes": 0, "trafficLimitBytes": 100}
-            def report(status, healthy=True):
-                storage.record_monitoring("external", "qa", {"agentId": "qa", "observedAt": int(time.time()), "agentHealthy": healthy, "protocols": {"anytls": {"status": status}}})
-                dashboard.refresh_services()
-                return next(item for item in dashboard.runtime_cache["services"] if item["id"] == "external-qa-anytls")
-            with patch("castoriceui.dashboard.service_snapshots", side_effect=lambda *_: []), patch.object(dashboard, "runtime_integrations", return_value=[]), patch("castoriceui.dashboard.maintenance_info", return_value={}):
-                unknown = report("unavailable", False)
-                self.assertFalse(unknown["evidence"]["businessIncidentActive"])
-                healthy = report("passed")
-                self.assertEqual(healthy["status"], "running", healthy)
-                self.assertFalse(any(item["id"].startswith("monitor-external-qa-anytls") for item in storage.active_alerts()))
-                report("failed")
-                failed = report("failed")
-                self.assertTrue(failed["evidence"]["businessIncidentActive"])
-                unknown = report("unavailable", False)
-                self.assertTrue(unknown["evidence"]["businessIncidentActive"])
-                self.assertEqual(unknown["stateReason"], "external_observer_unavailable")
-                self.assertTrue(report("passed")["alertConfirmed"])
-                recovered = report("passed")
-                self.assertFalse(recovered["alertConfirmed"])
-                self.assertFalse(recovered["evidence"]["businessIncidentActive"])
-                self.assertEqual(recovered["status"], "running")
 
-    def test_external_agent_failure_categories_and_no_private_log_in_result(self):
-        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
-        spec = importlib.util.spec_from_file_location("external_agent_qa", path)
-        agent = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(agent)
-        self.assertEqual(agent.failure_stage(b"authentication failed at private.invalid", "anytls", "transport"), "authentication")
-        self.assertEqual(agent.failure_stage(b"timeout: no recent network activity", "hysteria2", "authentication"), "quic")
-        self.assertEqual(agent.failure_stage(b"x509 validation failed", "anytls", "authentication"), "tls")
-        self.assertEqual(agent.failure_stage(b"remote dial connection refused", "anytls", "authentication"), "forwarding")
 
-    def test_observer_target_failure_does_not_hide_healthy_alternate_path(self):
-        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
-        spec = importlib.util.spec_from_file_location("observer_alternate_qa", path)
-        agent = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(agent)
-        config = {"testUrl": "https://example.com", "observerUrls": ["https://one.example.com", "https://two.example.com"]}
-        def fetch(_config, url):
-            if url == config["observerUrls"][0]:
-                raise OSError("synthetic target unavailable")
-            return b"healthy"
-        with patch.object(agent, "direct_fetch", side_effect=fetch):
-            self.assertTrue(agent.observer_healthy(config))
-        with patch.object(agent, "direct_fetch", side_effect=OSError("both unavailable")):
-            self.assertFalse(agent.observer_healthy(config))
 
-    def test_observer_health_targets_are_https_and_bounded(self):
-        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
-        spec = importlib.util.spec_from_file_location("observer_validation_qa", path)
-        agent = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(agent)
-        with patch.object(agent, "direct_fetch", return_value=b"healthy") as fetch:
-            self.assertTrue(agent.observer_healthy({"testUrl": "https://example.com"}))
-            fetch.assert_called_once()
-            fetch.reset_mock()
-            for urls in ([], ["https://example.com"] * 3, "https://example.com", ["http://example.com"], ["https://user:password@example.com"]):
-                self.assertFalse(agent.observer_healthy({"testUrl": "https://example.com", "observerUrls": urls}))
-            fetch.assert_not_called()
 
-    def test_upstream_tls_failure_after_socks_success_is_forwarding_evidence(self):
-        from unittest.mock import MagicMock
-        import ssl
-        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
-        spec = importlib.util.spec_from_file_location("external_forwarding_qa", path)
-        agent = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(agent)
-        context = MagicMock()
-        context.wrap_socket.side_effect = ssl.SSLError("synthetic upstream TLS failure")
-        evidence = {"failedStage": "transport"}
-        with patch.object(agent.socket, "create_connection", return_value=MagicMock()), patch.object(agent, "read_exact", side_effect=[b"\x05\x00", b"\x05\x00\x00\x01", b"\x00"*6]), patch.object(agent.ssl, "create_default_context", return_value=context):
-            with self.assertRaises(ssl.SSLError):
-                agent.open_tunnel(1, "https://example.com", evidence)
-        self.assertEqual(evidence["failedStage"], "forwarding")
 
-    def test_external_windows_interface_binding_is_socket_local_and_network_order(self):
-        import struct
-        from unittest.mock import MagicMock
-        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
-        spec = importlib.util.spec_from_file_location("external_binding_qa", path)
-        agent = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(agent)
-        stream = MagicMock()
-        with patch.object(agent.sys, "platform", "win32"):
-            agent.bind_probe_socket(stream, {"interfaceIndex": 7})
-        stream.setsockopt.assert_called_once_with(agent.socket.IPPROTO_IP, getattr(agent.socket, "IP_UNICAST_IF", 31), struct.pack("!I", 7))
 
-    def test_external_direct_dns_ignores_system_fake_ip_and_rejects_wrong_id(self):
-        import struct
-        from unittest.mock import MagicMock
-        path = Path(__file__).resolve().parents[2] / "deploy/external-probe.py"
-        spec = importlib.util.spec_from_file_location("external_dns_qa", path)
-        agent = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(agent)
-        question = b"\x07example\x03com\x00\x00\x01\x00\x01"
-        response = struct.pack("!6H", 12, 0x8180, 1, 1, 0, 0) + question + b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + b"\xc0\x00\x02\x01"
-        stream = MagicMock()
-        stream.__enter__.return_value = stream
-        stream.recv.return_value = response
-        with patch.object(agent.socket, "socket", return_value=stream), patch.object(agent.secrets, "randbelow", return_value=12), patch.object(agent.socket, "getaddrinfo", side_effect=AssertionError("system fake IP resolver used")):
-            self.assertEqual(agent.resolve_direct("example.com", {"resolverAddress": "192.0.2.53"}), "192.0.2.1")
-        with patch.object(agent.socket, "socket", return_value=stream), patch.object(agent.secrets, "randbelow", return_value=13):
-            with self.assertRaises(ValueError):
-                agent.resolve_direct("example.com", {"resolverAddress": "192.0.2.53"})
 
     def test_certificate_transaction_failure_restores_material_and_closes_window(self):
         path = Path(__file__).resolve().parents[2] / "deploy/receive-certificate.py"
@@ -454,19 +298,6 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(cached_metadata(("test", 2), 300, check), 2)
         self.assertEqual(cached_metadata(("test", 1), 0, check), 3)
 
-    def test_signed_external_evidence_rejects_replay_expiry_and_tampering(self):
-        cfg = AppConfig(external_probe_secret="synthetic-probe-test-key-000000000000", external_probe_agents=["qa"])
-        payload = {"agentId": "qa", "nonce": "synthetic-nonce-00001", "observedAt": int(time.time()), "agentHealthy": True, "protocols": {"anytls": {"status": "passed", "durationMs": 100}}}
-        def sign(p): return hmac.new(cfg.external_probe_secret.encode(), canonical(p), hashlib.sha256).hexdigest()
-        signature = sign(payload)
-        self.assertTrue(accept(cfg, self.storage, payload, signature))
-        self.assertFalse(accept(cfg, self.storage, payload, signature))
-        forged = {**payload, "nonce": "synthetic-nonce-00002"}
-        self.assertFalse(accept(cfg, self.storage, forged, signature))
-        expired = {**forged, "observedAt": int(time.time())-120}
-        self.assertFalse(accept(cfg, self.storage, expired, sign(expired)))
-        invalid = copy.deepcopy(forged); invalid["protocols"]["anytls"]["secret"] = "not-accepted"
-        self.assertFalse(accept(cfg, self.storage, invalid, sign(invalid)))
 
 
 class MonitoringApiTests(unittest.TestCase):

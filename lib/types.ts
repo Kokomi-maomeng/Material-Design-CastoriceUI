@@ -288,7 +288,8 @@ export interface SessionState {
 
 export interface AlertItem {
   id: string;
-  logRef?: { domain: string; target: string };
+  repeatCount?: number;
+  lastStartedAt?: string;
   severity: "critical" | "warning" | "info";
   title: string;
   titleZh?: string;
@@ -346,7 +347,6 @@ export interface AlertPageResponse {
   pageSize: number;
   totalPages: number;
   summary: AlertSummary;
-  logLocation?: { database: string; journal: string };
 }
 
 export interface Subscription {

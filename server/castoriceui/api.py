@@ -347,7 +347,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_history_range"})
         elif path == "/api/v2/monitoring":
             runtime = self.app.dashboard.runtime_cache
-            self.send_json(HTTPStatus.OK, {"freshness": self.app.dashboard.collection_freshness(), "services": runtime.get("services", []), "maintenance": runtime.get("maintenance", {"state": "unavailable"}), "networkCorrelation": runtime.get("networkCorrelation", {}), "officialStatus": runtime.get("officialStatus", {"status": "not_checked"}), "external": self.app.storage.monitoring_history("external", limit=12), "resource": self.app.storage.monitoring_history("resource", limit=12), "scope": {"panel": "liveness", "core": "systemd and owned listeners", "statistics": "local APIs", "business": "external authenticated samples only"}})
+            self.send_json(HTTPStatus.OK, {"freshness": self.app.dashboard.collection_freshness(), "services": runtime.get("services", []), "maintenance": runtime.get("maintenance", {"state": "unavailable"}), "networkCorrelation": runtime.get("networkCorrelation", {}), "officialStatus": runtime.get("officialStatus", {"status": "not_checked"}), "resource": self.app.storage.monitoring_history("resource", limit=12), "scope": {"panel": "liveness", "core": "systemd and owned listeners", "statistics": "local APIs"}})
         elif path == "/api/v2/audits":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)
@@ -457,12 +457,6 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
         try:
-            if path == "/api/v2/monitoring/probe":
-                from .external_probe import accept
-                payload = self.read_json()
-                accepted = accept(self.app.config, self.app.storage, payload, self.headers.get("X-Castorice-Signature", ""))
-                self.send_json(HTTPStatus.OK if accepted else HTTPStatus.FORBIDDEN, {"ok": accepted})
-                return
             if path == "/api/v2/auth/initialize":
                 payload = self.read_json()
                 with self.app.authentication_gate():

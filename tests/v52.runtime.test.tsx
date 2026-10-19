@@ -13,6 +13,19 @@ const item: AlertItem = { id: "qa", episodeId: "qa", title: "Synthetic alert", d
 const props = () => ({ alerts: [], onAcknowledge: vi.fn(), onAcknowledgeAll: vi.fn(), onToast: vi.fn(), onConfigure: vi.fn() });
 const page = (number = 1) => ({ items: Array.from({ length: 50 }, (_, i) => ({ ...item, episodeId: `${number}-${i}`, title: `Alert ${number}-${i}` })), total: 120, page: number, pageSize: 50, totalPages: 3, summary: { pending: 120, critical: 10, warning: 20, info: 90 }, logLocation: { database: "/var/lib/castoriceui/state.db", journal: "journalctl -u castoriceui-backend" } });
 
+it("shows useful record details without exposing old database paths or commands", async () => {
+  const data = page();
+  vi.spyOn(api, "fetchAlerts").mockResolvedValue({ ...data, items: [{ ...item, repeatCount: 4, lastStartedAt: "2026-10-15T01:00:00Z" }] });
+  english(<AlertsPage {...props()} />);
+  await screen.findByText("Synthetic alert");
+  fireEvent.click(screen.getByText("Record details", { exact: true }));
+  const details = document.querySelector(".alert-record-details") as HTMLElement;
+  expect(within(details).getByText("Service monitoring")).toBeTruthy();
+  expect(within(details).getByText("4", { exact: true })).toBeTruthy();
+  expect(within(details).getByText("Last occurrence")).toBeTruthy();
+  expect(details.textContent).not.toMatch(/journalctl|state\.db|episode_id|monitoring_samples|alert_history/);
+});
+
 it("toggles 30 and 50 pending rows immediately without another request and restores the cached first page", async () => {
   const fetch = vi.spyOn(api, "fetchAlerts").mockImplementation(async (options) => page(options.page));
   english(<AlertsPage {...props()} />);

@@ -11,7 +11,6 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from .monitoring import NetworkPolicy, ResourcePressure, correlate, event, timestamp, maintenance_info
-from .external_probe import service_evidence
 from .alert_policy import AlertPolicy
 from .collectors import layered_probe
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -977,8 +976,6 @@ class DashboardService:
                     detail_zh += "；受影响协议：" + "、".join(item.get("nameZh", item["name"]) for item in affected)
                 alerts.append({"id": f"service-{service['id']}", "severity": "critical", "title": f"{service['name']} is offline", "titleEn": f"{service.get('nameEn', service['name'])} is offline", "titleZh": f"{service.get('nameZh', service['name'])} 已离线", "description": detail_en, "descriptionEn": detail_en, "descriptionZh": detail_zh, "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Service monitor", "sourceEn": "Service monitor", "sourceZh": "服务监控", "affectedServices": [item["id"] for item in affected], "evidence": {"service": service.get("evidence", {}), "affectedProtocols": {item["id"]: item.get("evidence", {}) for item in affected}}})
             elif service["status"] == "warning" and service.get("id") not in {"certificate", "kernel"}:
-                if str(service["id"]).startswith("external-") and not service.get("alertConfirmed"):
-                    continue
                 key = str(service.get("rootCauseId") or service["id"])
                 reason = service.get("stateReason", "statistics_unavailable")
                 # Keep the original outage episode while its recovery is unknown;
@@ -992,8 +989,8 @@ class DashboardService:
                     continue
                 if any(item["id"] == "monitor-" + key for item in alerts):
                     continue
-                title_en = f"{service['name']} external business check failed" if reason == "external_business_failure" else f"{service['name']} monitoring evidence unavailable"
-                title_zh = f"{service['name']} 外部业务验证异常" if reason == "external_business_failure" else f"{service['name']} 状态证据无法确认"
+                title_en = f"{service['name']} monitoring evidence unavailable"
+                title_zh = f"{service['name']} 状态证据无法确认"
                 alerts.append({"id": "monitor-" + key, "severity": "warning", "title": title_en, "titleEn": title_en, "titleZh": title_zh, "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "source": "Monitor evidence", "sourceEn": "Monitor evidence", "sourceZh": "监控证据", "time": "now", "acknowledged": False, "reason": reason, "evidence": service.get("evidence", {}), "affectedServices": [item["id"] for item in services if item.get("rootCauseId") == key]})
             else:
                 self.unknown_since.pop(str(service.get("rootCauseId") or service["id"]), None)
@@ -1391,12 +1388,6 @@ class DashboardService:
                 if key == "singbox":
                     runtime[key]["inventory"] = {"available": False, "reason": "collector_stale"}
         services = service_snapshots(self.config, system, runtime["hy2"], runtime["singbox"])
-        active_external = self.storage.active_alerts()
-        active_business = {str(item["id"])[8:] for item in active_external
-                           if str(item["id"]).startswith("monitor-external-") and
-                           (item.get("reason") == "external_business_failure" or item.get("evidence", {}).get("businessIncidentActive") is True)}
-        active_business.update(str(item["id"]) for item in active_external if str(item["id"]).startswith("observer-"))
-        services.extend(service_evidence(self.config, self.storage, active_business, startup_age=time.monotonic() - self.started_monotonic))
         maintenance = maintenance_info()
         if maintenance.get("id"):
             for item in services:
