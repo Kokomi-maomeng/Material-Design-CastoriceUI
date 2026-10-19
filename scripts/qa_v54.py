@@ -1,6 +1,35 @@
 """Shared-control regressions, run inside the existing three-engine suite."""
 from playwright.sync_api import expect
-from qa_browser import frames, settled
+from qa_browser import settled
+
+
+def menu_exit_frames(page, menu, select):
+    # Sample a short-lived CSS animation in one task; its React presence timer
+    # must remain real. Persistent disclosures use the original frame sampler.
+    menu.evaluate('''e=>{
+      e.__exitQA=[];
+      e.__captureExit=event=>{if(event.target===e){for(const a of e.getAnimations()){a.pause();e.__exitQA.push(a)}}};
+      e.addEventListener('animationstart',e.__captureExit);
+    }''')
+    select()
+    return page.evaluate('''async()=>{
+      const e=document.querySelector('.md-select-menu.is-closing');
+      if(!e)throw new Error('Menu disappeared before its exit animation');
+      try {
+        if(!e.__exitQA.length){for(const a of e.getAnimations()){a.pause();e.__exitQA.push(a)}}
+        if(!e.__exitQA.length)throw new Error('No native menu exit animation');
+        const rows=[];
+        for(const progress of [0,.25,.5,.75,.96]){
+          for(const a of e.__exitQA)a.currentTime=Number(a.effect.getTiming().duration)*progress;
+          rows.push({opacity:Number(getComputedStyle(e).opacity)});
+        }
+        return rows;
+      } finally {
+        e.removeEventListener('animationstart',e.__captureExit);
+        for(const a of e.__exitQA)a.play();
+        delete e.__exitQA;delete e.__captureExit;
+      }
+    }''')
 
 
 def verify_controls(page, state, appearance, configured_url):
@@ -39,7 +68,7 @@ def verify_controls(page, state, appearance, configured_url):
     # Actual closing animation remains mounted, non-interactive and measurable.
     source.click(); settled(page)
     menu = page.locator('.md-select-menu')
-    closing = frames(menu, lambda: page.get_by_role('option', name='Image API', exact=True).click(), False)
+    closing = menu_exit_frames(page, menu, lambda: page.get_by_role('option', name='Image API', exact=True).click())
     opacities = [round(row['opacity'], 3) for row in closing]
     assert len(set(opacities)) >= 3 and opacities[0] > opacities[-1], opacities
     # A second close can inspect inert before the presence timeout unmounts it.
