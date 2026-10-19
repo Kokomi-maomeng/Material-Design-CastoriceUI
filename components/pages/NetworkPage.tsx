@@ -425,7 +425,7 @@ function Sparkline({
     const update = () => {
       const rect = svg.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      const next = Math.max(240, Math.min(1480, Math.round((rect.width / rect.height) * height)));
+      const next = Math.max(1, Math.round(rect.width));
       setViewWidth((current) => Math.abs(current - next) > 1 ? next : current);
     };
     update();

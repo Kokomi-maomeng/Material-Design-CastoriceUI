@@ -13,7 +13,7 @@
 .service-health-card.is-healthy { background: var(--success-container); color: var(--on-success-container); }
 .service-health-card.is-warning { background: var(--warning-container); color: var(--on-warning-container); }
 
-.network-trend-chart { display: block; max-height: 190px; }
+.network-trend-chart { display: block; max-height: none; }
 .sparkline-hit-area { fill: transparent; pointer-events: all; }
 .sparkline:focus-within { border-radius: 8px; outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 3px; }
 
