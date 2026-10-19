@@ -113,6 +113,11 @@ def run(engine, browser):
             nav.click(); page.get_by_role('heading', name=heading, exact=True).wait_for(); settled(page)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'), (route, width, 'document overflow')
             assert page.locator('.page-content').evaluate('e=>getComputedStyle(e).animationName') == 'page-enter'
+            if route in ('accounts','traffic'):
+                control = page.get_by_role('button', name='Account enabled', exact=True) if route == 'accounts' else page.locator('.traffic-range-control').get_by_role('button', name='1h', exact=True)
+                selection = frames(control, lambda: control.click(), reduced)
+                if not reduced: assert len({r['backgroundColor'] for r in selection}) >= 3, (route, selection)
+                settled(page)
         if width > 900:
             sidebar = page.get_by_role('button', name='Hide sidebar', exact=True)
             margins = [r['marginLeft'] for r in frames(page.locator('.app-main'), lambda: sidebar.click(), reduced)]
@@ -140,7 +145,7 @@ def run(engine, browser):
         assert page.url.endswith('#/overview'), 'URL and rendered destination diverged after signing in again'
         assert not errors, errors
         assert state['settingsWrites'] == 0
-        cases.append({'width':width,'reducedMotion':reduced,'routes':len(routes),'frameMeasurement':'native-browser-timeline','glassIntermediateFrames':len({round(r['height'],1) for r in expansion}),'nativeSummaryKeyboard':True,'rapidReversal':True,'failedSignOutRestoresScreen':True,'logoutRemovesPrivateDom':True,'logoutKeepsDocumentImage':True,'postLoginOverview':True,'settingsWrites':0})
+        cases.append({'width':width,'reducedMotion':reduced,'routes':len(routes),'frameMeasurement':'native-browser-timeline','selectionMotion':True,'glassIntermediateFrames':len({round(r['height'],1) for r in expansion}),'nativeSummaryKeyboard':True,'rapidReversal':True,'failedSignOutRestoresScreen':True,'logoutRemovesPrivateDom':True,'logoutKeepsDocumentImage':True,'postLoginOverview':True,'settingsWrites':0})
         print(f'motion case passed: {engine}, {width}px, reduced={reduced}', file=sys.stderr, flush=True)
         context.close()
     print(json.dumps({'engine':engine,'motionCases':cases,'passed':True,'pageErrors':0,'apiRoutesMocked':True}))

@@ -38,7 +38,7 @@ def valid_reports(name, reports):
         return one("motionCases", lambda r: r.get("passed") and r.get("pageErrors") == 0 and len(r["motionCases"]) == 4
                    and all(c.get("routes") == 10 and c.get("frameMeasurement") == "native-browser-timeline"
                            and (c.get("reducedMotion") or c.get("glassIntermediateFrames", 0) >= 3)
-                           and all(c.get(k) for k in ("nativeSummaryKeyboard", "rapidReversal", "failedSignOutRestoresScreen", "logoutRemovesPrivateDom", "logoutKeepsDocumentImage", "postLoginOverview"))
+                           and all(c.get(k) for k in ("selectionMotion", "nativeSummaryKeyboard", "rapidReversal", "failedSignOutRestoresScreen", "logoutRemovesPrivateDom", "logoutKeepsDocumentImage", "postLoginOverview"))
                            and c.get("settingsWrites") == 0 for c in r["motionCases"]))
     if name == "browser-v53.py":
         return one("opticalCases", lambda r: r.get("passed") and len(r["opticalCases"]) == 18 and not r.get("pageErrors")

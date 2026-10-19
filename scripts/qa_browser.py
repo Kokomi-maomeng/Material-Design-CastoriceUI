@@ -48,7 +48,7 @@ def frames(locator, click, reduced):
             // Waiting for five display frames can outlast a short menu's real
             // presence timeout on loaded CI hosts, even though it is paused.
             const style=getComputedStyle(e);
-            rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0});
+            rows.push({progress,height:e.getBoundingClientRect().height,opacity:Number(style.opacity),marginLeft:parseFloat(style.marginLeft)||0,backgroundColor:style.backgroundColor});
           }
           return rows;
         }""", reduced)
