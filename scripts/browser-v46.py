@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
+from qa_browser import settled as settle_view, open_page as open_ready_page
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
@@ -67,16 +68,11 @@ def run(engine, timezone, browser):
     page.locator(".traffic-hero").wait_for()
 
     def settled():
-        page.evaluate("""async()=>{await document.fonts.ready;
-          await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));
-          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}""")
+        settle_view(page)
 
     def open_page(section):
         titles = {"overview": dashboard["overview"]["nodeName"], "traffic": "Traffic analytics", "connections": "Active connections", "accounts": "Account status", "network": "Network quality", "services": "Services", "subscriptions": "Subscription management", "alerts": "Alerts", "audit": "Audit log", "setup": "Setup"}
-        page.evaluate("section=>location.hash='/'+section", section)
-        page.get_by_role("heading", level=1, name=titles[section], exact=True).wait_for()
-        page.locator("#main-content .page-loading").wait_for(state="detached")
-        settled()
+        open_ready_page(page, section, titles[section])
 
     def geometry():
         return page.evaluate("()=>{let r=document.querySelector('.app-main').getBoundingClientRect();return {x:r.x,width:r.width,scroll:scrollY,overflow:getComputedStyle(document.documentElement).overflowY}}")

@@ -7,15 +7,55 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      browser: ${{ steps.plan.outputs.browser }}
+      vm: ${{ steps.plan.outputs.vm }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      image12: ${{ steps.plan.outputs.image12 }}
+      image13: ${{ steps.plan.outputs.image13 }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      - run: npm run scan:sensitive
+      - run: python3 -m pip install -r server/requirements.txt 'playwright==1.58.0'
+      - id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/ci.py plan
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ci-plan
+          path: outputs/ci/plan.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
@@ -27,16 +67,15 @@ jobs:
 
   nginx-template:
     name: Nginx template (Debian ${{ matrix.debian }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         debian: ["12", "13"]
     container: debian:${{ matrix.debian }}-slim
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Validate the complete TLS template
-        shell: bash
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate TLS template and existing-browser cache upgrade
         run: |
           set -euo pipefail
           apt-get update
@@ -60,59 +99,73 @@ jobs:
           python3 scripts/nginx-cache-acceptance.py
 
   browser-matrix:
-    name: Browser matrix (${{ matrix.engine }})
-    runs-on: ubuntu-latest
+    name: Browser (${{ matrix.engine }}, ${{ matrix.suite }})
+    needs: plan
+    if: needs.plan.outputs.browser == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     strategy:
       fail-fast: false
-      matrix:
-        engine: [chromium, firefox, webkit]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ci-plan
+          path: outputs/ci
       - run: npm ci
-      - name: Install browser runtime
+      - name: Install pinned browser runtime
         run: |
-          python3 -m pip install -r server/requirements.txt
-          python3 -m pip install 'playwright==1.58.0'
+          python3 -m pip install -r server/requirements.txt 'playwright==1.58.0'
           python3 -m playwright install --with-deps '${{ matrix.engine }}'
-      - name: Run interaction and viewport matrix
-        shell: bash
+      - name: Run relevant suite first, then remaining regressions once
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           npm run dev > /tmp/castorice-vite.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 60); do
-            if curl --fail --silent --insecure https://127.0.0.1:5173/ >/dev/null; then
-              break
-            fi
-            if [ "$attempt" -eq 60 ]; then
-              cat /tmp/castorice-vite.log
-              exit 1
-            fi
+            if curl --fail --silent --insecure https://127.0.0.1:5173/ >/dev/null; then break; fi
+            if [ "$attempt" -eq 60 ]; then cat /tmp/castorice-vite.log; exit 1; fi
             sleep 1
           done
-          python3 scripts/browser-matrix.py '${{ matrix.engine }}'
-          if [ '${{ matrix.engine }}' = 'firefox' ]; then
-            xvfb-run -a python3 scripts/browser-v46.py firefox
-          else
-            python3 scripts/browser-v46.py '${{ matrix.engine }}'
-          fi
-          python3 scripts/browser-first-run.py '${{ matrix.engine }}'
-          python3 scripts/browser-v47.py '${{ matrix.engine }}'
-          python3 scripts/browser-v50.py '${{ matrix.engine }}'
-          python3 scripts/browser-v51.py '${{ matrix.engine }}'
-          python3 scripts/browser-v52.py '${{ matrix.engine }}'
-          python3 scripts/browser-v521.py '${{ matrix.engine }}'
-          python3 scripts/browser-v53.py '${{ matrix.engine }}'
-          python3 scripts/browser-v532.py '${{ matrix.engine }}'
+          python3 scripts/run-browser-suite.py '${{ matrix.engine }}' '${{ matrix.suite }}' --base "$CI_BASE"
+      - name: Record actual inputs and result
+        if: always()
+        env:
+          CHECK_STATUS: ${{ job.status }}
+        run: |
+          status=failed
+          if [ "$CHECK_STATUS" = success ]; then status=passed; fi
+          python3 scripts/ci.py record --domain '${{ matrix.suite }}' --key '${{ matrix.suite }}-${{ matrix.engine }}' --status "$status"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: ci-result-${{ matrix.suite }}-${{ matrix.engine }}
+          path: outputs/ci/${{ matrix.suite }}-${{ matrix.engine }}.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: browser-detail-${{ matrix.suite }}-${{ matrix.engine }}
+          path: outputs/browser/*.json
+          if-no-files-found: warn
+          retention-days: 7
 
   linux-install:
     name: Linux install (Debian ${{ matrix.debian }})
-    runs-on: ubuntu-latest
+    needs: plan
+    if: needs.plan.outputs.vm == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -126,30 +179,62 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-plan
+          path: outputs/ci
       - run: npm ci
+      - run: python3 -m pip install -r server/requirements.txt 'playwright==1.58.0'
       - run: npm run release:package
       - name: Install independent VM runtime
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils cloud-image-utils
       - name: Fresh installation, rollback, retry and actual VM reboot
+        env:
+          EXPECTED_IMAGE: ${{ matrix.debian == '12' && needs.plan.outputs.image12 || needs.plan.outputs.image13 }}
         run: |
           panel_version=$(node --print "require('./package.json').version")
-          python3 scripts/linux-vm-qa.py '${{ matrix.debian }}' "release/CastoriceUI-v${panel_version}.tar.gz"
+          python3 scripts/linux-vm-qa.py '${{ matrix.debian }}' "release/CastoriceUI-v${panel_version}.tar.gz" --expected-image-sha512 "$EXPECTED_IMAGE"
+      - name: Record actual inputs and result
+        if: always()
+        env:
+          CHECK_STATUS: ${{ job.status }}
+        run: |
+          status=failed
+          if [ "$CHECK_STATUS" = success ]; then status=passed; fi
+          python3 scripts/ci.py record --domain vm --key 'vm-${{ matrix.debian }}' --status "$status"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: ci-result-vm-${{ matrix.debian }}
+          path: outputs/ci/vm-${{ matrix.debian }}.json
+          if-no-files-found: error
+          retention-days: 7
 
   acceptance:
     name: Release acceptance
     if: always()
-    needs: [validate, nginx-template, browser-matrix, linux-install]
-    runs-on: ubuntu-latest
+    needs: [plan, validate, nginx-template, browser-matrix, linux-install]
+    runs-on: ubuntu-24.04
     steps:
-      - name: Require every validation matrix
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-plan
+          path: outputs/ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: needs.browser-matrix.result != 'skipped' || needs.linux-install.result != 'skipped'
+        with:
+          pattern: ci-result-*
+          path: outputs/ci
+          merge-multiple: true
+      - name: Require fresh execution or verified inherited evidence
         env:
           JOB_RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          results = json.loads(os.environ["JOB_RESULTS"])
-          failed = {name: item["result"] for name, item in results.items() if item["result"] != "success"}
-          if failed:
-              raise SystemExit(f"Acceptance failed: {failed}")
-          print("All code, browser, Nginx and Linux deployment gates passed")
-          PY
+        run: python3 scripts/ci.py merge
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: castorice-ci-evidence-v1
+          path: outputs/ci/manifest.json
+          if-no-files-found: error
+          retention-days: 7

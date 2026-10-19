@@ -14,6 +14,7 @@ import urllib.request
 import ssl
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
+from qa_browser import settled, open_page
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'server'))
@@ -88,6 +89,8 @@ def main():
                                         page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
                                         page.get_by_role('button', name='Sign in', exact=True).click()
                                         page.locator('#main-content').wait_for()
+                                        settled(page)
+                                        overview_title = page.locator('#main-content h1').inner_text().strip()
                                         page.goto(origin + '/#/subscriptions', wait_until='networkidle')
                                         page.get_by_role('button', name='Copy URL', exact=True).click()
                                         address = page.get_by_role('textbox', name='Subscription URL', exact=True)
@@ -98,8 +101,21 @@ def main():
                                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
                                         page.get_by_role('button', name='Done', exact=True).click()
                                         assert page.get_by_role('textbox', name='Subscription URL', exact=True).count() == 0
+                                        if clipboard == 'denied':
+                                            open_page(page, 'audit', 'Audit log')
+                                            page.locator('.user-menu').click()
+                                            page.get_by_role('menuitem', name='Sign out', exact=True).click()
+                                            page.get_by_role('heading', name='Welcome back', exact=True).wait_for()
+                                            assert page.locator('.app-shell').count() == 0
+                                            assert context.request.get(origin + '/api/v2/auth/session').status == 401
+                                            page.get_by_label('Username', exact=True).fill('qa-browser')
+                                            page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
+                                            page.get_by_role('button', name='Sign in', exact=True).click()
+                                            page.get_by_role('heading', name=overview_title, exact=True).wait_for()
+                                            settled(page)
+                                            assert page.url.endswith('#/overview'), 'real API login returned to stale page'
                                         assert not errors and not backend_errors, (errors, backend_errors)
-                                        results.append({'engine': engine, 'motion': motion, 'clipboard': clipboard, 'realApi': True, 'selectableAddress': True, 'secretClearedOnClose': True})
+                                        results.append({'engine': engine, 'motion': motion, 'clipboard': clipboard, 'realApi': True, 'selectableAddress': True, 'secretClearedOnClose': True, 'realLogoutAndLoginReturn': clipboard == 'denied'})
                                         context.close()
                             finally: browser.close()
                     print(json.dumps({'cases': results, 'apiRoutesMocked': False, 'windowsOsReadingsSubstituted': sys.platform == 'win32', 'backendErrors': backend_errors}))

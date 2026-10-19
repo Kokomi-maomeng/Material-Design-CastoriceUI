@@ -26,6 +26,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("debian", choices=("12", "13"))
     parser.add_argument("archive", type=Path)
+    parser.add_argument("--expected-image-sha512")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="castorice-vm-") as directory:
@@ -36,6 +37,8 @@ def main() -> None:
         with urllib.request.urlopen(base + "SHA512SUMS", timeout=30) as response:
             sums = response.read().decode()
         expected = next(line.split()[0] for line in sums.splitlines() if line.split()[-1].lstrip("*") == name)
+        if args.expected_image_sha512 and expected != args.expected_image_sha512:
+            raise RuntimeError("Official VM image changed after CI planning")
         image = work / name
         urllib.request.urlretrieve(base + name, image)
         digest = hashlib.sha512()
