@@ -306,6 +306,12 @@ def normalize_https_image_url(value: str, allowed_hosts: list[str] | None = None
     parsed = urlsplit(candidate)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ValueError("Background image API must use HTTPS without credentials or a fragment")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("value: Background image API port must be an integer from 1 to 65535") from error
+    if parsed.netloc.endswith(":") or port is not None and not 1 <= port <= 65535:
+        raise ValueError("value: Background image API port must be an integer from 1 to 65535")
     hosts = {str(host).strip().rstrip(".").lower() for host in (allowed_hosts or []) if str(host).strip()}
     if hosts and parsed.hostname.rstrip(".").lower() not in hosts:
         raise ValueError("Background image host is not allowlisted by the server configuration")

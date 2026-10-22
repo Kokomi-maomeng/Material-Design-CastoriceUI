@@ -158,7 +158,8 @@ export interface IntegrationStatus {
   id: IntegrationId;
   enabled: boolean;
   configured: boolean;
-  status: "ready" | "pending" | "preview" | "error";
+  status: "ready" | "partial" | "pending" | "preview" | "error";
+  sources?: { id: string; status: "ready" | "error" }[];
   summary: string;
   summaryZh?: string;
   summaryEn?: string;
@@ -217,6 +218,7 @@ export interface TrafficBreakdown {
 }
 
 export interface DashboardPayload {
+  rejectedAlertCount?: number;
   mode: "loading" | "live" | "stale" | "error";
   generatedAt: string;
   runtimeObservedAt?: string | null;

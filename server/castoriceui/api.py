@@ -45,6 +45,8 @@ def validation_error_payload(error: ValueError) -> dict[str, str]:
     if message.startswith("Password must"):
         return {"error": "weak_password", "field": "password", "message": message}
     lowered = message.casefold()
+    if "background image api port" in lowered:
+        return {"error": "invalid_background_port", "field": "value", "message": "Background image API port must be an integer from 1 to 65535"}
     if "configure" in lowered and "secret" in lowered and "protected server config" in lowered:
         return {"error": "missing_upstream_secret", "message": "Configure the required upstream secret in the protected server configuration"}
     mappings = (

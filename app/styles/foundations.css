@@ -41,6 +41,8 @@
   --inverse-surface: #322f34;
   --inverse-on-surface: #f6eef6;
   --error: #ba1a1a;
+  --on-error: #ffffff;
+  --on-error: #ffffff;
   --error-container: #ffdad6;
   --on-error-container: #410002;
   --success: #2f6b48;
@@ -93,6 +95,7 @@
 :root[data-theme-color="amber"] { --primary: #7b5f21; --primary-container: #ffdf91; --on-primary-container: #271900; --secondary: #6b5d3f; --secondary-container: #f4e1bb; --tertiary: #4a6546; --chart-primary: #957328; --chart-secondary: #5c7b57; }
 
 :root[data-theme="dark"] {
+  --primary: #cdb5ff;
   --on-primary: #41266e;
   --primary-container: #5a3f89;
   --on-primary-container: #ecdcff;
@@ -119,6 +122,7 @@
   --inverse-surface: #e8e0e8;
   --inverse-on-surface: #322f34;
   --error: #ffb4ab;
+  --on-error: #690005;
   --error-container: #93000a;
   --on-error-container: #ffdad6;
   --success: #98d5ac;
@@ -170,7 +174,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .navigation-rail nav button:active { transform: scale(.985); }
 .navigation-rail nav button.is-active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 650; }
 .navigation-rail nav button span:nth-child(2) { flex: 1; }
-.navigation-rail nav button em { min-width: 22px; height: 22px; border-radius: 11px; background: var(--error); color: #fff; font-size: var(--text-xs); font-style: normal; display: grid; place-items: center; padding: 0 6px; }
+.navigation-rail nav button em { min-width: 22px; height: 22px; border-radius: 11px; background: var(--error); color: var(--on-error); font-size: var(--text-xs); font-style: normal; display: grid; place-items: center; padding: 0 6px; }
 .nav-footer { margin-top: auto; border-top: 1px solid var(--outline-variant); padding-top: 12px; }
 .nav-status { padding: 12px; display: flex; align-items: center; gap: 10px; }
 .nav-status > div { display: flex; flex-direction: column; }
@@ -187,7 +191,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .demo-indicator { display: flex; align-items: center; gap: 8px; color: var(--on-surface-variant); font-size: var(--text-xs); background: var(--surface-container); border-radius: 20px; padding: 7px 12px; }
 .notification-button { width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; cursor: pointer; position: relative; display: grid; place-items: center; }
 .notification-button:hover { background: var(--surface-container-high); }
-.notification-badge { position: absolute; right: 1px; top: 1px; min-width: 18px; height: 18px; padding: 0 3px; border-radius: 10px; background: var(--error); color: #fff; font-size: var(--text-xs); font-weight: 700; display: grid; place-items: center; border: 2px solid var(--surface); }
+.notification-badge { position: absolute; right: 1px; top: 1px; min-width: 18px; height: 18px; padding: 0 3px; border-radius: 10px; background: var(--error); color: var(--on-error); font-size: var(--text-xs); font-weight: 700; display: grid; place-items: center; border: 2px solid var(--surface); }
 .user-menu { border: 0; background: transparent; display: flex; align-items: center; gap: 9px; border-radius: 24px; padding: 4px 8px 4px 5px; cursor: pointer; }
 .user-menu:hover { background: var(--surface-container-high); }
 .user-menu > div { display: flex; flex-direction: column; text-align: left; }
@@ -241,7 +245,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .md-button--outlined { background: transparent; color: var(--primary); border: 1px solid var(--outline); }
 .md-button--outlined:hover:not(:disabled), .md-button--text:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 8%, transparent); }
 .md-button--text { background: transparent; color: var(--primary); padding: 0 12px; }
-.md-button--danger { background: var(--error); color: #fff; }
+.md-button--danger { background: var(--error); color: var(--on-error); }
 .md-button--compact { height: 36px; padding: 0 13px; }
 .md-button--icon { width: 42px; padding: 0; border-radius: 50%; }
 

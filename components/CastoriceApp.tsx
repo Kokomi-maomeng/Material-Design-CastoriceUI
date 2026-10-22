@@ -770,6 +770,7 @@ export function CastoriceApp() {
               </div>
             </div>
           ) : null}
+          {dashboard.rejectedAlertCount ? <div className="preview-mode-banner" role="alert">{t(`有 ${dashboard.rejectedAlertCount} 条告警数据无法显示，请在告警中心重试。`, `${dashboard.rejectedAlertCount} alert record(s) could not be displayed. Retry in Alerts.`)}</div> : null}
           <DataBoundary resetKey={`${page}:${dashboard.generatedAt}`} message={t("页面数据异常，请刷新重试。", "This page could not display its data. Refresh to retry.")} retry={t("刷新数据", "Refresh")} onRetry={() => void loadDashboard()}><Suspense fallback={<PageLoading />}>{content}</Suspense></DataBoundary>
         </main>
       </div>

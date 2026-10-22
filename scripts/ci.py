@@ -19,7 +19,7 @@ SCHEMA = 1
 MAX_AGE = 24 * 3600
 SUITES = {
     "layout": ("browser-matrix.py", "browser-v46.py", "browser-first-run.py", "browser-v47.py", "browser-v521.py"),
-    "behavior": ("browser-v532.py", "browser-v53.py", "browser-v52.py", "browser-v51.py", "browser-v50.py"),
+    "behavior": ("browser-v56.py", "browser-v532.py", "browser-v53.py", "browser-v52.py", "browser-v51.py", "browser-v50.py"),
 }
 ENGINES = ("chromium", "firefox", "webkit")
 EXPECTED = {"layout": [f"layout-{e}" for e in ENGINES], "behavior": [f"behavior-{e}" for e in ENGINES], "vm": ["vm-12", "vm-13"]}
