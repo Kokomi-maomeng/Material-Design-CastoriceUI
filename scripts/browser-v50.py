@@ -11,6 +11,7 @@ import zlib
 
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
+from qa_browser import settled
 
 BASE = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
@@ -211,10 +212,18 @@ def run(engine, context):
     assert page.locator(".notification-button .material-symbols-rounded").evaluate("e=>getComputedStyle(e).animationName==='none'")
     page.emulate_media(reduced_motion="no-preference")
     page.locator(".notification-button").click()
-    page.locator(".alert-row").filter(has_text="Critical episode 0").get_by_role("button", name="Acknowledge", exact=True).click()
+    page.get_by_role("heading", level=1, name="Alerts", exact=True).wait_for()
+    page.locator("#main-content .page-loading").wait_for(state="detached")
+    settled(page)
+    with page.expect_response(lambda response: urlsplit(response.url).path == "/api/v2/alerts/critical-0/ack" and response.request.method == "POST") as acknowledged:
+        page.locator(".alert-row").filter(has_text="Critical episode 0").get_by_role("button", name="Acknowledge", exact=True).click()
+    assert acknowledged.value.status == 200 and critical[0]["acknowledged"]
     page.locator(".alert-row").filter(has_text="Critical episode 0").wait_for(state="detached")
     expect(page.locator(".notification-button")).to_have_class("notification-button has-critical")
-    page.locator(".alert-row").filter(has_text="Critical episode 1").get_by_role("button", name="Acknowledge", exact=True).click()
+    settled(page)
+    with page.expect_response(lambda response: urlsplit(response.url).path == "/api/v2/alerts/critical-1/ack" and response.request.method == "POST") as acknowledged:
+        page.locator(".alert-row").filter(has_text="Critical episode 1").get_by_role("button", name="Acknowledge", exact=True).click()
+    assert acknowledged.value.status == 200 and critical[1]["acknowledged"]
     page.wait_for_function("!document.querySelector('.notification-button')?.classList.contains('has-critical')")
     assert not any(row["acknowledged"] for row in warnings)
     # Authenticated reload prepares the document image without mounting login.
