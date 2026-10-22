@@ -14,7 +14,8 @@ function matches(value: unknown, template: unknown): boolean {
 export function validDashboard(value: unknown): value is DashboardPayload {
   if (!object(value) || !["live", "stale"].includes(String(value.mode))) return false;
   // The wire contract omits optional quota metadata on older installations.
-  const { trafficQuota: _optionalQuota, ...overview } = emptyDashboard.overview;
+  const optionalQuota = emptyDashboard.overview.trafficQuota;
+  const overview = Object.fromEntries(Object.entries(emptyDashboard.overview).filter(([key]) => key !== "trafficQuota" && key !== "databaseBytes"));
   const template = { ...emptyDashboard, overview };
   if (!matches(value, template) || !Number.isFinite(Date.parse(String(value.generatedAt)))) return false;
   const rows = (key: string, required: string[], arrays: string[] = [], numbers: string[] = []) => Array.isArray(value[key]) && value[key].every((row: unknown) => object(row) && required.every((field) => typeof row[field] === "string") && arrays.every((field) => Array.isArray(row[field])) && numbers.every((field) => finite(row[field])));
@@ -29,12 +30,13 @@ export function validDashboard(value: unknown): value is DashboardPayload {
   if (!every("networkTargets", (row) => typeof row.provider === "string" && [0, 4, 6].includes(Number(row.ipVersion)) && ["healthy", "degraded", "down", "unavailable"].includes(String(row.status)) && nullableNumber(row.latency) && nullableNumber(row.jitter) && nullableNumber(row.loss) && (row.history as unknown[]).every(finite))) return false;
   if (!every("alerts", (row) => typeof row.time === "string" && typeof row.acknowledged === "boolean" && ["critical", "warning", "info"].includes(String(row.severity)))) return false;
   if (!every("services", (row) => ["running", "warning", "stopped"].includes(String(row.status)))) return false;
-  if (!every("integrations", (row) => typeof row.enabled === "boolean" && typeof row.configured === "boolean" && (row.values === undefined || object(row.values) && Object.values(row.values).every((item) => typeof item === "string")))) return false;
+  if (!every("integrations", (row) => ["ready", "partial", "pending", "preview", "error"].includes(String(row.status)) && typeof row.enabled === "boolean" && typeof row.configured === "boolean" && (row.values === undefined || object(row.values) && Object.values(row.values).every((item) => typeof item === "string")))) return false;
   const metrics = value.overview as Record<string, unknown>;
+  if (!(metrics.databaseBytes === null || finite(metrics.databaseBytes) && Number(metrics.databaseBytes) >= 0)) return false;
   if (!Array.isArray(metrics.load) || metrics.load.length !== 3 || !metrics.load.every(finite)) return false;
   const quota = metrics.trafficQuota;
   if (quota !== undefined) {
-    if (!object(quota) || !matches(quota, _optionalQuota)) return false;
+    if (!object(quota) || !matches(quota, optionalQuota)) return false;
     try { new Intl.DateTimeFormat("en", { timeZone: String(quota.timezone) }); } catch { return false; }
     if (quota.nextReset !== null && !Number.isFinite(Date.parse(String(quota.nextReset)))) return false;
   }
@@ -48,4 +50,12 @@ export function validDashboard(value: unknown): value is DashboardPayload {
   if (!Object.values(resources).every((series) => Array.isArray(series) && series.every((point) => object(point) && typeof point.capturedAt === "string" && finite(point.cpuPercent) && finite(point.memoryPercent)))) return false;
   const ui = value.uiSettings as Record<string, unknown>;
   return [2, 5, 10, 15, 20, 30].includes(Number(ui.idleTimeoutMinutes)) && (ui.visiblePanels as unknown[]).every((id) => typeof id === "string");
+}
+
+/** Invalid noncritical alert rows must not hide valid host and traffic data. */
+export function parseDashboard(value: unknown): DashboardPayload | null {
+  if (!object(value) || !Array.isArray(value.alerts)) return null;
+  const alerts = value.alerts.filter((row) => object(row) && ["id", "title", "description", "source", "time"].every((key) => typeof row[key] === "string") && typeof row.acknowledged === "boolean" && ["critical", "warning", "info"].includes(String(row.severity)));
+  const parsed = { ...value, alerts, rejectedAlertCount: value.alerts.length - alerts.length };
+  return validDashboard(parsed) ? parsed : null;
 }

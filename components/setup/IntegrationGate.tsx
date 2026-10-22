@@ -31,15 +31,14 @@ export function IntegrationGate({
   if (status?.configured && status.status === "ready") {
     return null;
   }
-  if (status?.configured && status.status === "error") {
+  if (status?.configured && (status.status === "error" || status.status === "partial")) {
     return (
       <Card variant="filled" className="integration-gate">
         <span className="integration-gate__icon">
           <Icon name="error" filled />
         </span>
         <div>
-          <strong>
-            {t(
+          <strong>{status.status === "partial" ? t(`${label} 部分可用`, `${label} partially available`) : t(
               `${label} 已配置但当前不可用`,
               `${label} configured but unavailable`,
             )}

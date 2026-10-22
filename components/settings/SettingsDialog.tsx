@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, changePassword, fetchBackgroundOptions, updateLoginBackground } from "../../lib/api";
 import { formatDecimalBytes, formatTimeSpan } from "../../lib/format";
 import { BACKGROUND_TIMES, GLASS_PRESETS } from "../../lib/login-background";
+import { validBackgroundUrl } from "../../lib/background-url";
 import { useI18n, type LanguagePreference } from "../../lib/i18n";
 import { navigation, PANEL_IDS } from "../../lib/navigation";
 import { PROJECT_AUTHOR, PROJECT_NAME, PROJECT_URL, PROJECT_VERSION } from "../../lib/project";
@@ -306,7 +307,9 @@ export function SettingsDialog({
                 placeholder="https://images.example.com/api/random?size=large"
                 value={backgroundValue}
                 onChange={(event) => setBackgroundValue(event.target.value)}
+                aria-invalid={Boolean(backgroundValue) && !validBackgroundUrl(backgroundValue)}
               />
+              {backgroundValue && !validBackgroundUrl(backgroundValue) ? <small role="alert">{t("请输入有效 HTTPS 地址，端口须为 1–65535；省略端口时使用 443", "Enter a valid HTTPS URL with port 1–65535, or omit the port for 443")}</small> : null}
               <small className="field-hint">
                 {t(
                   "支持图片、重定向或图片链接 JSON，单张最大 30 MB。缓存到期后下次访问时更新；不缓存时每次访问请求新图，失败时回退到上一张。",
@@ -328,7 +331,7 @@ export function SettingsDialog({
           <Button
             variant="tonal"
             disabled={
-              saving || !backgroundReady || (backgroundType !== "default" && !backgroundValue)
+              saving || !backgroundReady || (backgroundType !== "default" && !backgroundValue) || (backgroundType === "url" && !validBackgroundUrl(backgroundValue))
             }
             onClick={() => {
               setSaving(true);

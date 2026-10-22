@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from .monitoring import NetworkPolicy, ResourcePressure, correlate, event, timestamp, maintenance_info
 from .alert_policy import AlertPolicy
+from .alert_dto import with_alert_time
 from .collectors import layered_probe
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -674,7 +675,7 @@ class DashboardService:
         with self.lock:
             self.network_generation += 1
             self.runtime_cache["network"] = [
-                {**item, "latency": None, "loss": None, "jitter": None,
+                {**item, "thresholdOverrides": {key: item[key] for key in ("latencyMs", "lossPercent") if key in item}, "latency": None, "loss": None, "jitter": None,
                  "history": [], "status": "unavailable", "measurementStatus": "unavailable",
                  "probeReason": "pending", "observedAt": None}
                 for item in self.config.network_targets
@@ -1051,6 +1052,7 @@ class DashboardService:
         for alert in alerts:
             episode = episodes[str(alert["id"])]
             alert.update(episode)
+        alerts = [with_alert_time(alert, alert["startedAt"]) for alert in alerts]
         return alerts
 
     def audit_page(self, page: int, page_size: int, search: str = "", category: str = "") -> dict[str, Any]:
@@ -1159,9 +1161,7 @@ class DashboardService:
             update(integration_id, configured=configured, ready=ready, summary=summary, summary_zh=summary_zh)
             if protocol_requested(self.config, integration_id) and not ready:
                 states[integration_id]["status"] = "error"
-        hy2_streams_ready = bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available")))
-        adapters_ready = bool(hy2_streams_ready or singbox.get("available"))
-        update("connections", ready=adapters_ready, summary="" if adapters_ready else "No configured protocol statistics adapter is currently responding", summary_zh="" if adapters_ready else "当前没有已配置的协议统计适配器正常响应")
+        self.connection_integration(states["connections"], hy2, singbox)
         system_ready = bool(system and system.get("kernel") and system.get("memoryTotalBytes"))
         storage_ready = bool(system_ready and system and system.get("databaseWritable"))
         update("system", ready=system_ready, summary="Host metrics are available" if system_ready else "Host metrics are unavailable", summary_zh="主机指标可用" if system_ready else "主机指标当前不可用")
@@ -1200,6 +1200,21 @@ class DashboardService:
         update("alerts", ready=system_ready, summary="Alert evaluation is active" if system_ready else "Alert evaluation is unavailable without host metrics", summary_zh="告警计算正在运行" if system_ready else "缺少主机指标，告警计算不可用")
         update("audit", ready=storage_ready, summary="Audit storage is writable" if storage_ready else "Audit storage is unavailable or read-only", summary_zh="审计存储可写" if storage_ready else "审计存储不可用或只读")
         return list(states.values())
+
+    def connection_integration(self, state: dict[str, Any], hy2: dict[str, Any], singbox: dict[str, Any], freshness: dict[str, Any] | None = None) -> None:
+        sources = []
+        for name, config, available in (
+            ("hysteria2", self.config.hysteria_api, hy2.get("endpointStatus", {}).get("streams", hy2.get("available"))),
+            ("singbox", self.config.singbox_api, singbox.get("available")),
+        ):
+            if str(config.get("url", "")).strip():
+                fresh = freshness is None or freshness.get(name, {}).get("status") == "live"
+                sources.append({"id": name, "status": "ready" if available and fresh else "error"})
+        ready = sum(item["status"] == "ready" for item in sources)
+        status = "pending" if not sources else "ready" if ready == len(sources) else "partial" if ready else "error"
+        en = "No connection statistics adapter is configured" if not sources else f"Connection sources responding: {ready}/{len(sources)}"
+        zh = "尚未配置连接统计适配器" if not sources else f"连接数据源正常：{ready}/{len(sources)}"
+        state.update(configured=bool(sources), status=status, summary=en, summaryEn=en, summaryZh=zh, sources=sources)
 
     def subscription_url(self, subscription_id: str) -> str | None:
         for subscription in self.config.subscriptions:
@@ -1450,7 +1465,10 @@ class DashboardService:
         if freshness["network"]["status"] != "live":
             network = [{**target, "status": "unavailable", "measurementStatus": "unavailable", "probeReason": "stale" if freshness["network"]["status"] == "stale" else "pending" if freshness["network"].get("error") == "pending" else "probeFailed", "latency": None, "jitter": None, "loss": None, "history": []} for target in network]
         for integration in integrations:
-            collector = "hysteria2" if integration["id"] == "hysteria2" else "singbox" if integration["id"] in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic", "connections"} else integration["id"]
+            if integration["id"] == "connections":
+                self.connection_integration(integration, hy2, singbox, freshness)
+                continue
+            collector = "hysteria2" if integration["id"] == "hysteria2" else "singbox" if integration["id"] in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic"} else integration["id"]
             if collector in freshness and freshness[collector]["status"] != "live" and integration.get("configured"):
                 integration["status"] = "error"
                 integration["summaryEn"] = "Cached evidence; collection requires attention"

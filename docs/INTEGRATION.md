@@ -1,4 +1,4 @@
-# CastoriceUI v4.4 backend integration guide
+# CastoriceUI integration and API contract
 
 CastoriceUI separates browser presentation from trusted host and protocol adapters:
 
@@ -10,7 +10,7 @@ Linux counters / Hysteria2 / sing-box / systemd / certificates
                            browser UI
 ```
 
-The browser must never receive an upstream Secret, raw configuration, private key, stored password hash, complete subscription token, or privileged command capability.
+The browser must never receive an upstream Secret, raw configuration, private key, stored password hash, or privileged command capability. Dashboard responses redact subscription tokens; only an explicit authenticated reveal/copy action returns one complete subscription URL.
 
 ## v2 API surface
 
@@ -29,8 +29,14 @@ Authenticated endpoints:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/v2/auth/session` | Username, setup state, CSRF token, and session expiry |
+| POST | `/api/v2/auth/activity` | Renew session activity within the configured policy |
+| POST | `/api/v2/auth/change-password` | Verify the current password and replace it |
 | POST | `/api/v2/auth/logout` | Invalidate the current session |
 | GET | `/api/v2/dashboard` | Bounded real/stale operational snapshot |
+| GET | `/api/v2/alerts` | Filter and paginate current and historical alert episodes |
+| POST | `/api/v2/alerts/ack-all` | Acknowledge all pending episodes |
+| GET | `/api/v2/monitoring` | Freshness, service, maintenance, correlation and resource evidence |
+| GET | `/api/v2/network/:id/history` | Measured network history for the requested family/time range |
 | GET | `/api/v2/audits` | Server-filtered audit records with bounded 30/50-row pagination |
 | PUT | `/api/v2/settings/traffic-limit` | Update the single quota shared by Overview and Accounts |
 | PUT | `/api/v2/integrations/:id` | Validate and persist an integration override |
@@ -166,3 +172,9 @@ Changing viewport class or background settings also keeps the currently decoded 
 Both overview and services consume this same list. Protocol availability requires a valid statistics API response and, for sing-box protocols, fresh read-only inventory matching the actual inbound type, exact tag, VLESS security profile, and core-owned listener. SOCKS5 maps to sing-box's `socks` or `mixed` inbound type. API availability alone does not establish protocol health. See [sing-box inbounds](https://sing-box.sagernet.org/configuration/inbound/) and [Clash API](https://sing-box.sagernet.org/configuration/experimental/clash-api/) for the upstream models.
 
 Failed first setup stores only an intent marker, never the rejected candidate URL, secrets, or tags. Successful existing configuration remains effective after a failed edit. Missing observations use `status: stopped` or `warning`, `version: unknown`, and omitted uptime rather than fabricated metrics. Install the probe using [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Connection evidence and degraded data
+
+Connection integration status follows configured HY2 and sing-box adapters. Unconfigured adapters are not dependencies. `ready` means every configured connection source is responding with fresh evidence; `partial` means some sources are usable and some are failed or stale; `pending` means none is configured; `error` means no configured source is usable. Per-source status is included. Connection rates retain their own coverage metadata and never become complete merely because one source responds.
+
+`overview.databaseBytes` is a nonnegative measured number or `null` when capacity diagnostics fail. A null value is unknown capacity, not zero bytes, and does not invalidate other measurements. Alert time comes from the recorded episode when a legacy payload omitted it. The browser isolates malformed alert rows, displays their count and continues displaying the independently validated host data.

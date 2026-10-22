@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { checkDocLinks } from "./check-doc-links.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 execFileSync(process.execPath, [path.join(root, "scripts", "sensitive-scan.mjs")], { cwd: root, stdio: "inherit" });
@@ -104,6 +105,7 @@ for (const asset of assets) {
 }
 
 await removePythonCaches(stageDirectory);
+await checkDocLinks(stageDirectory);
 
 execFileSync(process.execPath, [path.join(root, "scripts", "privacy-guard.mjs"), "directory", stageDirectory], { cwd: root, stdio: "inherit" });
 

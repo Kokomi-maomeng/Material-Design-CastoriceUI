@@ -655,6 +655,7 @@ class Storage:
 
     @staticmethod
     def alert_payload(row: sqlite3.Row) -> dict[str, Any]:
+        from .alert_dto import with_alert_time
         payload = json.loads(str(row["payload_json"]))
         payload.update({
             "alertId": str(row["alert_id"]), "episodeId": str(row["episode_id"]),
@@ -663,7 +664,7 @@ class Storage:
             "acknowledgedAt": row["acknowledged_at"],
             "status": "resolved" if row["resolved_at"] else "active",
         })
-        return present(payload)
+        return present(with_alert_time(payload, str(row["started_at"])))
 
     @staticmethod
     def pending_summary(connection: sqlite3.Connection) -> dict[str, int]:

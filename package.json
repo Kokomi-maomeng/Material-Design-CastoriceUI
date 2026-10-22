@@ -1,9 +1,9 @@
 {
   "name": "material-design-castorice-ui",
-  "version": "5.5.0",
+  "version": "5.6.0",
   "private": false,
   "engines": {
-    "node": ">=20.19.0"
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
   },
   "browserslist": {
     "production": [
@@ -32,9 +32,15 @@
     "test:privacy": "node --test tests/privacy-guard.test.mjs",
     "lint": "eslint . --ignore-pattern dist",
     "typecheck": "tsc --noEmit",
-    "check": "npm run check:docs && npm run lint && npm run typecheck && npm test && npm run scan:sensitive && npm run build && npm run audit:production",
+    "check": "npm run check:docs && npm run lint && npm run typecheck && npm test && npm run scan:sensitive && npm run build && npm run audit:production && npm run audit:all",
     "audit:production": "npm audit --omit=dev --audit-level=low",
-    "check:docs": "node scripts/check-release-docs.mjs"
+    "check:docs": "node scripts/check-release-docs.mjs",
+    "audit:all": "npm audit --audit-level=low",
+    "preinstall": "node scripts/check-runtime.mjs",
+    "precheck": "node scripts/check-runtime.mjs",
+    "predev": "node scripts/check-runtime.mjs",
+    "prebuild": "node scripts/check-runtime.mjs",
+    "doctor": "node scripts/check-runtime.mjs"
   },
   "dependencies": {
     "@fontsource-variable/roboto": "^5.3.0",
@@ -61,8 +67,8 @@
     "jsdom": "^29.1.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0",
-    "vite": "^8.3.0",
-    "vitest": "^4.1.11"
+    "vite": "8.3.5",
+    "vitest": "4.1.12"
   },
   "type": "module",
   "license": "MIT"

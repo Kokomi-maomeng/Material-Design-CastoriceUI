@@ -1,5 +1,5 @@
 import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, MonitoringContext, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
-import { validDashboard } from "./dashboard-validation";
+import { parseDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
@@ -41,7 +41,11 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
       const field = body && typeof body === "object" && "field" in body ? String((body as { field: unknown }).field) : undefined;
       throw new ApiError(response.status, error, message, field);
     }
-    if (path.includes("/dashboard") && !validDashboard(body)) throw new ApiError(502, "invalid_dashboard_response");
+    if (path.includes("/dashboard")) {
+      const parsed = parseDashboard(body);
+      if (!parsed) throw new ApiError(502, "invalid_dashboard_response");
+      body = parsed;
+    }
     return body as T;
   } catch (error) {
     if (controller.signal.aborted && !externalSignal?.aborted) throw new ApiError(408, "request_timeout");

@@ -80,7 +80,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(ci.merge(self.plan, records, jobs)["passed"])
 
     def test_all_suites_remain_in_exactly_one_shard(self):
-        expected = {"browser-matrix.py", "browser-v46.py", "browser-first-run.py", "browser-v47.py", "browser-v50.py", "browser-v51.py", "browser-v52.py", "browser-v521.py", "browser-v53.py", "browser-v532.py"}
+        expected = {"browser-matrix.py", "browser-v46.py", "browser-first-run.py", "browser-v47.py", "browser-v50.py", "browser-v51.py", "browser-v52.py", "browser-v521.py", "browser-v53.py", "browser-v532.py", "browser-v56.py"}
         actual = [name for names in ci.SUITES.values() for name in names]
         self.assertEqual(set(actual), expected)
         self.assertEqual(len(actual), len(expected))

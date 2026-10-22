@@ -12,7 +12,6 @@
 | --- | --- |
 | Host resources and traffic | Readable Linux /proc and interface counters, writable SQLite; history begins at actual installation |
 | Protocol status/connections | Running supported core, loopback authenticated API, actual unit/inbound mappings and fresh inventory probe |
-| External business probes | Protected signing secret, agent names and explicit per-agent required protocols; unavailable observer does not prove an outage |
 | Subscription validation | Protected HTTPS URLs; reachable, parseable format is distinct from actual client import and proxy forwarding |
 | Panel login | Valid same-origin TLS site, Secure/HttpOnly cookies, bootstrap token for the first administrator |
 | Certificate evidence | Intended public certificate, actual endpoint/port and renewal-unit evidence; not inferred from another site |
