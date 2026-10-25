@@ -36,6 +36,8 @@ export interface Connection {
   sourceIp: string;
   ipVersion: 4 | 6 | null;
   connections: number;
+  onlineClients?: number;
+  entriesAvailable?: boolean;
   uploadBps: number | null;
   downloadBps: number | null;
   ratesPartial?: boolean;
@@ -55,6 +57,12 @@ export interface ConnectionDetail {
   uploadedBytes?: number;
   downloadedBytes?: number;
   connectedAt: string | null;
+}
+
+export interface ConnectionTargets {
+  available: boolean;
+  sampledAt: string | null;
+  groups: Array<{ id: string; details: Array<{ id: string; destination: string }> }>;
 }
 
 export interface TrafficPoint {

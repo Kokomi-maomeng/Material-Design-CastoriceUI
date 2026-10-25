@@ -25,6 +25,8 @@ def valid_reports(name, reports):
     def one(key, check):
         final = [r for r in reports if key in r]
         return len(final) == 1 and check(final[0])
+    if name == "browser-v57.py":
+        return one("connectionProduct", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and r.get("layoutCases", 0) >= 152 and r.get("badgeCases") == 28 and r.get("populatedCounts") == [0, 1, 50, 100] and r.get("targetLifecycle") and r.get("stableGroupPolling") and r.get("routesPassed") == 10 and not r.get("pageErrors"))
     if name == "browser-v56.py":
         return one("auditFixes", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and not r.get("backendErrors") and len(r["auditFixes"]) == 1 and all(len(c["capacityCases"]) == 4 and c["nullCapacityRecovery"] and len(c["connectionCases"]) == 5 and c["pendingThresholdPersistence"] and c["invalidPortsRejected"] == 5 and not c["pageErrors"] for c in r["auditFixes"]))
     if name == "browser-matrix.py":

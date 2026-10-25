@@ -49,23 +49,12 @@ export function OverviewPage({
   const trafficLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量分析", "View traffic analytics"));
   const trendLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量趋势分析", "View traffic trend analytics"));
   const connectionsLink = useNavigationSurface(() => onNavigate("connections"), t("查看在线连接", "View connections"));
-  const accountsLink = useNavigationSurface(() => onNavigate("accounts"), t("查看账号状态", "View account status"));
   const networkLink = useNavigationSurface(() => onNavigate("network"), t("查看网络质量", "View network quality"));
   const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const stale = mode === "stale";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
-  const connectionRatesAvailable =
-    connections.length > 0 &&
-    connections.every(
-      (item) => item.downloadBps !== null && item.uploadBps !== null && !item.ratesPartial,
-    );
-  const totalDown = connectionRatesAvailable
-    ? connections.reduce((sum, item) => sum + (item.downloadBps ?? 0), 0)
-    : metrics.downloadBps;
-  const totalUp = connectionRatesAvailable
-    ? connections.reduce((sum, item) => sum + (item.uploadBps ?? 0), 0)
-    : metrics.uploadBps;
-  const onlineAccounts = new Set(connections.filter((item) => item.account.trim()).map((item) => `${item.protocol}\0${item.account}`)).size;
+  const totalDown = metrics.downloadBps;
+  const totalUp = metrics.uploadBps;
   const remaining = Math.max(
     0,
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
@@ -198,7 +187,7 @@ export function OverviewPage({
 
         <Card className="live-summary navigation-surface" variant="filled" {...connectionsLink}>
           <CardHeader
-            title={t("协议连接快照", "Protocol connection snapshot")}
+            title={t("主网卡实时流量", "Live interface traffic")}
             description={stale ? t(
               "后端中断前的最后一次真实快照",
               "Last real snapshot before the backend disconnected",
@@ -219,9 +208,7 @@ export function OverviewPage({
             <div>
               <span>
                 <Icon name="download" size={18} />
-                {connectionRatesAvailable
-                  ? t("连接下载", "Connection download")
-                  : t(
+                {t(
                       `主网卡 ${metrics.interface} 下载`,
                       `${metrics.interface} download`,
                     )}
@@ -234,9 +221,7 @@ export function OverviewPage({
             <div>
               <span>
                 <Icon name="upload" size={18} />
-                {connectionRatesAvailable
-                  ? t("连接上传", "Connection upload")
-                  : t(
+                {t(
                       `主网卡 ${metrics.interface} 上传`,
                       `${metrics.interface} upload`,
                     )}
@@ -249,17 +234,12 @@ export function OverviewPage({
           </div>
           <div className="live-meta">
             <span>
-              <b>{connections.length}</b> {t("活动连接组", "active groups")}
-            </span>
-            <span className="navigation-surface" {...accountsLink}>
-              <b>{onlineAccounts}</b> {t("活跃账号", "active accounts")}
-            </span>
-            <span>
               <b>
                 {connections.reduce((sum, item) => sum + item.connections, 0)}
               </b>{" "}
-              {t("并发连接", "concurrent connections")}
+              {t("条已列出连接", "listed connections")}
             </span>
+            <span>{t("查看来源与实时目标", "View sources and live destinations")}</span>
           </div>
         </Card>
         <Card variant="filled" className="quality-card navigation-surface" {...networkLink}>

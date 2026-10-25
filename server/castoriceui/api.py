@@ -316,6 +316,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 print(f"Dashboard snapshot failed: {type(error).__name__}")
                 self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "dashboard_unavailable"})
+        elif path == "/api/v2/connections/targets":
+            self.send_json(HTTPStatus.OK, self.app.dashboard.connection_targets())
         elif path == "/api/v2/alerts":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)

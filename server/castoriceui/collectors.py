@@ -624,6 +624,9 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
         account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "")
         destination_host = str(metadata.get("host") or metadata.get("destinationIP") or "").strip()
         destination_port = metadata.get("destinationPort")
+        # A literal IPv6 address needs brackets when a port is appended.
+        if ":" in destination_host and not destination_host.startswith("["):
+            destination_host = f"[{destination_host}]"
         destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None
         inbound_tag = str(metadata.get("inbound") or metadata.get("inboundTag") or "").strip()
         metadata_protocol = ""

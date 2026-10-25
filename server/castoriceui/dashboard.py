@@ -925,7 +925,7 @@ class DashboardService:
             detail = {**item, "uploadBps": upload_rate, "downloadBps": download_rate}
             key = (str(item["protocol"]), str(item["account"]), str(item["sourceIp"]))
             if key not in groups:
-                groups[key] = {"id": "group-" + str(len(groups) + 1), "protocol": key[0], "account": key[1], "sourceIp": key[2], "ipVersion": item.get("ipVersion"), "connections": 0, "uploadBps": 0, "downloadBps": 0, "connectedAt": item.get("connectedAt"), "uploadedBytes": 0, "downloadedBytes": 0, "details": [], "knownRates": 0}
+                groups[key] = {"id": self.connection_group_id(key), "protocol": key[0], "account": key[1], "sourceIp": key[2], "ipVersion": item.get("ipVersion"), "connections": 0, "uploadBps": 0, "downloadBps": 0, "connectedAt": item.get("connectedAt"), "uploadedBytes": 0, "downloadedBytes": 0, "details": [], "knownRates": 0}
             group = groups[key]
             group["connections"] += 1
             group["uploadedBytes"] += uploaded; group["downloadedBytes"] += downloaded
@@ -944,6 +944,45 @@ class DashboardService:
             group["ratesPartial"] = 0 < known_rates < total_rates
             group["rateCoverage"] = {"known": known_rates, "total": total_rates}
         return list(groups.values())
+
+    @staticmethod
+    def connection_group_id(key: tuple[str, str, str]) -> str:
+        import json
+        return "group-" + hashlib.sha256(json.dumps(key, ensure_ascii=True).encode()).hexdigest()[:24]
+
+    def with_online_clients(self, groups: list[dict[str, Any]], hy2: dict[str, Any]) -> list[dict[str, Any]]:
+        """/online counts clients, including clients without a listed TCP stream."""
+        if not hy2.get("endpointStatus", {}).get("online", hy2.get("available")):
+            return groups
+        for account, count in hy2.get("online", {}).items():
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                continue
+            matches = [g for g in groups if g["protocol"] == "Hysteria2" and g["account"] == account]
+            # Do not distribute one identity's client count over inferred sources.
+            if len(matches) > 1:
+                continue
+            if matches:
+                matches[0]["onlineClients"] = count
+            elif count:
+                key = ("Hysteria2", str(account), "")
+                groups.append({"id": self.connection_group_id(key), "protocol": key[0], "account": key[1], "sourceIp": "", "ipVersion": None, "connections": 0, "entriesAvailable": bool(hy2.get("endpointStatus", {}).get("streams", hy2.get("available"))), "onlineClients": count, "uploadBps": None, "downloadBps": None, "connectedAt": None, "details": []})
+        return groups
+
+    def connection_targets(self) -> dict[str, Any]:
+        """Explicit authenticated, in-memory view; never persist destinations."""
+        with self.lock:
+            freshness = self.collection_freshness()
+            live = freshness["runtime"]["status"] == "live"
+            groups = []
+            for group in self.runtime_cache.get("connections", []):
+                source = "hysteria2" if group["protocol"] == "Hysteria2" else "singbox"
+                core = self.runtime_cache["hy2" if source == "hysteria2" else "singbox"]
+                if not live or freshness[source]["status"] != "live" or not core.get("available"):
+                    continue
+                details = [{"id": d["id"], "destination": d["destination"]} for d in group.get("details", []) if d.get("destination")]
+                if details:
+                    groups.append({"id": group["id"], "details": details})
+            return {"groups": groups, "sampledAt": self.runtime_cache.get("observedAt"), "available": live and bool(groups)}
 
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]], integrations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
@@ -1419,7 +1458,7 @@ class DashboardService:
             if self.connection_generation != generation:
                 self.connection_baseline = {}
                 self.connection_generation = generation
-            self.runtime_cache["connections"] = self.aggregate_connections(connection_snapshots(runtime["hy2"], runtime["singbox"], self.config.protocol_adapters))
+            self.runtime_cache["connections"] = self.with_online_clients(self.aggregate_connections(connection_snapshots(runtime["hy2"], runtime["singbox"], self.config.protocol_adapters)), runtime["hy2"])
         lifecycle = [{"id": item["id"], "status": item["status"], "reason": item.get("stateReason"),
                       "generation": {key: item.get("evidence", {}).get(key) for key in ("bootId", "pid", "startedTicks")}} for item in services if item.get("kind") in {"core", "protocol"}]
         if lifecycle != self.last_core_evidence:
@@ -1481,11 +1520,18 @@ class DashboardService:
             for integration in integrations:
                 integration["ready"] = False
                 integration["status"] = "error"
-        if self.config.redact_live_data:
-            for connection in connections:
+        for connection in connections:
+            source = "hysteria2" if connection["protocol"] == "Hysteria2" else "singbox"
+            core = hy2 if source == "hysteria2" else singbox
+            if stale or freshness[source]["status"] != "live" or not core.get("available"):
+                connection["downloadBps"] = connection["uploadBps"] = None
+                connection.pop("onlineClients", None)
                 for detail in connection.get("details", []):
-                    if detail.get("destination"):
-                        detail["destination"] = None
+                    detail["downloadBps"] = detail["uploadBps"] = None
+            # Destinations require a deliberate live-view request even when an
+            # older deployment disabled the global redaction setting.
+            for detail in connection.get("details", []):
+                detail["destination"] = None
         traffic = self.traffic_series()
         with self.lock:
             sample_at = self.system_collector.last_persisted_at
