@@ -36,9 +36,11 @@ def open_page(page, section, heading):
 def frames(locator, click, reduced):
     """Sample actual CSS/WAAPI at timeline positions, independently of CPU FPS."""
     locator.evaluate("""e=>{
-      const state={animations:[],originalAnimate:e.animate};
-      const capture=a=>{if(!state.animations.includes(a)){a.pause();state.animations.push(a)}};
-      state.onRun=event=>{if(event.target===e)e.getAnimations().forEach(capture)};
+      const state={animations:[],originalAnimate:e.animate,frame:0};
+      const capture=a=>{if(a.effect?.target===e&&!['finished','idle'].includes(a.playState)&&!state.animations.includes(a)){a.pause();state.animations.push(a)}};
+      state.scan=()=>e.getAnimations().forEach(capture);
+      state.onRun=event=>{if(event.target!==e)return;state.scan();
+        if(!state.frame)state.frame=requestAnimationFrame(()=>{state.frame=0;state.scan()})};
       e.animate=function(...args){const a=state.originalAnimate.apply(this,args);capture(a);return a};
       e.addEventListener('transitionrun',state.onRun);e.__motionQA=state;
     }""")
@@ -46,7 +48,9 @@ def frames(locator, click, reduced):
         click()
         return locator.evaluate("""async(e,reduced)=>{
           const state=e.__motionQA,deadline=performance.now()+3000;
-          while(!reduced&&!state.animations.length&&performance.now()<deadline)await new Promise(requestAnimationFrame);
+          while(!reduced&&!state.animations.length&&performance.now()<deadline){
+            state.scan();if(!state.animations.length)await new Promise(requestAnimationFrame);
+          }
           if(!reduced&&!state.animations.length)throw new Error('Expected a native browser animation');
           const duration=Math.max(0,...state.animations.map(a=>{const t=a.effect.getTiming();return Number(t.delay)+Number(t.duration)}));
           const rows=[];
@@ -59,7 +63,7 @@ def frames(locator, click, reduced):
           return rows;
         }""", reduced)
     finally:
-        locator.evaluate("""async e=>{const s=e.__motionQA;e.removeEventListener('transitionrun',s.onRun);e.animate=s.originalAnimate;
+        locator.evaluate("""async e=>{const s=e.__motionQA;e.removeEventListener('transitionrun',s.onRun);cancelAnimationFrame(s.frame);e.animate=s.originalAnimate;
           for(const a of s.animations)a.finish();
           await Promise.all(s.animations.map(a=>a.finished.catch(()=>{})));
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));delete e.__motionQA;
