@@ -24,7 +24,7 @@ function TargetList({ details, now, onCopy }: { details: TargetDetail[]; now: nu
   const [limit, setLimit] = useState(10);
   const filtered = useMemo(() => details.filter((item) => item.destination.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).sort((a, b) => ((b.downloadBps ?? 0) + (b.uploadBps ?? 0)) - ((a.downloadBps ?? 0) + (a.uploadBps ?? 0)) || a.id.localeCompare(b.id)), [details, search]);
   return <div className="connection-targets">
-    {details.length > 10 ? <label className="connection-search">{t("查找目标", "Find destination")}<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setLimit(10); }} placeholder={t("域名或 IP", "Domain or IP")} /></label> : null}
+    {details.length > 10 || search !== "" ? <label className="connection-search">{t("查找目标", "Find destination")}<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setLimit(10); }} placeholder={t("域名或 IP", "Domain or IP")} /></label> : null}
     <ul className="connection-target-list">{filtered.slice(0, limit).map((detail) => {
       const seconds = connectionDuration(detail.connectedAt, now);
       return <li key={detail.id} className="connection-target">

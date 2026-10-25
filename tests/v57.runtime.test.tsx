@@ -69,6 +69,20 @@ describe("v5.7 connection product regressions", () => {
     expect(container.querySelector(".connection-card-rates")?.textContent).toBe("↓ —↑ —");
   });
 
+  it("keeps a nonempty destination search clearable when polling shrinks the list below ten", async () => {
+    const a = entry();
+    vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });
+    const { container, rerender } = render(view([a]));
+    fireEvent.click(screen.getByRole("button", { name: "View live destinations" }));
+    await screen.findByRole("searchbox", { name: "Find destination" });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
+    rerender(view([{ ...a, connections: 3, details: a.details.slice(0, 3) }]));
+    await screen.findByText("No matching destinations");
+    expect(screen.getByRole("searchbox", { name: "Find destination" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "" } });
+    expect(container.querySelectorAll(".connection-target")).toHaveLength(3);
+  });
+
   it("never substitutes unknown sample rates with zero or adds connection durations", () => {
     expect(listedRate([entry()], "downloadBps")).toBeNull();
     expect(listedRate([entry()], "uploadBps")).toBe(0);

@@ -104,6 +104,14 @@ def main():
                 assert disclosure.get_attribute('open') is not None
                 disclosure.get_by_role('searchbox').fill('target-0-99.')
                 assert disclosure.locator('.connection-target').count()==1
+                refresh(3)
+                page.get_by_text('No matching destinations',exact=True).wait_for()
+                assert disclosure.get_by_role('searchbox').input_value()=='target-0-99.'
+                disclosure.get_by_role('searchbox').fill('')
+                assert disclosure.locator('.connection-target').count()==3
+                refresh(100)
+                page.get_by_text('100 TCP connections',exact=True).wait_for()
+                disclosure.get_by_role('searchbox').wait_for(state='visible')
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
                 assert disclosure.locator('.connection-target').count()==20
@@ -171,7 +179,7 @@ def main():
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)
                 assert not errors and not server_errors,(errors,server_errors)
-                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
+                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
                 context.close();browser.close()
 
 
