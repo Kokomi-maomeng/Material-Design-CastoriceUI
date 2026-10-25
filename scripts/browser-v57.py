@@ -87,7 +87,10 @@ def main():
                 open_page(page,'connections','Active connections')
                 assert not requests and page.locator('.connection-disclosure').count()==0
                 def geometry():
-                    return page.evaluate('''()=>{const cards=[...document.querySelectorAll('.connection-card')];const over=[...document.querySelectorAll('.connections-page *')].filter(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return r.width&&r.height&&s.display!=='none'&&e.scrollWidth>e.clientWidth+2&&!e.closest('details:not([open])')&&!['SPAN','SUMMARY'].includes(e.tagName)}).map(e=>e.className);return {width:innerWidth,doc:document.documentElement.scrollWidth,over,gap:cards.length>1?cards[1].getBoundingClientRect().top-cards[0].getBoundingClientRect().bottom:0}}''')
+                    # Inline boxes have clientWidth=0 in Firefox despite painted
+                    # text fitting their parent. Measure every real client box,
+                    # including inline-flex chips/rates, and retain diagnostics.
+                    return page.evaluate('''()=>{const cards=[...document.querySelectorAll('.connection-card')];const over=[...document.querySelectorAll('.connections-page *')].filter(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return r.width&&r.height&&e.clientWidth>0&&s.display!=='none'&&e.scrollWidth>e.clientWidth+2&&!e.closest('details:not([open])')}).map(e=>({tag:e.tagName,className:String(e.className),clientWidth:e.clientWidth,scrollWidth:e.scrollWidth,display:getComputedStyle(e).display,text:e.textContent.slice(0,80)}));return {width:innerWidth,doc:document.documentElement.scrollWidth,over,gap:cards.length>1?cards[1].getBoundingClientRect().top-cards[0].getBoundingClientRect().bottom:0}}''')
                 # Hidden 0/1/50/100 streams must not create spacing or focus targets.
                 for count in (0,1,50,100):
                     refresh(count);page.reload(wait_until='networkidle');open_page(page,'connections','Active connections')
