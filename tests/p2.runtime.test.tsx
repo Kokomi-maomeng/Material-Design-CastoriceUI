@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../lib/i18n";
@@ -17,6 +17,7 @@ const renderEnglish = (node: ReactNode) => {
 };
 
 beforeEach(() => {
+  cleanup();
   vi.restoreAllMocks();
   localStorage.clear();
 });
@@ -57,9 +58,9 @@ describe("P2 truthfulness and interaction regressions", () => {
       connections: 1, uploadBps: null, downloadBps: null, connectedAt: null, details: [],
     };
     renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
-    expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("0 B/s")).toBeNull();
-    expect(screen.getByText("1 unknown identity")).toBeTruthy();
+    expect(screen.queryByText("1 unknown identity")).toBeNull();
   });
 
   it("shows a field-specific initialization error instead of a service outage", async () => {
@@ -78,32 +79,37 @@ describe("P2 truthfulness and interaction regressions", () => {
     expect(screen.queryByText(/service is unavailable/)).toBeNull();
   });
 
-  it("labels partially observed connection rates even when the known sum is real zero", () => {
+  it("shows measured zero without coverage fractions and labels the fixed sample scope", () => {
     const connection: Connection = {
       id: "partial", protocol: "Hysteria2", account: "alice", sourceIp: "", ipVersion: null,
       connections: 2, uploadBps: 0, downloadBps: 0, connectedAt: null, details: [],
       ratesPartial: true, rateCoverage: { known: 1, total: 2 },
     };
     renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
-    expect(screen.getAllByText(/0 B\/s \(partial, 1\/2\)/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/0 B\/s/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/partial, 1\/2/)).toBeNull();
+    expect(screen.getByLabelText("Sampled rates of listed connections")).toBeTruthy();
   });
 
-  it("toggles connection details from the whole row and keeps the animated indicator at the leading edge", () => {
+  it("keeps destinations private until explicitly requested, then uses a native disclosure", async () => {
+    vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: "expandable", details: [{ id: "detail", destination: "example.test:443" }] }] });
     const connection: Connection = {
       id: "expandable", protocol: "Hysteria2", account: "alice", sourceIp: "203.0.113.8", ipVersion: 4,
       connections: 1, uploadBps: 5, downloadBps: 8, connectedAt: null,
       details: [{ id: "detail", destination: "example.test:443", uploadBps: 5, downloadBps: 8, connectedAt: null }],
     };
     const { container } = renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
-    const row = container.querySelector<HTMLElement>(".connection-summary-row")!;
-    expect(row.querySelector("td:first-child .connection-row-indicator")).toBeTruthy();
-    expect(row.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(row);
-    expect(row.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector(".connection-detail-row")?.className).toContain("is-expanded");
-    fireEvent.keyDown(row, { key: "Enter" });
-    expect(row.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelector(".connection-expand")).toBeNull();
+    expect(container.querySelector(".connection-disclosure")).toBeNull();
+    expect(screen.queryByText("example.test:443")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View live destinations" }));
+    await screen.findByText("example.test:443");
+    const details = container.querySelector<HTMLDetailsElement>(".connection-disclosure")!;
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(true);
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Hide live destinations" }));
+    expect(screen.queryByText("example.test:443")).toBeNull();
   });
 
   it("does not compare lifetime protocol counters with a billing-cycle quota", () => {

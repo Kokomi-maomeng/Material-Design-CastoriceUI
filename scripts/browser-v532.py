@@ -77,7 +77,16 @@ def run(engine, browser):
         if not reduced: moving(expansion, 'glass expansion')
         slider = page.get_by_role('slider', name='Glass transparency', exact=True)
         slider.fill('2')
-        closing = frames(collapse, lambda: toggle.click(), reduced)
+        # Keep native animation coverage when an engine's transition event was
+        # delivered before getAnimations exposed the transition to the helper.
+        # Suppress only the observer event; the real CSS transition still runs.
+        if not reduced:
+            collapse.evaluate("e=>{e.__qaEarlyEvent=event=>event.stopImmediatePropagation();e.addEventListener('transitionrun',e.__qaEarlyEvent)}")
+        try:
+            closing = frames(collapse, lambda: toggle.click(), reduced)
+        finally:
+            if not reduced:
+                collapse.evaluate("e=>{e.removeEventListener('transitionrun',e.__qaEarlyEvent);delete e.__qaEarlyEvent}")
         if not reduced: moving(closing, 'glass collapse')
         expect(slider).to_have_count(0)
         assert collapse.get_attribute('inert') is not None

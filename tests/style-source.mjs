@@ -15,6 +15,7 @@ const styleModules = [
   "app/styles/monitoring.css",
   "app/styles/settings.css",
   "app/styles/motion.css",
+  "app/styles/connections.css",
 ];
 
 export async function readStyles(root) {

@@ -23,6 +23,7 @@ import {
 } from "../lib/api";
 import { emptyDashboard } from "../lib/empty-dashboard";
 import { pendingCriticalAlerts } from "../lib/login-background";
+import { alertBadge } from "../lib/alert-badge";
 import { useI18n } from "../lib/i18n";
 import { navigation, PANEL_IDS } from "../lib/navigation";
 import { readBooleanPreference, readPreference, writePreference } from "../lib/preferences";
@@ -342,7 +343,7 @@ export function CastoriceApp() {
     [t],
   );
   const pageTitle = labelFor(page);
-  const unacknowledgedAlerts = dashboard.alertSummary?.pending ?? alerts.filter((item) => !item.acknowledged).length;
+  const badge = alertBadge(dashboard.alertSummary, alerts);
   const criticalAlerts = pendingCriticalAlerts(dashboard.alertSummary, alerts);
   const navigate = useCallback((id: PageId) => {
     setPage(id);
@@ -544,6 +545,7 @@ export function CastoriceApp() {
             now={now}
             onToast={showToast}
             integration={integrationFor("connections")}
+            stale={dashboard.mode === "stale"}
             onConfigure={() => configurePage("connections")}
           />
         );
@@ -714,14 +716,14 @@ export function CastoriceApp() {
               className={`notification-button ${criticalAlerts > 0 ? "has-critical" : ""}`}
               onClick={() => navigate("alerts")}
               aria-label={t(
-                `${unacknowledgedAlerts} 条未确认告警`,
-                `${unacknowledgedAlerts} unacknowledged alerts`,
+                badge.count ? `${badge.count} 条严重或警告待处理` : badge.reminders ? "有未确认提醒" : "没有待处理告警",
+                badge.count ? `${badge.count} critical or warning alerts pending` : badge.reminders ? "Unacknowledged reminders" : "No pending alerts",
               )}
             >
               <Icon name="notifications" />
-              {unacknowledgedAlerts > 0 ? (
-                <span className="notification-badge">
-                  {unacknowledgedAlerts > 99 ? "99+" : unacknowledgedAlerts}
+              {badge.count > 0 || badge.reminders > 0 ? (
+                <span className={`notification-badge ${badge.count ? "" : "notification-badge--dot"}`} aria-hidden="true">
+                  {badge.count ? badge.count > 99 ? "99+" : badge.count : null}
                 </span>
               ) : null}
             </button>

@@ -221,6 +221,8 @@ class AuditRegressions(unittest.TestCase):
 
     def test_rate_reads_are_immutable_for_one_two_and_ten_viewers(self) -> None:
         self.ready_cache()
+        self.dashboard.runtime_cache["singbox"]["available"] = True
+        self.dashboard._collection_result("singbox", observed_at=datetime.now(timezone.utc).isoformat())
         raw = {"id": "flow", "protocol": "AnyTLS", "account": "qa", "sourceIp": "192.0.2.1", "uploadedBytes": 0, "downloadedBytes": 0}
         with patch("castoriceui.dashboard.time.monotonic", return_value=0):
             self.dashboard.aggregate_connections([raw])

@@ -116,9 +116,9 @@ Quota resets store `resetAnchor`, 24-hour `resetTime`, and an IANA `timezone` in
 
 ## Connection aggregation and rates
 
-Connection groups use protocol, account, and real source IP. The earliest active entry establishes group duration and expandable children retain the actual destinations and ports returned by adapters. When a protocol omits source IP, the value remains unavailable and must not be made copyable.
+Connection groups use protocol, account, and real source IP. A stable hash of that key identifies the group across polling and reordering. The earliest current entry establishes its duration; this is not device uptime. Hysteria2 also includes independently measured online client instances, including idle clients without TCP streams. When a protocol omits source IP, the value remains unavailable and must not be made copyable.
 
-Upload/download rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing cumulative counters. A first observation, missing ID, counter reset, or disappeared/recreated connection has no rate. Unknown rates display as unavailable; mixed summaries include only measured rates and are labelled partial.
+Upload/download rates are calculated only when the same connection ID appears in consecutive snapshots with non-decreasing cumulative counters. A first observation, missing ID, counter reset, or disappeared/recreated connection has no rate. Unknown rates display as a dash. Mixed summaries add measured values only, under the fixed label "listed connection rates"; new and short-lived entries may be absent and complete UDP traffic is not represented. Overview always uses interface counters and never switches sources.
 
 ## Network probes
 
@@ -178,3 +178,13 @@ Failed first setup stores only an intent marker, never the rejected candidate UR
 Connection integration status follows configured HY2 and sing-box adapters. Unconfigured adapters are not dependencies. `ready` means every configured connection source is responding with fresh evidence; `partial` means some sources are usable and some are failed or stale; `pending` means none is configured; `error` means no configured source is usable. Per-source status is included. Connection rates retain their own coverage metadata and never become complete merely because one source responds.
 
 `overview.databaseBytes` is a nonnegative measured number or `null` when capacity diagnostics fail. A null value is unknown capacity, not zero bytes, and does not invalidate other measurements. Alert time comes from the recorded episode when a legacy payload omitted it. The browser isolates malformed alert rows, displays their count and continues displaying the independently validated host data.
+
+## Explicit live destination viewing (v5.7)
+
+Authenticated route: `/api/v2/connections/targets`.
+
+`GET /api/v2/connections/targets` requires the existing administrator session. It returns only live, cached destination identifiers and domain/IP plus port for configured connection groups, with `sampledAt` and `available`. IPv6 literals use `[address]:port`. An unauthenticated request returns 401; all responses use no-store. Stale or failed source samples yield no destinations.
+
+The normal dashboard always omits destinations. The connection page requests this separate view only after the administrator selects View live destinations; leaving the page, hiding the view or signing out clears it. Destination values are not stored in preferences, connection history, audit logs or exports. No additional role or persistent viewing permission is created. Full HTTPS paths and query strings are not available. The protected global redaction setting and core configuration remain unchanged.
+
+Hysteria2 `/online` reports client instances while `/dump/streams` reports TCP streams. The latter does not expose source addresses. Event-log peer addresses cannot safely be assigned to a stream when client/session identifiers are absent; the UI does not infer these associations. See the [upstream statistics API](https://v2.hysteria.network/docs/advanced/Traffic-Stats-API/) and the [sing-box serialization](https://github.com/SagerNet/sing-box/blob/v1.13.19/experimental/clashapi/trafficontrol/tracker.go).

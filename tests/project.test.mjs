@@ -89,8 +89,8 @@ test("Chinese, English, and system language modes are available across UI module
 test("navigation badges are removed while notifications hide zero and cap at 99+", async () => {
   const [navigation, app] = await Promise.all([read("lib/navigation.ts"), read("components/CastoriceApp.tsx")]);
   assert.doesNotMatch(navigation, /badge/);
-  assert.match(app, /unacknowledgedAlerts > 0/);
-  assert.match(app, /unacknowledgedAlerts > 99 \? "99\+"/);
+  assert.match(app, /badge.count > 0 \|\| badge.reminders > 0/);
+  assert.match(app, /badge.count > 99 \? "99\+"/);
   assert.match(app, /snapshot-time/);
   assert.doesNotMatch(app, /后端快照 ·/);
 });
@@ -119,9 +119,9 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
 
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
   const [page, collector, dashboard] = await Promise.all([read("components/pages/ConnectionsPage.tsx"), read("server/castoriceui/collectors.py"), read("server/castoriceui/dashboard.py")]);
-  assert.match(page, /copyText\(item\.sourceIp\)/);
-  assert.match(page, /item\.sourceIp \? <button/);
-  assert.match(page, /Not provided by core/);
+  assert.match(page, /copy\(item\.sourceIp\)/);
+  assert.match(page, /item\.sourceIp \? <div/);
+  assert.doesNotMatch(page, /Not provided by core/);
   assert.doesNotMatch(page, /同协议、账号和来源 IP 自动合并/);
   assert.doesNotMatch(page, /速率由相邻真实累计字节快照计算/);
   assert.match(collector, /if not mapped:\s+continue/);
@@ -163,8 +163,9 @@ test("P2 compatibility, deploy examples, and protocol probe unit stay regression
   assert.match(preflight, /preflight cannot replace independent Debian VM/);
   assert.doesNotMatch(accounts, /<Progress/);
   assert.doesNotMatch(accounts, /Different accounting scopes|统计范围不同|协议核心生命周期累计|计费周期额度/);
-  assert.match(connections, /rateCoverage/);
-  assert.match(overview, /ratesPartial/);
+  assert.match(connections, /listedRate/);
+  assert.doesNotMatch(connections, /rateCoverage/);
+  assert.match(overview, /const totalDown = metrics.downloadBps/);
   assert.match(styles, /\.audit-table code \{[^}]*overflow-wrap: anywhere/);
 });
 
@@ -250,9 +251,9 @@ test("v3.1 quota schedules, stable live layouts, and requested removals stay wir
   for (const unit of ["day", "week", "month", "year"]) assert.match(`${quotaDialog}\n${api}\n${collector}\n${quotaModel}`, new RegExp(`"${unit}"`));
   assert.match(api, /traffic_quota/);
   assert.match(collector, /nextReset/);
-  assert.match(connections, /const columns = 7/);
-  assert.match(connections, /connection-row-indicator/);
-  assert.match(connections, /onClick=.*toggle/);
+  assert.doesNotMatch(connections, /<table/);
+  assert.match(connections, /connection-disclosure/);
+  assert.match(connections, /<AnimatedDetails/);
   assert.doesNotMatch(traffic, /容量预测|Capacity forecast/);
   assert.match(`${overview}\n${dashboard}`, /trafficCoverage/);
   assert.doesNotMatch(`${overview}\n${dashboard}\n${styles}`, /coverageComplete|forecast-card/);
@@ -369,8 +370,9 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.doesNotMatch(dashboard, /_mask_identity|_mask_ip/);
   assert.match(dashboard, /"actor": row\["actor"\]/);
   assert.match(dashboard, /"ip": row\["source_ip"\]/);
-  assert.match(connections, /<colgroup>/);
-  assert.match(styles, /\.connections-table table \{ min-width: 1184px; table-layout: fixed; \}/);
+  assert.match(connections, /connection-list/);
+  assert.doesNotMatch(connections, /<table|<colgroup>/);
+  assert.match(styles, /\.connection-list \{ display: grid; gap: 12px; \}/);
   assert.match(network, /preserveAspectRatio="xMinYMin meet"/);
   assert.match(network, /ResizeObserver/);
   assert.match(network, /viewWidth/);
@@ -409,7 +411,7 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
   assert.match(traffic, /\.sort\(\(left, right\) => right\.value - left\.value/);
   assert.doesNotMatch(traffic, /趋势采样|Trend samples|时间桶|time buckets/);
   assert.match(accounts, /管理账号/);
-  assert.match(connections, /协议账号/);
+  assert.match(connections, /item.account \? <div/);
   assert.match(subscriptions, /关联管理账号/);
   assert.match(app, /new Date\(now\)\.toLocaleTimeString/);
   assert.match(quotaDialog, /resetTime/);

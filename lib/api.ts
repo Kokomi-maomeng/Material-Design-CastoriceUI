@@ -1,4 +1,4 @@
-import type { AlertPageResponse, AuditPageResponse, BootstrapState, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, MonitoringContext, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import type { AlertPageResponse, AuditPageResponse, BootstrapState, ConnectionTargets, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, MonitoringContext, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { parseDashboard } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -108,6 +108,15 @@ export function completeInitialization() {
 
 export function fetchDashboard(signal?: AbortSignal) {
   return request<DashboardPayload>("/api/v2/dashboard", { signal });
+}
+
+export async function fetchConnectionTargets(signal?: AbortSignal) {
+  const body = await request<ConnectionTargets>("/api/v2/connections/targets", { signal });
+  if (!body || typeof body.available !== "boolean" || !Array.isArray(body.groups) ||
+      !body.groups.every((group) => typeof group.id === "string" && Array.isArray(group.details) && group.details.every((detail) => typeof detail.id === "string" && typeof detail.destination === "string"))) {
+    throw new ApiError(502, "invalid_connection_targets");
+  }
+  return body;
 }
 
 export function fetchAudits(options: { page: number; pageSize: 30 | 50; search?: string; category?: string; signal?: AbortSignal }) {

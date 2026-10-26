@@ -151,6 +151,10 @@ def synthetic_dashboard(page) -> dict[str, object]:
         showSetup=True,
         visiblePanels=["alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"],
     )
+    dashboard["connections"] = [
+        {"id": "matrix-hy2", "protocol": "Hysteria2", "account": "QA", "sourceIp": "", "ipVersion": None, "connections": 50, "onlineClients": 4, "uploadBps": None, "downloadBps": 8192, "connectedAt": now.isoformat(), "details": [{"id": f"matrix-stream-{i}", "destination": None, "connectedAt": now.isoformat(), "uploadBps": None, "downloadBps": None} for i in range(50)]},
+        {"id": "matrix-anytls", "protocol": "AnyTLS", "account": "", "sourceIp": "2001:db8:abcd:4f00:58f2:d72c:68ff:83b2", "ipVersion": 6, "connections": 1, "uploadBps": 1024, "downloadBps": 2048, "connectedAt": now.isoformat(), "details": []},
+    ]
     return dashboard
 
 
@@ -158,7 +162,7 @@ def open_page(page, section: str) -> None:
     titles = {
         "overview": ("QA node", "QA node"),
         "traffic": ("流量分析", "Traffic analytics"),
-        "connections": ("活动连接", "Active connections"),
+        "connections": ("在线连接", "Active connections"),
         "accounts": ("账号状态", "Account status"),
         "network": ("网络质量", "Network quality"),
         "services": ("服务状态", "Services"),

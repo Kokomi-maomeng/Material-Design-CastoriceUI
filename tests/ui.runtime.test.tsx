@@ -58,7 +58,7 @@ describe("v4.1 navigation and protocol inspection", () => {
   it("routes every overview shortcut and isolates the account destination", () => {
     const navigate = vi.fn();
     renderEnglish(overview(navigate));
-    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "connections"], ["View account status", "accounts"], ["View network quality", "network"]]) {
+    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "connections"], ["View network quality", "network"]]) {
       navigate.mockClear();
       fireEvent.click(screen.getByRole("link", { name: label }));
       expect(navigate.mock.calls).toEqual([[page]]);
