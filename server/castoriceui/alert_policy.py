@@ -84,6 +84,7 @@ def present(payload: dict[str, Any]) -> dict[str, Any]:
             if payload.get("status") == "resolved":
                 title_zh, title_en = f"{name} 曾出现网络测量波动", f"{name} had a network measurement fluctuation"
                 detail_zh, detail_en = str(payload.get("descriptionZh") or payload.get("description", "")), str(payload.get("descriptionEn") or payload.get("description", ""))
+                detail_zh, detail_en = (value.replace("None ms", "— ms").replace("None%", "—%") for value in (detail_zh, detail_en))
             else:
                 title_zh, title_en = f"{name} 等待网络恢复检查", f"{name} is awaiting a network recovery check"
                 detail_zh, detail_en = "本轮探测未完成，等待下一轮测量", "This probe round is incomplete; waiting for the next measurement"

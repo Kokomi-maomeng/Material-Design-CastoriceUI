@@ -14,6 +14,7 @@ from castoriceui.config import AppConfig
 from castoriceui.dashboard import DashboardService
 from castoriceui.network_sampling import NetworkSeries
 from castoriceui.storage import Storage
+from castoriceui.alert_policy import level, present
 
 
 def sample(at, latency=12.3, family=4):
@@ -126,6 +127,64 @@ class NetworkSamplingTests(unittest.TestCase):
         self.assertEqual(public["status"], "unavailable")
         self.assertEqual(public["probeHistory"], [])
         self.assertIsNone(public["latency"])
+
+    def test_confirmed_global_alert_keeps_aggregate_evidence_after_a_live_reply(self):
+        self.config.alert_thresholds.update(latencyMs=400, lossPercent=5)
+        base = time.time() - 41
+        rounds = [[sample(base + index, None if index and index % 4 == 0 else 650)] for index in range(41)]
+        rounds.append([sample(base + 41, 12.3)])
+        with patch("castoriceui.dashboard.network_snapshots", side_effect=rounds), \
+                patch("castoriceui.dashboard.time.time") as wall, \
+                patch("castoriceui.dashboard.time.monotonic") as monotonic:
+            for index in range(42):
+                wall.return_value = base + index
+                monotonic.return_value = 100 + index
+                self.dashboard.refresh_network()
+        target = self.dashboard.runtime_cache["network"][0]
+        self.assertEqual((target["latency"], target["loss"]), (12.3, 0))
+        alerts = self.dashboard.alerts({"trafficUsedBytes": 0, "trafficLimitBytes": 100}, [], [target])
+        alert = next(item for item in alerts if item["id"] == "network-qa")
+        evidence = alert["evidence"]
+        self.assertEqual((evidence["latency"], evidence["loss"]), (650, 25))
+        self.assertEqual(evidence["effectivePolicy"]["latencyMs"], 400)
+        self.assertEqual(alert["severity"], "warning")
+        self.assertEqual(level({**alert, "evidence": {**evidence, "loss": 0}}), "info")
+        public = self.dashboard.network_targets_snapshot()[0]
+        self.assertNotIn("_alertSample", public)
+        self.assertEqual((public["latency"], public["loss"]), (12.3, 0))
+        self.dashboard._invalidate_network()
+        self.assertEqual(self.dashboard.network_alert_cache, {})
+
+    def test_retired_node_rules_do_not_change_global_alert_decisions(self):
+        self.config.alert_thresholds.update(latencyMs=1000, lossPercent=50)
+        self.dashboard.alert_policy.since["network-qa"] = time.monotonic() - 181
+        target = {**sample(time.time(), 650), "loss": 25, "latencyMs": 1, "lossPercent": 1}
+        alerts = self.dashboard.alerts({"trafficUsedBytes": 0, "trafficLimitBytes": 100}, [], [target])
+        self.assertFalse(any(item["id"] == "network-qa" for item in alerts))
+
+    def test_probe_availability_uses_current_observation_not_the_previous_aggregate(self):
+        self.dashboard.alert_policy.since["network-probe-qa"] = time.monotonic() - 301
+        old = {**sample(time.time() - 20), "status": "unavailable", "complete": False, "alertConfirmed": False}
+        current = {**sample(time.time()), "_alertSample": old}
+        system = {"trafficUsedBytes": 0, "trafficLimitBytes": 100}
+        alerts = self.dashboard.alerts(system, [], [current])
+        self.assertFalse(any(item["id"] == "network-probe-qa" for item in alerts))
+        self.dashboard.alert_policy.since["network-probe-qa"] = time.monotonic() - 301
+        unavailable = {**current, "status": "unavailable", "complete": False, "latency": None, "loss": None,
+                       "sent": None, "received": None, "probeReason": "probeUnavailable", "_alertSample": sample(time.time() - 20)}
+        alerts = self.dashboard.alerts(system, [], [unavailable])
+        probe = next(item for item in alerts if item["id"] == "network-probe-qa")
+        self.assertFalse(probe["evidence"]["complete"])
+        self.assertIsNone(probe["evidence"]["latency"])
+        self.assertEqual(probe["evidence"]["observedAt"], unavailable["observedAt"])
+
+    def test_legacy_missing_readings_use_placeholders_without_rewriting_history(self):
+        original = {"id": "network-qa", "status": "resolved", "titleZh": "Test 网络质量下降",
+                    "descriptionZh": "延迟 None ms · 丢包 100.0%", "descriptionEn": "Latency None ms · loss 100.0%"}
+        shown = present(original)
+        self.assertEqual(shown["descriptionZh"], "延迟 — ms · 丢包 100.0%")
+        self.assertEqual(shown["descriptionEn"], "Latency — ms · loss 100.0%")
+        self.assertIn("None ms", original["descriptionZh"])
 
 
 if __name__ == "__main__":

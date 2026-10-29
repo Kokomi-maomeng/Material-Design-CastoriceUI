@@ -86,6 +86,7 @@ class DashboardService:
         self.network_recorded_at = 0.0
         self.network_recorded_monotonic = 0.0
         self.network_time_cache: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        self.network_alert_cache: dict[str, dict[str, Any]] = {}
         self.alert_policy = AlertPolicy()
         self.resource_pressure = ResourcePressure()
         self.layer_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -142,8 +143,7 @@ class DashboardService:
         for alert in storage.active_alerts():
             if str(alert["id"]).startswith("network-") and not str(alert["id"]).startswith("network-probe-"):
                 target_id = str(alert["id"])[8:]
-                target = next((item for item in self.config.network_targets if item["id"] == target_id), {})
-                signature = (float(target.get("latencyMs", self.config.alert_thresholds["latencyMs"])), float(target.get("lossPercent", self.config.alert_thresholds["lossPercent"])))
+                signature = (float(self.config.alert_thresholds["latencyMs"]), float(self.config.alert_thresholds["lossPercent"]))
                 self.network_policy.states[target_id] = {"confirmed": True, "good": 0, "policy": signature}
 
     def _apply_quota_state_to_config(self, state: dict[str, Any]) -> None:
@@ -680,6 +680,7 @@ class DashboardService:
             self.network_generation += 1
             self.network_series.clear()
             self.network_time_cache.clear()
+            self.network_alert_cache.clear()
             self.network_recorded_monotonic = 0.0
             self.runtime_cache["network"] = [
                 {**item, "latency": None, "loss": None, "jitter": None,
@@ -1053,13 +1054,21 @@ class DashboardService:
                 alerts.append({"id": "monitor-" + key, "severity": "warning", "title": title_en, "titleEn": title_en, "titleZh": title_zh, "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "source": "Monitor evidence", "sourceEn": "Monitor evidence", "sourceZh": "监控证据", "time": "now", "acknowledged": False, "reason": reason, "evidence": service.get("evidence", {}), "affectedServices": [item["id"] for item in services if item.get("rootCauseId") == key]})
             else:
                 self.unknown_since.pop(str(service.get("rootCauseId") or service["id"]), None)
-        for target in network:
+        network_evidence_fields = ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")
+        for observed in network:
+            # Alerts use the same completed aggregate that confirmed the rule;
+            # a later successful one-second probe must not replace its evidence.
+            target = {**observed, **observed.get("_alertSample", {})}
+            if observed.get("status") == "unavailable":
+                target.update(status="unavailable", probeReason=observed.get("probeReason"))
             latency = target.get("latency")
             loss = target.get("loss")
-            evidence = {key: target.get(key) for key in ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")}
-            if target.get("status") == "unavailable":
-                alerts.append({"id": f"network-probe-{target['id']}", "severity": "warning", "title": f"{target['name']} probe is unavailable", "titleEn": f"{target['name']} probe is unavailable", "titleZh": f"{target['name']} 探测不可用", "description": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionEn": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionZh": f"探测原因：{target.get('probeReason', 'unknown')}", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测", "evidence": evidence})
-            if target.get("alertConfirmed", target["status"] != "unavailable" and (target["status"] == "down" or (latency is not None and latency >= float(target.get("latencyMs", latency_threshold))) or (loss is not None and loss >= float(target.get("lossPercent", loss_threshold))))):
+            evidence = {key: target.get(key) for key in network_evidence_fields}
+            evidence["effectivePolicy"] = evidence.get("effectivePolicy") or {"latencyMs": latency_threshold, "lossPercent": loss_threshold}
+            if observed.get("status") == "unavailable":
+                probe_evidence = {key: observed.get(key) for key in network_evidence_fields}
+                alerts.append({"id": f"network-probe-{target['id']}", "severity": "warning", "title": f"{target['name']} probe is unavailable", "titleEn": f"{target['name']} probe is unavailable", "titleZh": f"{target['name']} 探测不可用", "description": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionEn": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionZh": f"探测原因：{target.get('probeReason', 'unknown')}", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测", "evidence": probe_evidence})
+            if target.get("alertConfirmed", target["status"] != "unavailable" and (target["status"] == "down" or (latency is not None and latency >= latency_threshold) or (loss is not None and loss >= loss_threshold))):
                 alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "titleEn": f"{target['name']} network quality degraded", "titleZh": f"{target['name']} 网络质量下降", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionEn": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionZh": f"延迟 {target['latency']} ms · 丢包 {target['loss']}%", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测", "evidence": evidence})
         # Losing listener evidence does not prove recovery of an existing fault.
         # Keep that episode open with an uncertainty warning until a fresh
@@ -1101,7 +1110,6 @@ class DashboardService:
                 matching = next((item for item in network if str(alert["id"]) in {"network-" + item["id"], "network-probe-" + item["id"]}), None)
                 if matching:
                     alert["targetName"] = matching["name"]
-                    alert["evidence"] = {key: matching.get(key) for key in ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")}
             elif str(alert["id"]) == "service-singbox":
                 alert["affectedServices"] = [item["id"] for item in services if item["id"] in PROTOCOLS and item.get("stateReason") == "core_offline"]
         alerts.extend(self.collection_alerts())
@@ -1399,6 +1407,7 @@ class DashboardService:
             if generation != self.network_generation:
                 return
             self.network_series.retain({item["id"] for item in samples})
+            self.network_alert_cache = {key: value for key, value in self.network_alert_cache.items() if key in self.network_series.samples}
             for item in samples:
                 self.network_series.append(item)
                 cached = self.layer_cache.get(item["id"])
@@ -1408,6 +1417,7 @@ class DashboardService:
             if not self.network_recorded_monotonic or time.monotonic() - self.network_recorded_monotonic >= 20:
                 archives = [self.network_series.aggregate(item, self.network_recorded_at) for item in samples]
                 self.network_policy.apply(archives, candidate.alert_thresholds)
+                self.network_alert_cache = {item["id"]: copy.deepcopy(item) for item in archives}
                 for item in archives:
                     payload = {key: item.get(key) for key in ("observedAt", "ipVersion", "resolvedIpVersion", "status", "latency", "loss", "jitter", "sent", "received", "complete", "hasGaps", "sampleIntervalSeconds")}
                     if not self.storage.record_monitoring("network", item["id"], payload):
@@ -1420,6 +1430,7 @@ class DashboardService:
                 family = item.get("resolvedIpVersion") or item.get("ipVersion", 0)
                 item["timeHistory"] = self.network_time_cache.get((item["id"], family), [])
                 item["alertConfirmed"] = bool(self.network_policy.states.get(item["id"], {}).get("confirmed"))
+                item["_alertSample"] = copy.deepcopy(self.network_alert_cache.get(item["id"], {}))
             self.runtime_cache["network"] = samples
             self._collection_result("network", observed_at=timestamp())
             self.collection_state["network"]["durationMs"] = round((time.monotonic() - started) * 1000)
@@ -1430,7 +1441,7 @@ class DashboardService:
             freshness = self.collection_freshness()["network"]
         stale = freshness["ageSeconds"] is None or freshness["ageSeconds"] > 5
         for item in result:
-            for key in ("latencyMs", "lossPercent", "thresholdOverrides", "effectivePolicy", "qualityWindow", "alertConfirmed"):
+            for key in ("latencyMs", "lossPercent", "thresholdOverrides", "effectivePolicy", "qualityWindow", "alertConfirmed", "_alertSample"):
                 item.pop(key, None)
             if stale:
                 item.update(status="unavailable", measurementStatus="unavailable", probeReason="pending" if freshness.get("error") == "pending" else "stale", latency=None, loss=None, jitter=None, history=[], probeHistory=[])
