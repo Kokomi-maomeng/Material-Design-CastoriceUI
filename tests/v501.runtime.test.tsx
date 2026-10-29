@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import * as api from "../lib/api";
 import { I18nProvider } from "../lib/i18n";
 import { NetworkHistory, TimeTrend } from "../components/pages/NetworkHistory";
-import { NetworkDiagnosis } from "../components/pages/NetworkDiagnosis";
+import { NetworkPage } from "../components/pages/NetworkPage";
 import type { NetworkTarget } from "../lib/types";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
@@ -26,10 +26,9 @@ it("loads day history only on demand, keeps family and maxima, supports retry", 
   expect(fetch).toHaveBeenLastCalledWith("qa", 24, 4, expect.any(AbortSignal));
 });
 
-it("shows unavailable official context and unknown counters without inventing a healthy conclusion", async () => {
-  vi.spyOn(api, "fetchMonitoringContext").mockResolvedValue({ networkCorrelation: { classification: "insufficient-evidence" }, officialStatus: { status: "unavailable" }, resource: [] });
-  english(<NetworkDiagnosis targets={[target]} />);
-  fireEvent.click(screen.getByText("Correlation and official incidents"));
-  await waitFor(() => expect(screen.getByText("Official status unconfirmed", { exact: false })).toBeTruthy());
-  expect(screen.getByText("Insufficient sample evidence", { exact: false })).toBeTruthy();
+it("keeps custom network targets without the removed provider diagnosis", () => {
+  const { container } = english(<NetworkPage targets={[target]} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={async () => {}} />);
+  expect(screen.queryByText("Correlation and official incidents")).toBeNull();
+  expect(container.querySelector(".network-diagnosis")).toBeNull();
+  expect(container.textContent).toContain("192.0.2.1");
 });

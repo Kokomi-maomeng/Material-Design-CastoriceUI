@@ -10,16 +10,11 @@ import time
 from castoriceui.collectors import service_snapshots
 from castoriceui.dashboard import DashboardService
 from castoriceui.storage import Storage
-from castoriceui.monitoring import correlate
 import test_service_health as health
 import test_v45_regressions as v45
 
 
 class MonitoringReworkTests(unittest.TestCase):
-    def test_unknown_network_samples_do_not_claim_no_anomaly(self):
-        for targets in ([], [{'id': 'qa', 'status': 'unavailable', 'complete': False}]):
-            self.assertEqual(correlate(targets)['classification'], 'insufficient-evidence')
-
     def test_day_history_preserves_maxima_gaps_family_and_query_budget(self):
         with tempfile.TemporaryDirectory() as folder:
             storage = Storage(str(Path(folder) / 'qa.sqlite'))

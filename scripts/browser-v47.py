@@ -45,8 +45,6 @@ with sync_playwright() as playwright:
             elif path == "network/qa/history":
                 assert query["hours"] == ["24"] and query["ipVersion"] == ["4"]
                 data = {"targetId": "qa", "hours": 24, "ipVersion": 4, "start": 1700000000, "end": 1700086400, "granularitySeconds": 300, "aggregation": "maximum", "sourceSamples": 3, "truncated": False, "samples": [{"capturedAt": 1700000300, "latency": 900, "loss": 100, "complete": True, "hasGaps": True, "status": "down"}]}
-            elif path == "monitoring":
-                data = {"networkCorrelation": {"classification": "insufficient-evidence"}, "officialStatus": {"status": "unavailable"}, "resource": []}
             elif path == "settings/network-targets":
                 mutations.append(route.request.post_data_json)
                 data = {"ok": True}
@@ -83,9 +81,7 @@ with sync_playwright() as playwright:
             page.get_by_role("button", name="1h", exact=True).click()
             page.get_by_text("View probe layers", exact=True).click()
             expect(page.get_by_text("Not configured", exact=True)).to_have_count(2)
-            page.get_by_text("Correlation and official incidents", exact=True).click()
-            expect(page.get_by_text("Official status unconfirmed", exact=False)).to_be_visible()
-            page.get_by_text("Correlation and official incidents", exact=True).click()
+            expect(page.get_by_text("Correlation and official incidents", exact=True)).to_have_count(0)
             page.get_by_role("button", name="Customize", exact=True).click()
             page.get_by_text("Thresholds and service checks", exact=True).click()
             page.get_by_label("Loss threshold (%)", exact=True).fill("20")

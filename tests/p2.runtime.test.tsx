@@ -88,7 +88,7 @@ describe("P2 truthfulness and interaction regressions", () => {
     renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     expect(screen.getAllByText(/0 B\/s/).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText(/partial, 1\/2/)).toBeNull();
-    expect(screen.getByLabelText("Sampled rates of listed connections")).toBeTruthy();
+    expect(screen.getByLabelText("Active connection rates and display")).toBeTruthy();
   });
 
   it("keeps destinations private until explicitly requested, then uses a native disclosure", async () => {
@@ -101,15 +101,16 @@ describe("P2 truthfulness and interaction regressions", () => {
     const { container } = renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     expect(container.querySelector(".connection-disclosure")).toBeNull();
     expect(screen.queryByText("example.test:443")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "View live destinations" }));
-    await screen.findByText("example.test:443");
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    await screen.findByText("example.test");
     const details = container.querySelector<HTMLDetailsElement>(".connection-disclosure")!;
-    fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
     fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Hide live destinations" }));
-    expect(screen.queryByText("example.test:443")).toBeNull();
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    expect(screen.queryByText("example.test")).toBeNull();
   });
 
   it("does not compare lifetime protocol counters with a billing-cycle quota", () => {

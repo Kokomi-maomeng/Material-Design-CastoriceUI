@@ -10,3 +10,11 @@ export function connectionDuration(start: string | null, now: number): number | 
   const seconds = start ? (now - Date.parse(start)) / 1000 : NaN;
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
+
+/** Keep endpoint syntax in transport data; present address and port separately. */
+export function connectionDestination(value: string): { address: string; port: string | null } {
+  const bracketed = /^\[([^\]]+)\](?::(\d+))?$/.exec(value);
+  if (bracketed) return { address: bracketed[1], port: bracketed[2] ?? null };
+  const endpoint = /^([^:]+):(\d+)$/.exec(value);
+  return endpoint ? { address: endpoint[1], port: endpoint[2] } : { address: value, port: null };
+}

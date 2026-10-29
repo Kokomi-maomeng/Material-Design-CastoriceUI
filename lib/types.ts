@@ -119,12 +119,6 @@ export interface NetworkTarget {
 
 export interface NetworkHistorySample { capturedAt: number; latency: number | null; loss: number | null; complete: boolean; status: string; hasGaps?: boolean; samples?: number }
 export interface NetworkHistoryResponse { targetId: string; hours: number; ipVersion: number; start: number; end: number; granularitySeconds: number; aggregation: "maximum"; sourceSamples: number; truncated: boolean; samples: NetworkHistorySample[] }
-export interface MonitoringContext {
-  networkCorrelation?: { observedAt?: string; classification?: string; affectedTargets?: string[]; ipVersions?: number[]; normalSamples?: number; rootCause?: string };
-  officialStatus?: { status?: string; observedAt?: string; incidents?: { id: string; name?: string; status?: string; started_at?: string; resolved_at?: string; components?: { name?: string; status?: string }[] }[] };
-  resource?: { observedAt?: string; memoryBytes?: number; memoryEventDelta?: Record<string, number>; available?: boolean }[];
-}
-
 export interface ServiceStatus {
   kind?: "protocol" | "core" | "monitor";
   id: string;

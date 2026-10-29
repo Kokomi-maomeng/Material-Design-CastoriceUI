@@ -1,10 +1,10 @@
 # Monitoring operations
 
-The anonymous health endpoint covers panel liveness. Authenticated `/api/v2/monitoring` separates collection freshness, service evidence, outbound network correlation and resource pressure. A healthy panel alone says nothing conclusive about an external user's proxy path.
+The anonymous health endpoint covers panel liveness. Authenticated `/api/v2/monitoring` separates collection freshness, service evidence and resource pressure. A healthy panel alone says nothing conclusive about an external user's proxy path.
 
 ## Sampling and state
 
-Host samples run every 60s; core statistics and service evaluation every 5s; network every 20s; subscriptions every 60s; auxiliary context every 600s. Each task has one independent fixed-deadline worker. Runtime/adapter/network freshness remains 90s, host 150s, subscriptions 180s. The startup budget is 30s and never restarts after a failed round. A separate 5s watchdog detects stale data even if a sampler stalls.
+Host samples run every 60s; core statistics and service evaluation every 5s; network every 20s; subscriptions every 60s. Each task has one independent fixed-deadline worker. Runtime/adapter/network freshness remains 90s, host 150s, subscriptions 180s. The startup budget is 30s and never restarts after a failed round. A separate 5s watchdog detects stale data even if a sampler stalls.
 
 The root probe records boot ID/PID/start ticks, sampling start/end, configuration digest and owned listeners. It checks the generation twice. A lifecycle hook applies on the next natural core start; installing it does not restart a proxy. The 10s timer provides fallback. Only the fixed read-only helper runs as root; the panel receives no sudo rights.
 
@@ -16,7 +16,7 @@ Each target can override `latencyMs` and `lossPercent`, and optionally configure
 
 The 120s window sums transmitted/received counts, with at least 24 valid packets. Two abnormal samples out of the last three confirm sustained degradation. Two complete normal samples recover it. Complete ICMP loss is visible immediately; configured TCP/DNS failure permits fast confirmation. Incomplete rounds retain observed data but never supply invented packet counts or healthy recovery. ICMP failure alone is not a proxy-business outage claim.
 
-The public dashboard includes one hour of real timestamped per-target history. The standalone current-round graph shows replies only. Gaps and incomplete samples break the time-history line. Correlation says which targets/families changed together; official incident overlap is only supporting context, and unavailable official status is not evidence of no incident. Bounded route captures describe the current route and are authenticated private operational data.
+The dashboard includes one hour of real timestamped per-target history. The standalone current-round graph shows replies only. Gaps and incomplete samples break the time-history line. Probes follow the user's configured targets; no fixed provider incident feed or automatic route-context collection runs. Existing private historical records remain subject to normal retention.
 
 ## Evidence and capacity
 

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from .monitoring import NetworkPolicy, ResourcePressure, correlate, event, timestamp, maintenance_info
+from .monitoring import NetworkPolicy, ResourcePressure, event, timestamp, maintenance_info
 from .alert_policy import AlertPolicy
 from .alert_dto import with_alert_time
 from .collectors import layered_probe
@@ -86,7 +86,6 @@ class DashboardService:
         self.layer_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self.unknown_since: dict[str, float] = {}
         self.last_core_evidence: list[dict[str, Any]] = []
-        self.route_last_at = 0.0
         self.connection_generation: tuple[Any, ...] | None = None
         self.subscription_probe_cache: tuple[str, float, dict[str, Any]] | None = None
         self.monthly_traffic_cache: tuple[int, str, str, list[dict[str, Any]]] | None = None
@@ -1386,40 +1385,8 @@ class DashboardService:
             if generation != self.network_generation:
                 return
             self.runtime_cache["network"] = samples
-            self.runtime_cache["networkCorrelation"] = correlate(samples)
             self._collection_result("network", observed_at=batch)
             self.collection_state["network"]["durationMs"] = round((time.monotonic() - started) * 1000)
-
-    def refresh_auxiliary(self) -> None:
-        """Low-frequency official context; bounded route capture on confirmed loss."""
-        import shutil
-        import subprocess
-        official = http_json("https://www.cloudflarestatus.com/api/v2/incidents.json", timeout=2, max_bytes=262144)
-        incidents = official["incidents"] if isinstance(official, dict) and isinstance(official.get("incidents"), list) else []
-        context = {"observedAt": timestamp(), "status": "retrieved" if isinstance(official, dict) and isinstance(official.get("incidents"), list) else "unavailable",
-                   "source": "Cloudflare official status", "incidents": [{**{key: item.get(key) for key in ("id", "name", "status", "started_at", "resolved_at", "impact")}, "components": [{"name": part.get("name"), "status": part.get("status")} for part in (item["components"] if isinstance(item.get("components"), list) else [])[:12] if isinstance(part, dict)]} for item in incidents[:20] if isinstance(item, dict)],
-                   "interpretation": "candidate_time_overlap_only", "historicalRoute": "unavailable"}
-        self.storage.record_monitoring("official", "cloudflare", context)
-        with self.lock:
-            self.runtime_cache["officialStatus"] = context
-            self.runtime_cache.setdefault("networkCorrelation", {})["officialContext"] = {key: context[key] for key in ("observedAt", "status", "interpretation")}
-            targets = copy.deepcopy(self.runtime_cache["network"])
-        if time.monotonic() - self.route_last_at < 600:
-            return
-        anomalous = next((item for item in targets if item.get("alertConfirmed")), None)
-        if anomalous is None:
-            return
-        self.route_last_at = time.monotonic()
-        binary = shutil.which("traceroute")
-        route = {"observedAt": timestamp(), "status": "unavailable", "reason": "tool_unavailable"}
-        if binary:
-            try:
-                command = [binary, "-n", "-m", "8", "-q", "1", "-w", "0.5", *( ["-6"] if anomalous.get("ipVersion") == 6 else []), anomalous["address"]]
-                result = subprocess.run(command, capture_output=True, text=True, timeout=6, check=False)
-                route.update(status="sampled", reason="current_route_only", output=result.stdout[:4096])
-            except (OSError, subprocess.SubprocessError):
-                route["reason"] = "timeout_or_permission"
-        self.storage.record_monitoring("route", anomalous["id"], route)
 
     def refresh_subscription(self) -> None:
         started = time.monotonic()

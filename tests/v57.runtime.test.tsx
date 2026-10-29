@@ -48,16 +48,16 @@ describe("v5.7 connection product regressions", () => {
     const request = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValueOnce(response).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
     const { container } = render(view([a]));
     expect(request).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "View live destinations" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
     await waitFor(() => expect(container.querySelectorAll(".connection-target")).toHaveLength(10));
-    expect(container.querySelector(".connection-target code")?.textContent).toBe("target-a-99.example.test:443");
+    expect(container.querySelector(".connection-target code")?.textContent).toBe("target-a-99.example.test");
     fireEvent.click(screen.getByRole("button", { name: "Show 10 more" }));
     expect(container.querySelectorAll(".connection-target")).toHaveLength(20);
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
     expect(container.querySelectorAll(".connection-target")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Hide live destinations" }));
-    fireEvent.click(screen.getByRole("button", { name: "View live destinations" }));
-    fireEvent.click(screen.getByRole("button", { name: "Hide live destinations" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
     resolve(response);
     await waitFor(() => expect(container.querySelectorAll(".connection-target")).toHaveLength(0));
   });
@@ -66,14 +66,14 @@ describe("v5.7 connection product regressions", () => {
     const { container } = render(view([{ ...entry(), downloadBps: 123 }], true));
     expect(screen.queryByText("4 online clients")).toBeNull();
     expect(container.querySelectorAll(".connection-disclosure")).toHaveLength(0);
-    expect(container.querySelector(".connection-card-rates")?.textContent).toBe("↓ —↑ —");
+    expect(container.querySelector(".connection-card-rates")?.textContent).toBe("↑ —↓ —");
   });
 
   it("keeps a nonempty destination search clearable when polling shrinks the list below ten", async () => {
     const a = entry();
     vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });
     const { container, rerender } = render(view([a]));
-    fireEvent.click(screen.getByRole("button", { name: "View live destinations" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
     await screen.findByRole("searchbox", { name: "Find destination" });
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
     rerender(view([{ ...a, connections: 3, details: a.details.slice(0, 3) }]));

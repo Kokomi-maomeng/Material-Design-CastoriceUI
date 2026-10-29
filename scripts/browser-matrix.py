@@ -229,6 +229,17 @@ with sync_playwright() as playwright:
     for engine in ENGINES:
         browser = getattr(playwright, engine).launch(headless=True)
         context = browser.new_context(ignore_https_errors=True, viewport={"width": 1440, "height": 1000}, reduced_motion="reduce")
+        # Retain the caller stack for cross-component updates. Gecko may dispatch
+        # native focus/scroll events during layout, so the React message alone
+        # does not identify the application callback that scheduled the update.
+        context.add_init_script("""(() => {
+          const original = console.error.bind(console);
+          console.error = (...args) => {
+            if (String(args[0]).includes('Cannot update a component')) {
+              original(...args, new Error('Render-time update caller').stack);
+            } else original(...args);
+          };
+        })();""")
         context.route("**/api/v2/**", route_api)
         context.add_init_script("if(!localStorage.getItem('castorice-language'))localStorage.setItem('castorice-language','en');if(!localStorage.getItem('castorice-theme-mode'))localStorage.setItem('castorice-theme-mode','dark');")
         page = context.new_page()
