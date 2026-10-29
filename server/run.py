@@ -45,7 +45,6 @@ def main() -> None:
     periodic(sampler_stop, "singbox-statistics", 5, lambda: dashboard.refresh_adapter("singbox"))
     periodic(sampler_stop, "network", 20, dashboard.refresh_network)
     periodic(sampler_stop, "subscriptions", 60, dashboard.refresh_subscription)
-    periodic(sampler_stop, "auxiliary", 600, dashboard.refresh_auxiliary)
     periodic(sampler_stop, "runtime-monitor", 5, dashboard.refresh_services)
     periodic(sampler_stop, "watchdog", 5, dashboard.refresh_collection_alerts)
     from castoriceui.alert_archive import archive

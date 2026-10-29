@@ -351,7 +351,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_history_range"})
         elif path == "/api/v2/monitoring":
             runtime = self.app.dashboard.runtime_cache
-            self.send_json(HTTPStatus.OK, {"freshness": self.app.dashboard.collection_freshness(), "services": runtime.get("services", []), "maintenance": runtime.get("maintenance", {"state": "unavailable"}), "networkCorrelation": runtime.get("networkCorrelation", {}), "officialStatus": runtime.get("officialStatus", {"status": "not_checked"}), "resource": self.app.storage.monitoring_history("resource", limit=12), "scope": {"panel": "liveness", "core": "systemd and owned listeners", "statistics": "local APIs"}})
+            self.send_json(HTTPStatus.OK, {"freshness": self.app.dashboard.collection_freshness(), "services": runtime.get("services", []), "maintenance": runtime.get("maintenance", {"state": "unavailable"}), "resource": self.app.storage.monitoring_history("resource", limit=12), "scope": {"panel": "liveness", "core": "systemd and owned listeners", "statistics": "local APIs"}})
         elif path == "/api/v2/audits":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)

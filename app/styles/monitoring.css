@@ -9,12 +9,6 @@
 .network-history-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: space-between; font-size: var(--text-xs); }
 .network-history-toolbar .segmented-control button { min-width: 40px; padding: 6px 10px; }
 .network-history-refresh { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-.network-diagnosis { border: 1px solid var(--outline-variant); border-radius: 20px; padding: 14px 18px; }
-.network-diagnosis summary { cursor: pointer; font-size: var(--text-sm); font-weight: 600; }
-.network-diagnosis p { font-size: var(--text-xs); color: var(--on-surface-variant); line-height: 1.6; }
-.network-official-incidents { padding-left: 18px; font-size: var(--text-xs); }
-.network-official-incidents li { margin-block: 10px; }
-.network-official-incidents li > * { display: block; overflow-wrap: anywhere; margin-block: 4px; }
 .alert-summary__button { border: 1px solid transparent; color: var(--on-surface); text-align: left; cursor: pointer; transition: border-color .18s, background .18s; font: inherit; }
 .alert-summary__button.is-selected { border-color: var(--primary); background: var(--secondary-container); }
 .alert-summary__button:hover { border-color: var(--outline); }

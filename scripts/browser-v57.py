@@ -97,9 +97,18 @@ def main():
                     assert page.locator('.connection-disclosure').count()==0
                     value=geometry();assert value['doc']<=value['width']+1 and not value['over'],value
                     if count:assert abs(value['gap']-12)<1,value
-                page.get_by_role('button',name='View live destinations',exact=True).click()
+                switch = page.locator('.connection-summary').get_by_role('switch',name='Show live connections',exact=True)
+                assert switch.get_attribute('aria-checked') == 'false'
+                assert page.get_by_text('About these measurements',exact=True).count() == 0
+                switch.click()
                 page.locator('.connection-disclosure').first.wait_for();disclosure=page.locator('.connection-disclosure').first
+                assert switch.get_attribute('aria-checked') == 'true'
+                assert all('[' not in value and ']' not in value for value in page.locator('.connection-target code').all_text_contents())
+                assert page.locator('.connection-port').first.inner_text() == 'Port 443'
                 assert page.locator('.connection-target-list').first.locator('li').count()==10
+                assert disclosure.get_attribute('open') is not None
+                disclosure.locator('summary').press('Enter');settled(page)
+                assert disclosure.get_attribute('open') is None
                 disclosure.locator('summary').press('Enter');settled(page)
                 assert disclosure.get_attribute('open') is not None
                 disclosure.get_by_role('searchbox').fill('target-0-99.')
@@ -125,7 +134,7 @@ def main():
                 page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
                 assert page.locator(f'[data-connection-id="{first_id}"] details').get_attribute('open') is not None
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
-                page.get_by_role('button',name='Hide live destinations',exact=True).click()
+                page.get_by_role('switch',name='Show live connections',exact=True).click()
                 assert page.locator('.connection-disclosure').count()==0 and page.locator('.connection-target').count()==0
                 page.get_by_role('button',name='Filter',exact=True).click();page.get_by_role('button',name='Source IP',exact=True).click()
                 page.get_by_role('option',name='IPv4',exact=True).click();settled(page)
@@ -173,7 +182,7 @@ def main():
                     open_page(page,route,heading)
                     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'),(engine,route)
                 open_page(page,'connections','Active connections')
-                page.get_by_role('button',name='View live destinations',exact=True).click();page.locator('.connection-disclosure').first.wait_for()
+                page.get_by_role('switch',name='Show live connections',exact=True).click();page.locator('.connection-disclosure').first.wait_for()
                 open_page(page,'overview','Synthetic QA');open_page(page,'connections','Active connections')
                 assert page.locator('.connection-disclosure').count()==0
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)

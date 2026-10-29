@@ -19,7 +19,7 @@ import tarfile
 from castoriceui.collectors import ping_target, layered_probe, service_snapshots, cached_metadata, _metadata_cache
 from castoriceui.config import AppConfig
 from castoriceui.dashboard import DashboardService
-from castoriceui.monitoring import NetworkPolicy, periodic, correlate, maintenance_info
+from castoriceui.monitoring import NetworkPolicy, periodic, maintenance_info
 from castoriceui.storage import Storage
 import test_service_health as health
 import test_v45_regressions as v45
@@ -203,8 +203,6 @@ class MonitoringPolicyTests(unittest.TestCase):
             result = policy.apply([{**sample(100, key="v6"), "ipVersion": 6}, sample(key="v4")], THRESHOLDS, 100+i*20)
         self.assertTrue(result[0]["alertConfirmed"])
         self.assertFalse(result[1]["alertConfirmed"])
-        self.assertEqual(correlate(result)["ipVersions"], [6])
-        self.assertEqual(correlate(result)["rootCause"], "insufficient_evidence")
 
     def test_corroborated_transport_failure_is_fast_but_icmp_blocking_is_not_business_failure(self):
         policy = NetworkPolicy()

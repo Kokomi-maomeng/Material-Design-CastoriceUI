@@ -588,17 +588,43 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
     return services
 
 
+def connection_source_ip(value: Any) -> str:
+    """Accept only an IP or IP endpoint supplied by the connection itself."""
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    bracketed = re.fullmatch(r"\[([^\]]+)\](?::\d+)?", text)
+    if bracketed:
+        text = bracketed[1]
+    elif text.count(":") == 1:
+        text, port = text.rsplit(":", 1)
+        if not port.isdigit() or not 0 < int(port) <= 65535:
+            return ""
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        return ""
+
+
 def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapters: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     connections: list[dict[str, Any]] = []
     tag_protocols: dict[str, tuple[str, str]] = {}
-    labels = {"anytls": "AnyTLS", "vless": "VLESS", "socks5": "SOCKS5", "shadowsocks": "Shadowsocks", "vmess": "VMess", "trojan": "Trojan", "tuic": "TUIC"}
+    ambiguous_tags: set[str] = set()
     for adapter_id, adapter in (protocol_adapters or {}).items():
-        label = labels.get(adapter_id)
+        if adapter_id not in PROTOCOLS or not isinstance(adapter, dict):
+            continue
+        label = PROTOCOLS[adapter_id][0]
         if adapter_id == "vless":
             label = {"xtls-vision": "VLESS · XTLS Vision", "reality": "VLESS · Reality", "xtls-vision-reality": "VLESS · XTLS Vision · Reality"}.get(str(adapter.get("securityProfile", "standard")), "VLESS")
-        for tag in adapter.get("inboundTags", []) if isinstance(adapter, dict) else []:
-            if str(tag).strip() and label:
-                tag_protocols[str(tag).strip().casefold()] = (adapter_id, label)
+        for tag in adapter.get("inboundTags", []):
+            key = str(tag).strip().casefold()
+            if not key:
+                continue
+            if key in tag_protocols:
+                ambiguous_tags.add(key)
+            tag_protocols[key] = (adapter_id, label)
+    for tag in ambiguous_tags:
+        tag_protocols.pop(tag, None)
     inventory = sb.get("inventory", {}) if isinstance(sb.get("inventory"), dict) else {}
     live_inbounds: dict[str, list[dict[str, Any]]] = {}
     if inventory.get("available") and isinstance(inventory.get("inbounds"), list):
@@ -610,18 +636,17 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
             continue
         started = stream.get("initial_at")
         account = next((str(stream.get(key)) for key in ("auth", "user", "username") if stream.get(key)), "")
-        address_text = " ".join(str(stream.get(key, "")) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
-        ip_match = re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?!\d)|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){2,}[0-9A-Fa-f:]+", address_text)
-        source_ip = ip_match.group(0) if ip_match else ""
+        sources = (connection_source_ip(stream.get(key)) for key in ("remote_addr", "peer_addr", "source_ip", "remote", "client", "source"))
+        source_ip = next((value for value in sources if value), "")
         destination = str(stream.get("hooked_req_addr") or stream.get("req_addr") or "").strip() or None
-        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": 6 if ip_match and ":" in source_ip else 4 if ip_match else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started, "destination": destination})
+        connections.append({"id": f"hy2-{stream.get('connection', index)}-{stream.get('stream', index)}", "protocol": "Hysteria2", "account": account, "sourceIp": source_ip, "ipVersion": ipaddress.ip_address(source_ip).version if source_ip else None, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(stream.get("tx", 0)), "downloadedBytes": int(stream.get("rx", 0)), "connectedAt": started, "destination": destination})
     for index, connection in enumerate(sb.get("connections", [])):
         if not isinstance(connection, dict) or not isinstance(connection.get("metadata", {}), dict) or not all(valid_counter(connection.get(key, 0)) for key in ("upload", "download")):
             continue
         metadata = connection.get("metadata", {})
-        source_ip = str(metadata.get("sourceIP") or "")
-        ip_version = 6 if ":" in source_ip else 4 if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", source_ip) else None
-        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser", "inboundName") if metadata.get(key)), "")
+        source_ip = connection_source_ip(metadata.get("sourceIP"))
+        ip_version = ipaddress.ip_address(source_ip).version if source_ip else None
+        account = next((str(metadata.get(key)) for key in ("user", "inboundUser", "authUser") if metadata.get(key)), "")
         destination_host = str(metadata.get("host") or metadata.get("destinationIP") or "").strip()
         destination_port = metadata.get("destinationPort")
         # A literal IPv6 address needs brackets when a port is appended.
@@ -630,12 +655,14 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
         destination = f"{destination_host}:{destination_port}" if destination_host and destination_port else destination_host or None
         inbound_tag = str(metadata.get("inbound") or metadata.get("inboundTag") or "").strip()
         metadata_protocol = ""
-        if not inbound_tag:
-            metadata_type = str(metadata.get("type") or "").strip()
-            if "/" in metadata_type:
-                metadata_protocol, inbound_tag = metadata_type.split("/", 1)
-                metadata_protocol = metadata_protocol.strip().casefold()
-                inbound_tag = inbound_tag.strip()
+        metadata_type = str(metadata.get("type") or "").strip()
+        if "/" in metadata_type:
+            metadata_protocol, type_tag = metadata_type.split("/", 1)
+            metadata_protocol = metadata_protocol.strip().casefold()
+            type_tag = type_tag.strip()
+            if inbound_tag and inbound_tag.casefold() != type_tag.casefold():
+                continue
+            inbound_tag = inbound_tag or type_tag
         mapped = tag_protocols.get(inbound_tag.casefold())
         if not mapped:
             continue
@@ -647,6 +674,10 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
                 or str(matches[0].get("type", "")).casefold() != metadata_protocol
                 or metadata_protocol not in PROTOCOLS[adapter_id][2]
             ):
+                continue
+        elif inventory.get("available"):
+            matches = live_inbounds.get(inbound_tag.casefold(), [])
+            if len(matches) != 1 or str(matches[0].get("type", "")).casefold() not in PROTOCOLS[adapter_id][2]:
                 continue
         connections.append({"id": str(connection.get("id", f"singbox-{index}")), "protocol": protocol, "account": account, "sourceIp": source_ip, "ipVersion": ip_version, "connections": 1, "uploadBps": None, "downloadBps": None, "uploadedBytes": int(connection.get("upload", 0)), "downloadedBytes": int(connection.get("download", 0)), "connectedAt": connection.get("start"), "destination": destination})
     return connections

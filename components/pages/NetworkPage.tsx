@@ -17,7 +17,6 @@ import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
 import { PageHeader } from "../ui/Page";
 import { NetworkHistory } from "./NetworkHistory";
-import { NetworkDiagnosis } from "./NetworkDiagnosis";
 import { networkQuality, qualityLabels } from "../../lib/network-quality";
 
 interface TargetDraft {
@@ -122,7 +121,6 @@ export function NetworkPage({
         descriptionEn="After targets are configured, an independent backend monitor refreshes them about every 20 seconds; the browser does not trigger probes."
         onConfigure={onConfigure}
       />
-      <NetworkDiagnosis targets={targets} />
       <FeatureIntro
         items={[
           {

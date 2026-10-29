@@ -35,7 +35,7 @@ Authenticated endpoints:
 | GET | `/api/v2/dashboard` | Bounded real/stale operational snapshot |
 | GET | `/api/v2/alerts` | Filter and paginate current and historical alert episodes |
 | POST | `/api/v2/alerts/ack-all` | Acknowledge all pending episodes |
-| GET | `/api/v2/monitoring` | Freshness, service, maintenance, correlation and resource evidence |
+| GET | `/api/v2/monitoring` | Freshness, service, maintenance and resource evidence |
 | GET | `/api/v2/network/:id/history` | Measured network history for the requested family/time range |
 | GET | `/api/v2/audits` | Server-filtered audit records with bounded 30/50-row pagination |
 | PUT | `/api/v2/settings/traffic-limit` | Update the single quota shared by Overview and Accounts |
@@ -88,7 +88,7 @@ AnyTLS, VLESS, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC require exact inboun
 }
 ```
 
-Tags are matched case-insensitively against sing-box connection metadata. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Unknown or unconfigured tags are omitted from Active connections. Each browser setup action also performs an authenticated loopback `/connections` request before saving.
+Tags are matched case-insensitively against sing-box connection metadata using the same protocol registry as setup validation. Custom tags may contain slashes. Conflicting tag/type evidence and ambiguous, unknown or unconfigured tags are omitted from Active connections. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Each browser setup action also performs an authenticated loopback `/connections` request before saving. Source IPs are validated as IPv4/IPv6; only explicit user/authentication fields supply account names, never a listener name. TCP and UDP entries share this metadata path whenever the core returns them.
 
 For VLESS, `securityProfile` accepts `standard`, `xtls-vision`, `reality`, or `xtls-vision-reality`. This is display/mapping metadata: XTLS Vision corresponds to the official `xtls-rprx-vision` user flow, while Reality belongs to the inbound TLS configuration. CastoriceUI does not rewrite the sing-box configuration.
 
@@ -183,7 +183,7 @@ Connection integration status follows configured HY2 and sing-box adapters. Unco
 
 Authenticated route: `/api/v2/connections/targets`.
 
-`GET /api/v2/connections/targets` requires the existing administrator session. It returns only live, cached destination identifiers and domain/IP plus port for configured connection groups, with `sampledAt` and `available`. IPv6 literals use `[address]:port`. An unauthenticated request returns 401; all responses use no-store. Stale or failed source samples yield no destinations.
+`GET /api/v2/connections/targets` requires the existing administrator session. It returns only live, cached destination identifiers and domain/IP plus port for configured connection groups, with `sampledAt` and `available`. Transport data uses `[address]:port` for IPv6; the page displays the address without brackets and the port separately. Copy buttons copy the address. An unauthenticated request returns 401; all responses use no-store. Stale or failed source samples yield no destinations. The page's Show live connections switch defaults off, reveals available destinations immediately when enabled, and discards them on disable or unmount. Upload and download totals use all available listed connection samples and stay independent of list filters; they never substitute network-interface traffic for missing samples.
 
 The normal dashboard always omits destinations. The connection page requests this separate view only after the administrator selects View live destinations; leaving the page, hiding the view or signing out clears it. Destination values are not stored in preferences, connection history, audit logs or exports. No additional role or persistent viewing permission is created. Full HTTPS paths and query strings are not available. The protected global redaction setting and core configuration remain unchanged.
 
