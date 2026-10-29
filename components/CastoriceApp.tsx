@@ -568,10 +568,22 @@ export function CastoriceApp() {
         return (
           <NetworkPage
             targets={dashboard.networkTargets}
+            alerts={dashboard.alerts}
+            alertIntegration={integrationFor("alerts")}
+            onOpenAlerts={() => navigate("alerts")}
             onToast={showToast}
             integration={integrationFor("network")}
             onConfigure={() => configurePage("network")}
-            onSaved={loadDashboard}
+            onSaved={async () => {
+              await loadDashboard();
+              setSetupDrafts((current) => {
+                if (!current.alerts) return current;
+                const nextAlerts = { ...current.alerts };
+                delete nextAlerts.latencyMs;
+                delete nextAlerts.lossPercent;
+                return { ...current, alerts: nextAlerts };
+              });
+            }}
           />
         );
       case "services":

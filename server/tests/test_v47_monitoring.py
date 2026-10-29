@@ -192,22 +192,22 @@ class MonitoringPolicyTests(unittest.TestCase):
         self.assertTrue(result["alertConfirmed"])
         self.assertEqual(result["qualityWindow"]["sent"], 24)
 
-    def test_weighted_counts_overrides_single_family_and_missing_are_independent(self):
+    def test_global_weighted_counts_ignore_retired_overrides_and_keep_families_independent(self):
         policy = NetworkPolicy()
         policy.apply([sample(10, sent=100, received=90)], THRESHOLDS, 0)
         result = policy.apply([sample(0, sent=4, received=4)], THRESHOLDS, 20)[0]
         self.assertAlmostEqual(result["qualityWindow"]["loss"], 9.62, places=2)
         result = policy.apply([{**sample(12.5), "lossPercent": 20}], THRESHOLDS, 40)[0]
-        self.assertEqual(result["status"], "healthy")
+        self.assertEqual(result["status"], "degraded")
         for i in range(3):
             result = policy.apply([{**sample(100, key="v6"), "ipVersion": 6}, sample(key="v4")], THRESHOLDS, 100+i*20)
         self.assertTrue(result[0]["alertConfirmed"])
         self.assertFalse(result[1]["alertConfirmed"])
 
-    def test_corroborated_transport_failure_is_fast_but_icmp_blocking_is_not_business_failure(self):
+    def test_optional_transport_results_do_not_bypass_global_icmp_confirmation(self):
         policy = NetworkPolicy()
         result = policy.apply([{**sample(100), "layers": {"tcp": {"configured": True, "status": "failed"}}}], THRESHOLDS, 0)[0]
-        self.assertTrue(result["alertConfirmed"])
+        self.assertFalse(result["alertConfirmed"])
         policy = NetworkPolicy()
         result = policy.apply([{**sample(100), "layers": {"tcp": {"configured": True, "status": "passed"}}}], THRESHOLDS, 0)[0]
         self.assertEqual(result["status"], "down")

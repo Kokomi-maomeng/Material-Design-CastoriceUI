@@ -316,6 +316,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 print(f"Dashboard snapshot failed: {type(error).__name__}")
                 self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "dashboard_unavailable"})
+        elif path == "/api/v2/network":
+            self.send_json(HTTPStatus.OK, {"targets": self.app.dashboard.network_targets_snapshot()})
         elif path == "/api/v2/connections/targets":
             self.send_json(HTTPStatus.OK, self.app.dashboard.connection_targets())
         elif path == "/api/v2/alerts":
@@ -397,7 +399,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, result)
                 return
             if path == "/api/v2/settings/network-targets":
-                result = self.app.dashboard.update_network_targets(payload.get("targets"), self.source_ip(), str(session["username"]))
+                result = self.app.dashboard.update_network_targets(payload.get("targets"), self.source_ip(), str(session["username"]), payload.get("globalThresholds"))
                 self.send_json(HTTPStatus.OK, {"targets": result})
                 return
             if path == "/api/v2/settings/ui":

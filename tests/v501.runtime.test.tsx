@@ -14,7 +14,7 @@ it("does not draw a missing round as normal or hide 100 percent loss when RTT is
   english(<TimeTrend label="QA trend" samples={[{ capturedAt: 0, latency: 10, loss: 0, complete: true, status: "healthy" }, { capturedAt: 20, latency: null, loss: 100, complete: true, status: "down" }, { capturedAt: 40, latency: null, loss: null, complete: false, status: "unavailable" }, { capturedAt: 60, latency: 20, loss: 0, complete: true, status: "healthy" }]} />);
   const chart = screen.getByRole("img", { name: "QA trend" });
   expect(chart.querySelectorAll('[data-metric="latency"]')).toHaveLength(2);
-  expect(chart.querySelector('[data-metric="loss"]')?.getAttribute("points")).toContain(",12");
+  expect(chart.querySelector('[data-metric="loss"]')?.getAttribute("points")).toContain(",18");
   expect(chart.querySelectorAll('[data-gap]')).toHaveLength(1);
 });
 
@@ -22,7 +22,7 @@ it("loads day history only on demand, keeps family and maxima, supports retry", 
   const fetch = vi.spyOn(api, "fetchNetworkHistory").mockRejectedValueOnce(new Error("synthetic")).mockResolvedValue({ targetId: "qa", hours: 24, ipVersion: 4, start: 0, end: 86400, granularitySeconds: 300, aggregation: "maximum", sourceSamples: 2, truncated: false, samples: [{ capturedAt: 300, latency: 900, loss: 100, complete: true, status: "down", hasGaps: true }] });
   english(<NetworkHistory target={target} />); expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "24h" })); await screen.findByText("Unable to load history");
-  fireEvent.click(screen.getByRole("button", { name: /^Refresh$/ })); await screen.findByText("900.0");
+  fireEvent.click(screen.getByRole("button", { name: /^Refresh$/ })); await screen.findAllByText("900.0 ms");
   expect(fetch).toHaveBeenLastCalledWith("qa", 24, 4, expect.any(AbortSignal));
 });
 

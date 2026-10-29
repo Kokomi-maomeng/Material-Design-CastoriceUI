@@ -683,22 +683,22 @@ def connection_snapshots(hy2: dict[str, Any], sb: dict[str, Any], protocol_adapt
     return connections
 
 
-def ping_target(target: dict[str, Any]) -> dict[str, Any]:
+def ping_target(target: dict[str, Any], count: int = 8) -> dict[str, Any]:
     started = time.monotonic()
     address = str(target.get("address", ""))
     version = int(target.get("ipVersion", 4))
-    command = ["ping", *(["-6"] if version == 6 else ["-4"] if version == 4 else []), "-c", "8", "-i", "0.2", "-W", "1", address]
+    command = ["ping", *(["-6"] if version == 6 else ["-4"] if version == 4 else []), "-n", "-c", str(count), "-i", "0.2", "-W", "0.7" if count == 1 else "1", address]
     base = {"id": str(target.get("id", address)), "name": str(target.get("name", address)),
             "provider": str(target.get("provider", "Custom")), "address": address,
             "ipVersion": version, "order": int(target.get("order", 0)), "observedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "sampleStartedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "method": "icmp", "complete": False, "sent": None, "received": None,
-            **{key: target[key] for key in ("latencyMs", "lossPercent", "tcpPort", "dnsPort", "dnsName", "thresholdOverrides") if key in target}}
+            **{key: target[key] for key in ("tcpPort", "dnsPort", "dnsName") if key in target}}
     if not shutil.which("ping"):
         return {**base, "latency": None, "jitter": None, "loss": None, "status": "unavailable",
                 "measurementStatus": "unavailable", "probeReason": "probeUnavailable", "history": []}
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=4, check=False, env={**os.environ, "LC_ALL": "C", "LANG": "C"})
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=1.5 if count == 1 else 4, check=False, env={**os.environ, "LC_ALL": "C", "LANG": "C"})
         output = "\n".join(value for value in (completed.stdout, completed.stderr) if value)
         # Keep the requested automatic setting; expose the actual ping destination separately.
         destination = re.search(r"^PING\s+.*?\(([^()]+)\)", output, re.MULTILINE)
@@ -743,7 +743,7 @@ def ping_target(target: dict[str, Any]) -> dict[str, Any]:
                 "measurementStatus": "measured" if loss is not None else "unavailable", "probeReason": reason, "history": []}
     latency = round(statistics.mean(values), 1)
     jitter = round(statistics.pstdev(values), 1) if len(values) > 1 else None
-    status = "degraded" if (loss or 0) >= float(target.get("lossPercent", 5)) or latency >= float(target.get("latencyMs", 150)) else "healthy"
+    status = "degraded" if (loss or 0) > 0 else "healthy"
     if not base["complete"]:
         status = "unavailable"
     return {**base, "latency": latency, "jitter": jitter, "loss": loss, "status": status,
@@ -755,19 +755,21 @@ def layered_probe(target: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     address = str(target["address"])
     for method in ("tcp", "dns"):
-        port = target.get(method + "Port")
+        port = target.get(method + "Port") or (53 if method == "dns" and target.get("dnsName") else None)
         if not port:
             result[method] = {"configured": False, "status": "unconfigured"}
             continue
         started = time.monotonic()
         evidence: dict[str, Any] = {"configured": True, "observedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
         try:
-            family = socket.AF_INET6 if int(target.get("ipVersion", 0)) == 6 else socket.AF_INET
+            family = socket.AF_INET6 if ":" in address else socket.AF_INET
             # Targets are validated public IPs or DNS names. DNS lookup itself
             # uses a subprocess deadline so resolver stalls cannot leak threads.
             if method == "tcp":
-                probe = subprocess.run(["python3", "-c", "import socket,sys;f=int(sys.argv[3]);a=socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),socket.AF_INET6 if f==6 else socket.AF_INET if f==4 else socket.AF_UNSPEC,socket.SOCK_STREAM)[0];s=socket.socket(a[0],a[1],a[2]);s.settimeout(2);s.connect(a[4]);s.close()", address, str(int(port)), str(int(target.get("resolvedIpVersion") or target.get("ipVersion", 0)))], capture_output=True, timeout=3, check=False)
+                probe = subprocess.run(["python3", "-c", "import socket,sys,time;f=int(sys.argv[3]);a=socket.getaddrinfo(sys.argv[1],int(sys.argv[2]),socket.AF_INET6 if f==6 else socket.AF_INET if f==4 else socket.AF_UNSPEC,socket.SOCK_STREAM)[0];s=socket.socket(a[0],a[1],a[2]);s.settimeout(2);t=time.monotonic();s.connect(a[4]);print(round((time.monotonic()-t)*1000,1));s.close()", address, str(int(port)), str(int(target.get("resolvedIpVersion") or target.get("ipVersion", 0)))], capture_output=True, timeout=3, check=False)
                 evidence.update(status="passed" if probe.returncode == 0 else "failed", reason="connected" if probe.returncode == 0 else "connect_failed")
+                raw = probe.stdout.decode("ascii", errors="replace") if isinstance(probe.stdout, bytes) else str(probe.stdout or "")
+                evidence["durationMs"] = float(raw.strip()) if probe.returncode == 0 and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw.strip()) else None
             else:
                 import struct
                 query_id = int.from_bytes(os.urandom(2), "big")
@@ -777,23 +779,25 @@ def layered_probe(target: dict[str, Any]) -> dict[str, Any]:
                 with socket.socket(family, socket.SOCK_DGRAM) as sock:
                     sock.settimeout(2)
                     sock.connect((address, int(port)))
+                    sent_at = time.monotonic()
                     sock.send(request)
                     response = sock.recv(4096)
+                    response_ms = (time.monotonic() - sent_at) * 1000
                 reply_id, flags, questions, answers = struct.unpack("!4H", response[:8]) if len(response) >= 12 else (0, 0, 0, 0)
                 question = request[12:]
                 valid = (reply_id == query_id and bool(flags & 0x8000) and not flags & 0x7A0F
                          and questions == 1 and answers > 0 and response[12:12 + len(question)] == question
                          and len(response) >= 12 + len(question) + 16)
                 evidence.update(status="passed" if valid else "failed", reason="answer_verified" if valid else "invalid_dns_response")
+                evidence["durationMs"] = round(response_ms, 1) if valid else None
         except (OSError, ValueError, subprocess.SubprocessError):
             evidence.update(status="failed", reason="timeout_or_transport")
-        evidence["durationMs"] = round((time.monotonic() - started) * 1000)
+        evidence["attemptDurationMs"] = round((time.monotonic() - started) * 1000)
         result[method] = evidence
     return result
 
 
-def network_snapshots(config: AppConfig) -> list[dict[str, Any]]:
-    targets = [{**item, "thresholdOverrides": {key: item[key] for key in ("latencyMs", "lossPercent") if key in item}, "latencyMs": item.get("latencyMs", config.alert_thresholds["latencyMs"]),
-                "lossPercent": item.get("lossPercent", config.alert_thresholds["lossPercent"])} for item in config.network_targets[:12]]
-    with ThreadPoolExecutor(max_workers=min(6, max(1, len(targets))), thread_name_prefix="probe") as pool:
-        return list(pool.map(ping_target, targets))
+def network_snapshots(config: AppConfig, count: int = 8) -> list[dict[str, Any]]:
+    targets = config.network_targets[:12]
+    with ThreadPoolExecutor(max_workers=min(12 if count == 1 else 6, max(1, len(targets))), thread_name_prefix="probe") as pool:
+        return list(pool.map(lambda target: ping_target(target, count), targets))

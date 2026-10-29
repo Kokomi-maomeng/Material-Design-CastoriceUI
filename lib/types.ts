@@ -100,6 +100,8 @@ export interface NetworkTarget {
   probeReason?: string;
   observedAt?: string;
   history: number[];
+  probeHistory?: NetworkHistorySample[];
+  sampleIntervalSeconds?: number;
   complete?: boolean;
   sent?: number | null;
   received?: number | null;

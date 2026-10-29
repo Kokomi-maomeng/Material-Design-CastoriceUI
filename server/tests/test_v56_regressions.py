@@ -123,24 +123,39 @@ class AuditFixes(v51.IsolatedState):
         self.dashboard.connection_integration(state, {'available': True}, {}, {'hysteria2': {'status': 'stale'}})
         self.assertEqual(state['status'], 'error')
 
-    def test_pending_edit_preserves_overrides_and_explicit_clear_survives_restart(self):
+    def test_pending_protocol_edit_survives_restart_and_legacy_node_rules_are_retired(self):
         target = {'name': 'Synthetic DNS', 'address': '2606:4700:4700::1111', 'ipVersion': 6,
                   'order': 1, 'latencyMs': 321, 'lossPercent': 7, 'tcpPort': 443, 'dnsPort': 53, 'dnsName': 'example.com'}
         self.assertEqual(self.request('/api/v2/settings/network-targets', {'targets': [target]})[0], 200)
         pending = self.request('/api/v2/dashboard')[1]['networkTargets'][0]
-        self.assertEqual(pending['thresholdOverrides'], {'latencyMs': 321, 'lossPercent': 7})
+        self.assertNotIn('thresholdOverrides', pending)
         editor = {key: pending[key] for key in ('name', 'address', 'ipVersion', 'order', 'tcpPort', 'dnsPort', 'dnsName')}
-        editor.update(pending['thresholdOverrides']); editor.update(name='Renamed', order=2)
+        editor.update(name='Renamed', order=2)
         self.assertEqual(self.request('/api/v2/settings/network-targets', {'targets': [editor]})[0], 200)
         fresh = DashboardService(self.config, Storage(self.config.database_path))
         saved = fresh.config.network_targets[0]
-        for key in ('latencyMs', 'lossPercent', 'tcpPort', 'dnsPort', 'dnsName', 'address'):
+        for key in ('tcpPort', 'dnsPort', 'dnsName', 'address'):
             self.assertEqual(saved[key], target[key])
-        for key in ('latencyMs', 'lossPercent'): editor.pop(key)
+        self.assertNotIn('latencyMs', saved)
+        editor.pop('tcpPort')
         self.assertEqual(self.request('/api/v2/settings/network-targets', {'targets': [editor]})[0], 200)
-        self.assertEqual(self.dashboard.runtime_cache['network'][0]['thresholdOverrides'], {})
         fresh = DashboardService(self.config, Storage(self.config.database_path))
-        self.assertNotIn('latencyMs', fresh.config.network_targets[0])
+        self.assertNotIn('tcpPort', fresh.config.network_targets[0])
+        self.assertEqual(fresh.config.network_targets[0]['dnsPort'], 53)
+
+    def test_new_network_rules_are_visible_before_cached_measurements_refresh(self):
+        self.dashboard.runtime_cache['integrations'] = self.config.public_integrations()
+        previous = next(item for item in self.dashboard.runtime_cache['integrations'] if item['id'] == 'alerts')
+        previous['values'] = {'latencyMs': '150', 'lossPercent': '5', 'trafficPercent': '80'}
+        target = {'name': 'Test DNS', 'address': '1.1.1.1'}
+        self.assertEqual(self.request('/api/v2/settings/network-targets', {'targets': [target], 'globalThresholds': {'latencyMs': 240, 'lossPercent': 8}})[0], 200)
+        status, body = self.request('/api/v2/dashboard')
+        self.assertEqual(status, 200)
+        actual = next(item for item in body['integrations'] if item['id'] == 'alerts')['values']
+        self.assertEqual(float(actual['latencyMs']), 240)
+        self.assertEqual(float(actual['lossPercent']), 8)
+        self.assertEqual(float(actual['trafficPercent']), 80)
+        self.assertEqual(previous['values']['latencyMs'], '150')
 
     def test_invalid_background_ports_do_not_change_saved_appearance(self):
         original = {'type': 'url', 'value': 'https://images.example.com/image', 'fit': 'cover', 'cacheSeconds': 0, 'glass': 'default', 'glassEnabled': False}

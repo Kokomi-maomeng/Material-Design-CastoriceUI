@@ -466,6 +466,12 @@ class Storage:
                 (key, json.dumps(value, ensure_ascii=False), utc_now()),
             )
 
+    def set_settings(self, values: dict[str, Any]) -> None:
+        """Persist related editor settings in one transaction."""
+        encoded = [(key, json.dumps(value, ensure_ascii=False, allow_nan=False), utc_now()) for key, value in values.items()]
+        with self.lock, self.connect() as connection:
+            connection.executemany("INSERT INTO settings VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", encoded)
+
     def delete_setting(self, key: str) -> None:
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM settings WHERE key=?", (key,))
@@ -800,9 +806,9 @@ class Storage:
             raise ValueError("Invalid network history range")
         end = int(time.time()) if now is None else int(now)
         start = end - hours * 3600
-        step = {1: 20, 6: 120, 24: 300}[hours]
+        step = hours * 60
         with self.connect() as connection:
-            rows = connection.execute("SELECT captured_at,json_extract(payload_json,'$.latency') AS latency,json_extract(payload_json,'$.loss') AS loss,json_extract(payload_json,'$.complete') AS complete,json_extract(payload_json,'$.status') AS status,COALESCE(json_extract(payload_json,'$.resolvedIpVersion'),json_extract(payload_json,'$.ipVersion'),0) AS family FROM monitoring_samples WHERE domain='network' AND target=? AND captured_at BETWEEN ? AND ? ORDER BY captured_at DESC,id DESC LIMIT 5001", (target, start, end)).fetchall()
+            rows = connection.execute("SELECT captured_at,json_extract(payload_json,'$.latency') AS latency,json_extract(payload_json,'$.loss') AS loss,json_extract(payload_json,'$.complete') AS complete,json_extract(payload_json,'$.hasGaps') AS hasGaps,json_extract(payload_json,'$.status') AS status,COALESCE(json_extract(payload_json,'$.resolvedIpVersion'),json_extract(payload_json,'$.ipVersion'),0) AS family FROM monitoring_samples WHERE domain='network' AND target=? AND captured_at BETWEEN ? AND ? ORDER BY captured_at DESC,id DESC LIMIT 5001", (target, start, end)).fetchall()
         truncated = len(rows) > 5000
         buckets: dict[int, dict[str, Any]] = {}
         count = 0
@@ -812,11 +818,11 @@ class Storage:
             if ip_version and family != ip_version:
                 continue
             count += 1
-            at = row["captured_at"] // step * step
+            at = start + min(59, (row["captured_at"] - start) // step) * step
             bucket = buckets.setdefault(at, {"capturedAt": at, "latency": None, "loss": None, "complete": False, "hasGaps": False, "samples": 0, "status": "unavailable"})
             bucket["samples"] += 1
             complete = sample.get("complete") == 1
-            bucket["hasGaps"] |= not complete
+            bucket["hasGaps"] |= not complete or bool(sample.get("hasGaps"))
             bucket["complete"] |= complete
             if not complete:
                 continue

@@ -1,8 +1,25 @@
 import { emptyDashboard } from "./empty-dashboard";
-import type { DashboardPayload } from "./types";
+import type { DashboardPayload, NetworkTarget } from "./types";
 
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value);
+
+export function validNetworkSamples(value: unknown, limit = 5000): boolean {
+  return Array.isArray(value) && value.length <= limit && value.every((row) => object(row) && finite(row.capturedAt) && typeof row.complete === "boolean"
+    && (row.latency === null || finite(row.latency) && Number(row.latency) >= 0)
+    && (row.loss === null || finite(row.loss) && Number(row.loss) >= 0 && Number(row.loss) <= 100));
+}
+
+export function validNetworkTarget(value: unknown): value is NetworkTarget {
+  if (!object(value)) return false;
+  const measured = (key: string) => value[key] === null || finite(value[key]) && Number(value[key]) >= 0;
+  return ["id", "name", "address", "provider"].every((key) => typeof value[key] === "string")
+    && [0, 4, 6].includes(Number(value.ipVersion)) && ["healthy", "degraded", "down", "unavailable"].includes(String(value.status))
+    && measured("latency") && measured("jitter") && measured("loss") && (value.loss === null || Number(value.loss) <= 100)
+    && Array.isArray(value.history) && value.history.length <= 1000 && value.history.every(finite)
+    && (value.probeHistory === undefined || validNetworkSamples(value.probeHistory, 60))
+    && (value.timeHistory === undefined || validNetworkSamples(value.timeHistory, 1000));
+}
 
 function matches(value: unknown, template: unknown): boolean {
   if (Array.isArray(template)) return Array.isArray(value);
@@ -27,7 +44,7 @@ export function validDashboard(value: unknown): value is DashboardPayload {
   const rate = (row: Record<string, unknown>) => nullableNumber(row.uploadBps) && nullableNumber(row.downloadBps) && nullableString(row.connectedAt) && (row.destination === undefined || nullableString(row.destination));
   if (!every("accounts", protocols) || !every("subscriptions", (row) => protocols(row) && typeof row.enabled === "boolean")) return false;
   if (!every("connections", (row) => rate(row) && (row.entriesAvailable === undefined || typeof row.entriesAvailable === "boolean") && (row.onlineClients === undefined || typeof row.onlineClients === "number" && Number.isInteger(row.onlineClients) && row.onlineClients >= 0) && [4, 6, null].includes(row.ipVersion as number | null) && (row.details as unknown[]).every((item) => object(item) && typeof item.id === "string" && rate(item)))) return false;
-  if (!every("networkTargets", (row) => typeof row.provider === "string" && [0, 4, 6].includes(Number(row.ipVersion)) && ["healthy", "degraded", "down", "unavailable"].includes(String(row.status)) && nullableNumber(row.latency) && nullableNumber(row.jitter) && nullableNumber(row.loss) && (row.history as unknown[]).every(finite))) return false;
+  if (!every("networkTargets", validNetworkTarget)) return false;
   if (!every("alerts", (row) => typeof row.time === "string" && typeof row.acknowledged === "boolean" && ["critical", "warning", "info"].includes(String(row.severity)))) return false;
   if (!every("services", (row) => ["running", "warning", "stopped"].includes(String(row.status)))) return false;
   if (!every("integrations", (row) => ["ready", "partial", "pending", "preview", "error"].includes(String(row.status)) && typeof row.enabled === "boolean" && typeof row.configured === "boolean" && (row.values === undefined || object(row.values) && Object.values(row.values).every((item) => typeof item === "string")))) return false;

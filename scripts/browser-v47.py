@@ -22,6 +22,7 @@ with sync_playwright() as playwright:
         dashboard["integrations"] = [{"id": key, "enabled": True, "configured": True, "ready": True, "status": "ready", "summary": "Synthetic integration"} for key in ("network", "alerts")]
         target = {"id": "qa", "name": "Synthetic target", "address": "192.0.2.1", "provider": "QA", "ipVersion": 4, "order": 1, "latency": 10, "jitter": 0, "loss": 12.5, "status": "degraded", "history": [10, 12], "complete": True, "effectivePolicy": {"latencyMs": 150, "lossPercent": 5, "windowSeconds": 120, "minimumPackets": 24}, "timeHistory": [{"capturedAt": 1700000000, "latency": 10, "loss": 0, "complete": True}, {"capturedAt": 1700000020, "latency": None, "loss": None, "complete": False}, {"capturedAt": 1700000040, "latency": 20, "loss": 12.5, "complete": True}]}
         dashboard["networkTargets"] = [target]
+        dashboard["integrations"][1]["values"] = {"latencyMs": "150", "lossPercent": "5", "trafficPercent": "80"}
         active = {"id": "qa", "episodeId": "qa-active", "title": "Synthetic active", "description": "QA", "source": "QA", "severity": "warning", "acknowledged": False, "status": "active", "startedAt": "2026-01-01T00:00:00Z", "time": "now"}
         recovered = {**active, "episodeId": "qa-resolved", "title": "Synthetic recovered", "status": "resolved", "resolvedAt": "2026-01-01T00:01:00Z"}
         summary = {"active": 1, "recoveredPending": 1, "pending": 2, "critical": 0, "warning": 2, "info": 0}
@@ -32,6 +33,8 @@ with sync_playwright() as playwright:
             query = parse_qs(url.query)
             if path == "dashboard":
                 data = {**dashboard, "alerts": [active, recovered], "alertSummary": summary}
+            elif path == "network":
+                data = {"targets": dashboard["networkTargets"]}
             elif path == "bootstrap":
                 data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover"}}
             elif path.startswith("auth/"):
@@ -73,24 +76,23 @@ with sync_playwright() as playwright:
             expect(page.get_by_role("button", name="View evidence", exact=True)).to_have_count(0)
             page.evaluate("location.hash='/network'")
             expect(page.get_by_text("Poor", exact=True)).to_be_visible()
-            expect(page.get_by_text("Replies this round", exact=True)).to_be_visible()
-            expect(page.locator('svg[aria-label="Synthetic target time trend"] circle')).to_have_count(4)
+            expect(page.get_by_text("Network probe", exact=True)).to_be_visible()
+            assert page.locator('svg[aria-label="Synthetic target trend history"] [data-metric="loss"]').count() > 0
             page.get_by_role("button", name="24h", exact=True).click()
-            expect(page.get_by_text("900.0", exact=True)).to_be_visible()
-            expect(page.locator('svg[aria-label="Synthetic target time trend"] [data-gap]')).to_have_count(1)
+            expect(page.get_by_text("900.0 ms", exact=True).first).to_be_visible()
+            expect(page.locator('svg[aria-label="Synthetic target trend history"] [data-gap]')).to_have_count(1)
             page.get_by_role("button", name="1h", exact=True).click()
-            page.get_by_text("View probe layers", exact=True).click()
-            expect(page.get_by_text("Not configured", exact=True)).to_have_count(2)
+            expect(page.locator(".network-probe-readings > div")).to_have_count(3)
+            expect(page.locator(".network-probe-readings .is-empty")).to_have_count(2)
             expect(page.get_by_text("Correlation and official incidents", exact=True)).to_have_count(0)
             page.get_by_role("button", name="Customize", exact=True).click()
-            page.get_by_text("Thresholds and service checks", exact=True).click()
             page.get_by_label("Loss threshold (%)", exact=True).fill("20")
-            page.get_by_label("TCP service port", exact=True).fill("443")
+            page.get_by_label("TCP port", exact=True).fill("443")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2"), (engine, width, "page overflow")
             assert page.locator(".md-dialog").evaluate("element=>element.scrollWidth<=element.clientWidth+2"), (engine, width, "dialog overflow")
             page.get_by_role("button", name="Save", exact=True).click()
             page.get_by_role("heading", name="Customize network probes", exact=True).wait_for(state="detached")
-            assert mutations[-1]["targets"][0]["lossPercent"] == 20
+            assert mutations[-1]["globalThresholds"]["lossPercent"] == 20
             assert mutations[-1]["targets"][0]["tcpPort"] == 443
             cases += 1
         assert not errors, errors

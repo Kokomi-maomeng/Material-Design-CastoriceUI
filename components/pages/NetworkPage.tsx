@@ -1,12 +1,12 @@
 "use client";
 
-import { AnimatedDetails } from "../ui/AnimatedDetails";
-
-import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useMemo, useState } from "react";
 import { updateNetworkTargets } from "../../lib/api";
-import { formatLocalDateTime } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
-import type { IntegrationStatus, NetworkTarget } from "../../lib/types";
+import type { AlertItem, IntegrationStatus, NetworkTarget } from "../../lib/types";
+import { networkProbeSamples } from "../../lib/network-chart";
+import { useNetworkTargets } from "../../lib/useNetworkTargets";
+import { NetworkChart } from "../charts/NetworkChart";
 import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
@@ -24,31 +24,37 @@ interface TargetDraft {
   name: string;
   address: string;
   order: number;
-  latencyMs?: number;
-  lossPercent?: number;
   tcpPort?: number;
   dnsPort?: number;
   dnsName?: string;
 }
 
 export function NetworkPage({
-  targets,
+  targets: initialTargets,
   onToast,
   integration,
   onConfigure,
   onSaved,
+  alertIntegration,
+  alerts = [],
+  onOpenAlerts,
 }: {
   targets: NetworkTarget[];
   onToast: (message: string) => void;
   integration?: IntegrationStatus;
   onConfigure: () => void;
   onSaved: () => Promise<void>;
+  alertIntegration?: IntegrationStatus;
+  alerts?: AlertItem[];
+  onOpenAlerts?: () => void;
 }) {
   const { t } = useI18n();
+  const targets = useNetworkTargets(initialTargets);
   const [version, setVersion] = useState<"all" | 4 | 6>("all");
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<TargetDraft[]>([]);
+  const [globalDraft, setGlobalDraft] = useState({ latencyMs: "", lossPercent: "" });
   const filtered = useMemo(
     () =>
       targets.filter(
@@ -68,34 +74,35 @@ export function NetworkPage({
     setDrafts(
       targets.map((target, index) => ({
         ...Object.fromEntries(Object.entries(target).filter(([key]) => ["tcpPort", "dnsPort", "dnsName"].includes(key))),
-        ...target.thresholdOverrides,
         ipVersion: target.ipVersion,
         name: target.name,
         address: target.address,
         order: target.order ?? index + 1,
       })),
     );
+    setGlobalDraft({ latencyMs: alertIntegration?.values?.latencyMs ?? "", lossPercent: alertIntegration?.values?.lossPercent ?? "" });
     setEditorOpen(true);
   };
   const change = (index: number, key: keyof TargetDraft, value: string) =>
     setDrafts((current) =>
       current.map((item, itemIndex) =>
         itemIndex === index
-          ? { ...item, [key]: ["order", "ipVersion", "latencyMs", "lossPercent", "tcpPort", "dnsPort"].includes(key) ? (value === "" ? undefined : Number(value)) : value }
+          ? { ...item, [key]: ["order", "ipVersion", "tcpPort", "dnsPort"].includes(key) ? (value === "" ? undefined : Number(value)) : value }
           : item,
       ),
     );
   const save = async () => {
     setSaving(true);
     try {
-      await updateNetworkTargets(drafts);
+      const globalThresholds = globalDraft.latencyMs !== "" && globalDraft.lossPercent !== "" ? { latencyMs: Number(globalDraft.latencyMs), lossPercent: Number(globalDraft.lossPercent) } : undefined;
+      await updateNetworkTargets(drafts.map((item) => ({ ...item, dnsName: item.dnsName?.trim() || undefined })), globalThresholds);
       await onSaved();
       setEditorOpen(false);
       onToast(t("网络探测目标已保存", "Network probe targets saved"));
     } catch {
       onToast(t(
-        "目标保存失败，请检查名称、地址以及服务器可达性",
-        "Unable to save targets. Check names, addresses, and server reachability.",
+        "保存失败，请检查探测目标与全局告警设置",
+        "Unable to save. Check probe targets and global alert settings.",
       ));
     } finally {
       setSaving(false);
@@ -117,8 +124,8 @@ export function NetworkPage({
         status={integration}
         name="网络探测"
         nameEn="Network probes"
-        description="设置 IPv4 / IPv6 目标后，后端独立监控任务约每 20 秒更新一次；浏览器不负责触发探测。"
-        descriptionEn="After targets are configured, an independent backend monitor refreshes them about every 20 seconds; the browser does not trigger probes."
+        description="配置 IPv4 / IPv6 探测目标。"
+        descriptionEn="Configure IPv4 / IPv6 probe targets."
         onConfigure={onConfigure}
       />
       <FeatureIntro
@@ -194,6 +201,7 @@ export function NetworkPage({
           }
         />
       </div>
+      <NetworkAlerts integration={alertIntegration} alerts={alerts} onOpen={onOpenAlerts} />
       <section className="network-targets-section">
         <div className="network-targets-heading">
           <h2>{t("目标节点", "Targets")}</h2>
@@ -223,9 +231,9 @@ export function NetworkPage({
             <Card variant="outlined" className="network-target-card" key={target.id}>
               <div className="network-target-card__header">
                 <div className="provider-mark">{target.name.slice(0, 1)}</div>
-                <div className="network-target__identity"><strong>{target.name}</strong><span>{target.address} · {(target.resolvedIpVersion ?? target.ipVersion) === 0 ? t("自动解析", "Automatic") : `IPv${target.resolvedIpVersion ?? target.ipVersion}`}</span></div>
-                <Chip staticChip tone={target.status === "healthy" && !target.alertConfirmed ? "success" : target.status === "down" ? "danger" : "warning"}>
-                  {target.status === "healthy" && target.alertConfirmed ? t("恢复观察", "Recovering") : target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
+                <div className="network-target__identity"><strong title={target.name}>{target.name}</strong><span title={target.address}>{target.address} · {(target.resolvedIpVersion ?? target.ipVersion) === 0 ? t("自动解析", "Automatic") : `IPv${target.resolvedIpVersion ?? target.ipVersion}`}</span></div>
+                <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "down" ? "danger" : "warning"}>
+                  {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
                 </Chip>
               </div>
               <div className="network-target-card__content">
@@ -235,18 +243,12 @@ export function NetworkPage({
                 <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.status === "degraded" || target.status === "down" ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
               </div>
               <div className="network-target-card__evidence">
-              {target.probeReason === "insufficientSamples" ? <small>{t("仅有一个成功样本；抖动需要至少两个样本。", "Only one successful sample; jitter requires at least two samples.")}</small> : null}
-              {target.complete === false ? <small>{t("本轮未完成；不计为健康或用于确认恢复。", "Incomplete round; excluded from healthy recovery.")}</small> : null}
-              {target.effectivePolicy ? <small>{t(`阈值 ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · 窗口 ${target.qualityWindow?.sent ?? 0} 包 · ${target.status === "healthy" && target.alertConfirmed ? "恢复观察" : target.alertConfirmed ? "已确认异常" : target.status === "healthy" ? "正常" : "观察中"}`, `Thresholds ${target.effectivePolicy.latencyMs} ms / ${target.effectivePolicy.lossPercent}% · ${target.qualityWindow?.sent ?? 0} packets · ${target.status === "healthy" && target.alertConfirmed ? "recovering" : target.alertConfirmed ? "confirmed" : target.status === "healthy" ? "normal" : "observing"}`)}</small> : null}
-              {target.layers && Object.values(target.layers).some((item) => item.configured) ? <small>{Object.entries(target.layers).filter(([, item]) => item.configured).map(([method, item]) => `${method.toUpperCase()}: ${item.status === "passed" ? t("正常", "passed") : t("失败", "failed")} · ${item.durationMs ?? "—"} ms${item.observedAt ? ` · ${new Date(item.observedAt).toLocaleTimeString()}` : ""}`).join(" / ")}</small> : null}
               <div className="network-target-card__chart">
-                <div className="network-target-card__chart-title"><span>{t("本轮回包分布", "Replies this round")}</span><b>{target.latency === null ? t("无有效样本", "No valid sample") : `${target.latency.toFixed(1)} ms`}</b></div>
-                <div className="sparkline" aria-label={t(`${target.name} 本轮回包`, `${target.name} replies this round`)}>
-                  <Sparkline values={target.history} degraded={target.status !== "healthy"} label={t(`${target.name} 本轮回包`, `${target.name} replies this round`)} />
-                </div>
+                <div className="network-target-card__chart-title"><strong>{t("网络探测", "Network probe")}</strong><b>{target.latency === null ? "—" : `${target.latency.toFixed(1)} ms`}</b></div>
+                <NetworkChart samples={networkProbeSamples(target)} seconds step={target.sampleIntervalSeconds ?? 1} label={t(`${target.name} 网络探测`, `${target.name} network probe`)} />
               </div>
               <NetworkHistory key={target.id} target={target} />
-              <ProbeEvidence target={target} />
+              <ProbeReadings target={target} />
               </div>
               </div>
             </Card>
@@ -272,6 +274,10 @@ export function NetworkPage({
               disabled={
                 saving ||
                 drafts.length === 0 ||
+                Boolean(globalDraft.latencyMs) !== Boolean(globalDraft.lossPercent) ||
+                Boolean(alertIntegration) && (globalDraft.latencyMs === "" || globalDraft.lossPercent === "") ||
+                (globalDraft.latencyMs !== "" && (!Number.isFinite(Number(globalDraft.latencyMs)) || Number(globalDraft.latencyMs) < 0 || Number(globalDraft.latencyMs) > 60000)) ||
+                (globalDraft.lossPercent !== "" && (!Number.isFinite(Number(globalDraft.lossPercent)) || Number(globalDraft.lossPercent) < 0 || Number(globalDraft.lossPercent) > 100)) ||
                 drafts.some((item) => !item.name.trim() || !item.address.trim())
               }
               onClick={() => void save()}
@@ -282,6 +288,10 @@ export function NetworkPage({
         }
       >
         <div className="network-editor">
+          <fieldset className="network-alert-editor"><legend>{t("全局网络告警", "Global network alerts")}</legend><div className="form-grid">
+            <label><span>{t("延迟阈值 (ms)", "Latency threshold (ms)")}</span><input type="number" min="0" max="60000" value={globalDraft.latencyMs} onChange={(event) => setGlobalDraft((current) => ({ ...current, latencyMs: event.target.value }))} /></label>
+            <label><span>{t("丢包阈值 (%)", "Loss threshold (%)")}</span><input type="number" min="0" max="100" step="0.1" value={globalDraft.lossPercent} onChange={(event) => setGlobalDraft((current) => ({ ...current, lossPercent: event.target.value }))} /></label>
+          </div></fieldset>
           {drafts.map((item, index) => (
             <div
               className="network-editor-row"
@@ -323,7 +333,7 @@ export function NetworkPage({
                 <span>{t("解析协议族", "Address family")}</span>
                 <MaterialSelect ariaLabel={t("解析协议族", "Address family")} value={String(item.ipVersion)} onChange={(value) => change(index, "ipVersion", value)} options={[{ value: "0", label: t("自动", "Automatic") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }]} />
               </label>
-              <AnimatedDetails style={{ gridColumn: "1 / -1" }}><summary>{t("阈值与业务验证", "Thresholds and service checks")}</summary><div className="form-grid">{(["latencyMs", "lossPercent", "tcpPort", "dnsPort"] as const).map((key) => <label key={key}><span>{key === "latencyMs" ? t("延迟阈值 (ms)", "Latency threshold (ms)") : key === "lossPercent" ? t("丢包阈值 (%)", "Loss threshold (%)") : key === "tcpPort" ? t("TCP 服务端口", "TCP service port") : t("DNS 服务端口", "DNS resolver port")}</span><input type="number" min={key.endsWith("Port") ? 1 : 0} max={key === "lossPercent" ? 100 : key.endsWith("Port") ? 65535 : 60000} value={item[key] ?? ""} onChange={(event) => change(index, key, event.target.value)} placeholder={key.endsWith("Port") ? t("未启用", "Disabled") : t("沿用全局阈值", "Use global threshold")} /></label>)}<label><span>{t("DNS 验证名称", "DNS check name")}</span><input value={item.dnsName ?? ""} onChange={(event) => change(index, "dnsName", event.target.value)} placeholder="example.com" /></label></div></AnimatedDetails>
+              <div className="network-target-editor-probes">{(["tcpPort", "dnsPort"] as const).map((key) => <label key={key}><span>{key === "tcpPort" ? t("TCP 端口", "TCP port") : t("DNS(UDP) 端口", "DNS(UDP) port")}</span><input type="number" min="1" max="65535" value={item[key] ?? ""} onChange={(event) => change(index, key, event.target.value)} placeholder={t("未启用", "Disabled")} /></label>)}<label><span>{t("DNS 验证名称", "DNS check name")}</span><input value={item.dnsName ?? ""} onChange={(event) => change(index, "dnsName", event.target.value)} placeholder="example.com" /></label></div>
               <button
                 className="icon-button"
                 aria-label={t("删除目标", "Remove target")}
@@ -356,16 +366,32 @@ export function NetworkPage({
   );
 }
 
-function ProbeEvidence({ target }: { target: NetworkTarget }) {
+function ProbeReadings({ target }: { target: NetworkTarget }) {
   const { language, t } = useI18n();
-  const status = (value: string | undefined, configured = true) => !configured ? t("未配置", "Not configured") : value === "passed" ? t("通过", "Passed") : value === "failed" ? t("失败", "Failed") : t("无法确认", "Unconfirmed");
-  return <AnimatedDetails className="network-probe-evidence"><summary>{t("查看分层探测证据", "View probe layers")}</summary><dl className="monitoring-evidence-list">
-    <div><dt>{t("ICMP 采样", "ICMP sampled")}</dt><dd>{target.observedAt ? formatLocalDateTime(target.observedAt, language) : "—"}</dd></div>
-    <div><dt>{t("发包 / 回包", "Sent / received")}</dt><dd>{target.sent ?? "—"} / {target.received ?? "—"}</dd></div>
-    <div><dt>{t("本轮完整性", "Round completeness")}</dt><dd>{target.complete === true ? t("完整", "Complete") : target.complete === false ? t("未完成", "Incomplete") : "—"}</dd></div>
-    {(["tcp", "dns"] as const).map((key) => { const layer = target.layers?.[key]; return <div key={key}><dt>{key.toUpperCase()}</dt><dd>{status(layer?.status, layer?.configured === true)}{layer?.observedAt ? ` · ${formatLocalDateTime(layer.observedAt, language)}` : ""}{typeof layer?.durationMs === "number" ? ` · ${layer.durationMs} ms` : ""}</dd></div>; })}
-    {target.effectivePolicy ? <div><dt>{t("质量窗口", "Quality window")}</dt><dd>{target.effectivePolicy.windowSeconds}s · {target.qualityWindow?.sent ?? 0} {t("包", "packets")} · {target.qualityWindow?.loss ?? "—"}%</dd></div> : null}
-  </dl><p>{t("ICMP、TCP、DNS 分别判读；出站探测不能证明用户代理业务可用。", "ICMP, TCP and DNS are separate evidence. Outbound probes do not establish proxy business availability.")}</p></AnimatedDetails>;
+  return <dl className="network-probe-readings">
+    {(["icmp", "tcp", "dns"] as const).map((method) => {
+      const layer = target.layers?.[method];
+      const enabled = method === "icmp" || (method === "tcp" ? Boolean(target.tcpPort) : Boolean(target.dnsPort || target.dnsName)) || layer?.configured === true;
+      const at = method === "icmp" ? target.observedAt : layer?.observedAt;
+      const validAt = at && Number.isFinite(Date.parse(at));
+      const duration = method === "icmp" ? target.latency : layer?.status === "passed" ? layer.durationMs : null;
+      return <div key={method} className={enabled ? "" : "is-empty"} aria-hidden={!enabled}>
+        <dt>{method === "icmp" ? t("ICMP 采样", "ICMP") : method === "tcp" ? "TCP" : "DNS(UDP)"}</dt>
+        <dd><time dateTime={validAt ? at : undefined}>{validAt ? new Date(at).toLocaleTimeString(language === "zh" ? "zh-CN" : "en-GB", { hour12: false }) : "—"}</time><span>{typeof duration === "number" && Number.isFinite(duration) ? duration.toFixed(1) : "—"} ms</span></dd>
+      </div>;
+    })}
+  </dl>;
+}
+
+function NetworkAlerts({ integration, alerts, onOpen }: { integration?: IntegrationStatus; alerts: AlertItem[]; onOpen?: () => void }) {
+  const { t } = useI18n();
+  const networkAlerts = alerts.filter((item) => item.id.startsWith("network-"));
+  const rule = (key: string) => { const raw = integration?.values?.[key]; return raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? String(Number(raw)) : "—"; };
+  return <Card variant="outlined" className="network-alerts-card">
+    <div className="network-alerts-card__heading"><h2>{t("网络告警", "Network alerts")}</h2>{onOpen ? <Button variant="text" icon="notifications" onClick={onOpen}>{t("告警中心", "Alert center")}</Button> : null}</div>
+    <div className="network-alerts-card__rules"><span>{t("全局延迟", "Global latency")} <b>≥ {rule("latencyMs")} ms</b></span><span>{t("全局丢包", "Global loss")} <b>≥ {rule("lossPercent")}%</b></span><Chip staticChip tone={networkAlerts.length || integration?.enabled === false ? "warning" : "success"}>{integration?.enabled === false ? t("已停用", "Disabled") : `${networkAlerts.length} ${t("项告警", "alerts")}`}</Chip></div>
+    {networkAlerts.length ? <div className="network-alerts-card__list" role="list">{networkAlerts.map((item) => <div role="listitem" key={item.episodeId ?? item.id}><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div>)}</div> : null}
+  </Card>;
 }
 
 function NetworkMetric({
@@ -390,108 +416,5 @@ function NetworkMetric({
         <em>{state}</em>
       </div>
     </Card>
-  );
-}
-function smoothPath(points: Array<{ x: number; y: number }>) {
-  if (!points.length) return "";
-  if (points.length === 1) return `M ${points[0].x},${points[0].y}`;
-  return points.slice(1).reduce((path, point, index) => {
-    const previous = points[index];
-    const mid = (previous.x + point.x) / 2;
-    return `${path} C ${mid},${previous.y} ${mid},${point.y} ${point.x},${point.y}`;
-  }, `M ${points[0].x},${points[0].y}`);
-}
-function Sparkline({
-  values,
-  degraded,
-  label,
-}: {
-  values: number[];
-  degraded: boolean;
-  label: string;
-}) {
-  const [active, setActive] = useState<number | null>(null);
-  const [viewWidth, setViewWidth] = useState(520);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const gradientId = useId();
-  const safeValues = values.filter(Number.isFinite);
-  const height = 200;
-  const plot = { left: 50, right: viewWidth - 18, top: 16, bottom: 158 };
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const update = () => {
-      const rect = svg.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-      const next = Math.max(1, Math.round(rect.width));
-      setViewWidth((current) => Math.abs(current - next) > 1 ? next : current);
-    };
-    update();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(update);
-    observer.observe(svg);
-    return () => observer.disconnect();
-  }, [safeValues.length]);
-  if (safeValues.length === 0)
-    return (
-      <svg ref={svgRef} className="network-trend-chart" viewBox={`0 0 ${viewWidth} ${height}`} preserveAspectRatio="xMinYMin meet" aria-hidden="true">
-        <line
-          x1={plot.left}
-          y1={(plot.top + plot.bottom) / 2}
-          x2={plot.right}
-          y2={(plot.top + plot.bottom) / 2}
-          stroke="var(--outline)"
-          strokeDasharray="4 4"
-        />
-      </svg>
-    );
-  const max = Math.max(...safeValues);
-  const min = Math.min(...safeValues);
-  const range = max - min;
-  const points =
-    safeValues.length === 1
-      ? [{ x: (plot.left + plot.right) / 2, y: (plot.top + plot.bottom) / 2 }]
-      : safeValues.map((value, index) => ({
-          x: plot.left + (index / (safeValues.length - 1)) * (plot.right - plot.left),
-          y: range === 0 ? (plot.top + plot.bottom) / 2 : plot.bottom - ((value - min) / range) * (plot.bottom - plot.top),
-        }));
-  const stroke = degraded ? "var(--warning)" : "var(--primary)";
-  const pick = (event: PointerEvent<SVGSVGElement>) => {
-    const matrix = event.currentTarget.getScreenCTM();
-    if (!matrix) return;
-    const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-    const ratio = Math.max(0, Math.min(1, (cursor.x - plot.left) / (plot.right - plot.left)));
-    setActive(Math.round(ratio * (safeValues.length - 1)));
-  };
-  const selected = active === null ? null : safeValues[Math.min(active, safeValues.length - 1)];
-  const selectedPoint = active === null ? null : points[Math.min(active, points.length - 1)];
-  const tooltipX = selectedPoint ? Math.max(plot.left + 6, Math.min(viewWidth - 120, selectedPoint.x - 48)) : 0;
-  return (
-    <svg ref={svgRef} className="sparkline-chart network-trend-chart" viewBox={`0 0 ${viewWidth} ${height}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={label} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onFocus={() => setActive(safeValues.length - 1)} onBlur={() => setActive(null)}>
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={stroke} stopOpacity=".2" />
-          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0, .5, 1].map((ratio) => { const y = plot.top + (plot.bottom - plot.top) * ratio; const value = max - range * ratio; return <g key={ratio}><line className="chart-grid-line" x1={plot.left} x2={plot.right} y1={y} y2={y} /><text className="chart-axis-label" x={plot.left - 8} y={y + 4} textAnchor="end">{value.toFixed(0)} ms</text></g>; })}
-      {points.length > 1 ? <path d={`${smoothPath(points)} L ${plot.right},${plot.bottom} L ${plot.left},${plot.bottom} Z`} fill={`url(#${gradientId})`} /> : null}
-      <path
-        d={smoothPath(points)}
-        fill="none"
-        stroke={stroke}
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      {points.map((point, index) => (
-        <g key={index} pointerEvents="none">
-          <circle className={`network-trend-point ${active === index ? "is-active" : ""}`} cx={point.x} cy={point.y} r={active === index ? "5" : "3.5"} fill={stroke} />
-        </g>
-      ))}
-      {selectedPoint && selected !== null ? <g className="chart-inspector" pointerEvents="none"><line x1={selectedPoint.x} x2={selectedPoint.x} y1={plot.top} y2={plot.bottom} /><rect x={tooltipX} y="24" width="108" height="42" rx="13" /><text x={tooltipX + 12} y="42" className="chart-tooltip-title">{`#${(active ?? 0) + 1}`}</text><text x={tooltipX + 12} y="58">{selected.toFixed(1)} ms</text></g> : null}
-      <rect className="sparkline-hit-area" x={plot.left} y={plot.top} width={plot.right - plot.left} height={plot.bottom - plot.top} />
-    </svg>
   );
 }

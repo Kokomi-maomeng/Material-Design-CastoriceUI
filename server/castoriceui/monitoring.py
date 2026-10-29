@@ -71,8 +71,7 @@ class NetworkPolicy:
             self.states = {key: value for key, value in self.states.items() if key in ids}
             for target in targets:
                 key = str(target["id"])
-                effective = {"latencyMs": float(target.get("latencyMs", thresholds["latencyMs"])),
-                             "lossPercent": float(target.get("lossPercent", thresholds["lossPercent"]))}
+                effective = {"latencyMs": float(thresholds["latencyMs"]), "lossPercent": float(thresholds["lossPercent"])}
                 target["effectivePolicy"] = {**effective, "windowSeconds": 120, "minimumPackets": 24,
                                              "confirmationRounds": 2, "recoveryRounds": 2}
                 bad = (target.get("loss") is not None and target["loss"] >= effective["lossPercent"]) or (target.get("latency") is not None and target["latency"] >= effective["latencyMs"])
@@ -98,13 +97,9 @@ class NetworkPolicy:
                 loss = 100 * (total_sent - total_received) / total_sent if total_sent else None
                 tail = list(samples)[-3:]
                 persistent = sum(bool(item["usable"] and item["bad"]) for item in tail) >= 2
-                # All ICMP replies missing stays visible immediately; corroborated
-                # TCP/DNS failures permit early confirmation without a long window.
-                layers = [value for value in target.get("layers", {}).values() if value.get("configured")]
-                corroborated = target.get("loss") == 100 and layers and all(value.get("status") == "failed" for value in layers)
                 ready = total_sent >= 24
                 window_bad = loss is not None and loss >= effective["lossPercent"]
-                if usable and bad and ((ready and persistent and (window_bad or target.get("latency", 0) is not None and target["latency"] >= effective["latencyMs"])) or corroborated):
+                if usable and bad and ready and persistent and (window_bad or target.get("latency", 0) is not None and target["latency"] >= effective["latencyMs"]):
                     state.update(confirmed=True, good=0)
                 elif usable and not bad:
                     state["good"] += 1

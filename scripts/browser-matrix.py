@@ -144,7 +144,7 @@ def synthetic_dashboard(page) -> dict[str, object]:
         account=[{"name": "primary", "value": 165_100_000_000}],
     )
     dashboard["networkTargets"] = [
-        {"id": f"qa-{index}", "name": f"QA target {index}", "provider": "Synthetic", "address": f"192.0.2.{index}", "ipVersion": 4, "latency": 1 + index / 10, "jitter": 0.1, "loss": 0, "status": "healthy", "history": [1, 1.2, 1.1, 1.3, 1.0]}
+        {"id": f"qa-{index}", "name": f"QA target {index}", "provider": "Synthetic", "address": f"192.0.2.{index}", "ipVersion": 4, "latency": 1 + index / 10, "jitter": 0.1, "loss": 0, "status": "healthy", "history": [1, 1.2, 1.1, 1.3, 1.0], "observedAt": datetime.now(timezone.utc).isoformat(), "probeHistory": [{"capturedAt": int(time.time()) - 4 + point, "latency": value, "loss": 0, "complete": True, "status": "healthy"} for point, value in enumerate([1, 1.2, 1.1, 1.3, 1.0])], "timeHistory": [{"capturedAt": int(time.time()) - (4 - point) * 60, "latency": value, "loss": 0, "complete": True, "status": "healthy"} for point, value in enumerate([1, 1.2, 1.1, 1.3, 1.0])]}
         for index in range(1, 6)
     ]
     dashboard["uiSettings"].update(
@@ -345,7 +345,7 @@ with sync_playwright() as playwright:
                                     page.mouse.move(0, 0)
                                     page.wait_for_timeout(220)
                             if section == "network":
-                                assert page.locator(".sparkline").first.evaluate("element => getComputedStyle(element).height") == "200px"
+                                assert page.locator(".network-target-card").evaluate_all("cards => cards.every(card => { const plots=Array.from(card.querySelectorAll('.network-chart__plot')); return plots.length===2 && plots[0].getBoundingClientRect().height>=200 && Math.abs(plots[0].getBoundingClientRect().height-plots[1].getBoundingClientRect().height)<1; })")
                             if screenshot_root := os.environ.get("CASTORICEUI_BROWSER_SCREENSHOTS"):
                                 if engine == "chromium" and language == "zh" and theme == "dark" and motion == "reduce" and width in (1440, 390):
                                     page.evaluate("scrollTo(0, 0)")
