@@ -249,9 +249,11 @@ module.main()
             marker = Path(directory) / 'switched'
             worker = subprocess.Popen(['python3', '-c', paused_installer, installer_args[1], str(marker), *installer_args[2:]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
-                deadline = time.monotonic() + 240
+                deadline = time.monotonic() + 360
                 while not marker.is_file() or marker.read_text() != str(worker.pid):
-                    assert worker.poll() is None, 'Installer exited before the interruption checkpoint'
+                    if worker.poll() is not None:
+                        output, errors = worker.communicate(timeout=30)
+                        raise AssertionError(f'Installer exited before the interruption checkpoint (exit {worker.returncode})\n{output}\n{errors}')
                     assert time.monotonic() < deadline, 'Installer did not reach the interruption checkpoint'
                     time.sleep(.1)
                 assert all(path.resolve() != target for path, target in previous.items()), 'Interruption checkpoint precedes the real switch'

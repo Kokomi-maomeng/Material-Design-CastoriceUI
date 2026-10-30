@@ -47,7 +47,7 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
   const measured = visible.flatMap((sample) => sample.complete && typeof sample.latency === "number" && Number.isFinite(sample.latency) ? [sample.latency] : []);
   const maximum = measured.length ? Math.max(...measured) : null;
   const minimum = measured.length ? Math.min(...measured) : null;
-  const plot = { left: 53, right: Math.max(65, width - 38), top: 18, bottom: 186 };
+  const plot = { left: 61, right: Math.max(73, width - 38), top: 18, bottom: 186 };
   const x = (at: number) => plot.left + (plot.right - plot.left) * Math.max(0, Math.min(1, (at - start) / Math.max(step, end - start)));
   const y = (value: number, metric: "latency" | "loss") => metric === "loss"
     ? plot.bottom - Math.max(0, Math.min(100, value)) / 100 * (plot.bottom - plot.top)
