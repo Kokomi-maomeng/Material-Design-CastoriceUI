@@ -47,6 +47,26 @@ it("uses at most 60 minute buckets without treating gaps as successful samples",
   expect(buckets.at(-1)).toMatchObject({ capturedAt: 3540, latency: 900, loss: 100, hasGaps: true, samples: 3 });
 });
 
+it("keeps the tooltip on a real sample when the hovered live point expires", async () => {
+  const at = Math.floor(Date.now() / 1000);
+  const samples = [
+    { capturedAt: at - 1, latency: 10, loss: 0, complete: true, status: "healthy" },
+    { capturedAt: at, latency: 20, loss: 10, complete: true, status: "degraded" },
+  ];
+  const chart = (rows: typeof samples) => <I18nProvider><NetworkChart label="Rolling probes" seconds start={at - 2} end={at + 2} samples={rows} /></I18nProvider>;
+  const view = render(chart(samples));
+  const plot = screen.getByRole("img", { name: "Rolling probes" });
+  fireEvent.focus(plot);
+  await screen.findByRole("tooltip");
+  fireEvent.keyDown(plot, { key: "Home" });
+  expect(screen.getByRole("tooltip").textContent).toContain("10.0 ms");
+  view.rerender(chart([samples[1], { ...samples[1], capturedAt: at + 1, latency: 30 }]));
+  expect(screen.getByRole("tooltip").textContent).toContain("20.0 ms");
+  expect(screen.getByRole("tooltip").textContent).toContain("10%");
+  view.rerender(chart([]));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+
 it("keeps the first partial history bucket inside the requested range", () => {
   const start = 1700000000;
   const buckets = networkHistoryBuckets([{ capturedAt: start + 300, latency: 900, loss: 100, complete: true, status: "down" }], 1440, start);

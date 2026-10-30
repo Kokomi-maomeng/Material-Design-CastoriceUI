@@ -71,7 +71,8 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
     if (segment.length) result.push(segment);
     return result;
   };
-  const selected = visible.find((sample) => sample.capturedAt === activeAt);
+  const selected = activeAt === null ? undefined : visible.reduce<NetworkHistorySample | undefined>((nearest, sample) =>
+    !nearest || Math.abs(sample.capturedAt - activeAt) < Math.abs(nearest.capturedAt - activeAt) ? sample : nearest, undefined);
   const select = (index: number) => {
     if (!visible.length) return;
     setActiveAt(visible[Math.max(0, Math.min(visible.length - 1, index))].capturedAt);
