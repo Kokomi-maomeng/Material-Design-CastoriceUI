@@ -1,5 +1,5 @@
 import type { AlertPageResponse, AuditPageResponse, BootstrapState, ConnectionTargets, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
-import { parseDashboard } from "./dashboard-validation";
+import { parseDashboard, validNetworkSamples, validNetworkTarget } from "./dashboard-validation";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
@@ -59,8 +59,10 @@ async function request<T>(path: string, init?: RequestInit, mutation = false): P
   }
 }
 
-export function fetchNetworkHistory(targetId: string, hours: 6 | 24, ipVersion: number, signal?: AbortSignal) {
-  return request<NetworkHistoryResponse>(`/api/v2/network/${encodeURIComponent(targetId)}/history?hours=${hours}&ipVersion=${ipVersion}`, { signal });
+export async function fetchNetworkHistory(targetId: string, hours: 6 | 24, ipVersion: number, signal?: AbortSignal) {
+  const body = await request<NetworkHistoryResponse>(`/api/v2/network/${encodeURIComponent(targetId)}/history?hours=${hours}&ipVersion=${ipVersion}`, { signal });
+  if (!body || body.targetId !== targetId || body.hours !== hours || !validNetworkSamples(body.samples) || !Number.isFinite(body.start) || !Number.isFinite(body.end) || body.start > body.end) throw new ApiError(502, "invalid_network_history");
+  return body;
 }
 
 export function reportActivity() {
@@ -148,8 +150,14 @@ export function configureIntegration(id: string, enabled: boolean, values: Recor
   return request<IntegrationStatus>(`/api/v2/integrations/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ enabled, values }) }, true);
 }
 
-export function updateNetworkTargets(targets: Array<Pick<NetworkTarget, "name" | "address"> & { order: number; ipVersion?: 0 | 4 | 6 }>) {
-  return request<{ targets: NetworkTarget[] }>("/api/v2/settings/network-targets", { method: "PUT", body: JSON.stringify({ targets }) }, true);
+export function updateNetworkTargets(targets: Array<Pick<NetworkTarget, "name" | "address"> & { order: number; ipVersion?: 0 | 4 | 6 }>, globalThresholds?: { latencyMs: number; lossPercent: number }) {
+  return request<{ targets: NetworkTarget[] }>("/api/v2/settings/network-targets", { method: "PUT", body: JSON.stringify({ targets, globalThresholds }) }, true);
+}
+
+export async function fetchNetworkTargets(signal?: AbortSignal) {
+  const body = await request<{ targets: NetworkTarget[] }>("/api/v2/network", { signal });
+  if (!Array.isArray(body?.targets) || body.targets.length > 12 || !body.targets.every(validNetworkTarget)) throw new ApiError(502, "invalid_network_targets");
+  return body.targets;
 }
 
 export function updateUiSettings(settings: Partial<UiSettings>) {

@@ -26,7 +26,7 @@ class MonitoringReworkTests(unittest.TestCase):
             self.assertEqual(result['samples'][0]['latency'], 900)
             self.assertEqual(result['samples'][0]['loss'], 100)
             self.assertTrue(result['samples'][0]['hasGaps'])
-            self.assertEqual(result['granularitySeconds'], 300)
+            self.assertEqual(result['granularitySeconds'], 1440)
             with storage.connect() as connection:
                 connection.executemany('INSERT INTO monitoring_samples(captured_at,domain,target,payload_json) VALUES(?,?,?,?)', [(now-20, 'network', 'bounded', json.dumps({'complete': True, 'ipVersion': 4, 'latency': 1, 'loss': 0}))] * 5002)
             bounded = storage.network_time_history('bounded', 24, 4, now)

@@ -37,6 +37,7 @@ Authenticated endpoints:
 | POST | `/api/v2/alerts/ack-all` | Acknowledge all pending episodes |
 | GET | `/api/v2/monitoring` | Freshness, service, maintenance and resource evidence |
 | GET | `/api/v2/network/:id/history` | Measured network history for the requested family/time range |
+| GET | `/api/v2/network` | Authenticated, cached live network targets; does not trigger probes |
 | GET | `/api/v2/audits` | Server-filtered audit records with bounded 30/50-row pagination |
 | PUT | `/api/v2/settings/traffic-limit` | Update the single quota shared by Overview and Accounts |
 | PUT | `/api/v2/integrations/:id` | Validate and persist an integration override |
@@ -122,7 +123,9 @@ Upload/download rates are calculated only when the same connection ID appears in
 
 ## Network probes
 
-Operators may store up to 12 targets with unique validated names/addresses and explicit display order. Targets accept IP literals or conservative hostnames and cannot start with option characters. Probe execution uses argument arrays, not a shell. Each cached probe can contain up to eight real ICMP replies; unreachable targets return an empty history and loss state rather than an invented `0 ms` sample.
+Operators may store up to 12 targets with unique validated names/addresses and explicit display order. Targets accept IP literals or conservative hostnames and cannot start with option characters. Probe execution uses argument arrays, not a shell. The independent ICMP sampler requests one echo per second, with a bounded reply deadline, and keeps at most 60 timestamped observations per target in memory. Slow or unavailable probes leave real gaps; they never produce invented `0 ms` replies. The browser reads the cache once per second only while the Network page is visible. Optional configured TCP and DNS(UDP) probes run separately, so transport timeouts do not hold up ICMP sampling.
+
+The two network charts share dimensions, loss/RTT axes and pointer/keyboard tooltips. Live time uses seconds; 1h/6h/24h history uses 60s/360s/1440s buckets with at most 60 displayed points. Durable samples and global alert evaluation retain a 20-second cadence. Node-specific threshold overrides are retired; latency/loss rules belong to the global Alerts integration. The Network editor may include `globalThresholds: {latencyMs, lossPercent}` alongside `targets` in its existing settings request. Both settings persist in one transaction, preserve the traffic threshold, and feed the same configuration exposed by Alerts. A DNS check name without a port uses UDP 53; neither a name nor a port means the DNS probe stays disabled. TCP requires an explicit port.
 
 Changing the list clears the probe cache so old values are not attributed to new targets.
 

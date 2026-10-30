@@ -128,18 +128,52 @@ def main():
                     if expected == 'ready': assert page.locator('.integration-gate').count() == 0
                     connection_cases.append(expected)
                 target = {'name': 'Synthetic DNS', 'address': '2606:4700:4700::1111', 'ipVersion': 6, 'order': 1, 'latencyMs': 321, 'lossPercent': 7, 'tcpPort': 443, 'dnsPort': 53, 'dnsName': 'example.com'}
-                assert context.request.put(origin + '/api/v2/settings/network-targets', data={'targets': [target]}, headers=headers).ok
+                assert context.request.put(origin + '/api/v2/settings/network-targets', data={'targets': [target], 'globalThresholds': {'latencyMs': 321, 'lossPercent': 7}}, headers=headers).ok
                 refresh()
                 page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
+                open_page(page, 'setup', 'Setup')
+                page.locator('.setup-list button, .setup-completed button').filter(has=page.get_by_text('Alerts', exact=True)).click()
+                wizard = page.get_by_role('dialog'); wizard.wait_for()
+                if wizard.get_by_role('button', name='Start', exact=True).count():
+                    wizard.get_by_role('button', name='Start', exact=True).click()
+                wizard.get_by_label('Latency threshold (ms)', exact=True).fill('777')
+                wizard.get_by_label('Traffic threshold (%)', exact=True).fill('75')
+                page.keyboard.press('Escape'); wizard.wait_for(state='hidden')
                 open_page(page, 'network', 'Network quality')
                 page.get_by_role('button', name='Customize', exact=True).click()
                 editor = page.get_by_role('dialog'); editor.wait_for()
-                editor.locator('input').first.fill('Renamed immediately')
+                assert float(editor.get_by_label('Latency threshold (ms)', exact=True).input_value()) == 321
+                assert float(editor.get_by_label('Loss threshold (%)', exact=True).input_value()) == 7
+                editor.get_by_label('Name', exact=True).fill('Renamed immediately')
                 editor.get_by_role('button', name='Save', exact=True).click()
                 editor.wait_for(state='hidden')
                 saved = storage.get_setting('network_targets', [])[0]
-                assert all(saved[key] == target[key] for key in ('latencyMs', 'lossPercent', 'tcpPort', 'dnsPort', 'dnsName', 'address'))
+                assert all(saved[key] == target[key] for key in ('tcpPort', 'dnsPort', 'dnsName', 'address'))
                 assert saved['name'] == 'Renamed immediately'
+                assert dashboard.config.alert_thresholds['latencyMs'] == 321 and dashboard.config.alert_thresholds['lossPercent'] == 7
+                assert 'latencyMs' not in saved and 'lossPercent' not in saved
+                open_page(page, 'setup', 'Setup')
+                page.locator('.setup-list button, .setup-completed button').filter(has=page.get_by_text('Alerts', exact=True)).click()
+                wizard.wait_for()
+                if wizard.get_by_role('button', name='Start', exact=True).count():
+                    wizard.get_by_role('button', name='Start', exact=True).click()
+                assert float(wizard.get_by_label('Latency threshold (ms)', exact=True).input_value()) == 321
+                assert float(wizard.get_by_label('Packet-loss threshold (%)', exact=True).input_value()) == 7
+                assert float(wizard.get_by_label('Traffic threshold (%)', exact=True).input_value()) == 75
+                page.keyboard.press('Escape'); wizard.wait_for(state='hidden')
+                open_page(page, 'network', 'Network quality')
+                page.get_by_role('button', name='Customize', exact=True).click()
+                editor.wait_for()
+                for label in ('TCP port', 'DNS(UDP) port', 'DNS check name'):
+                    editor.get_by_label(label, exact=True).fill('')
+                editor.get_by_role('button', name='Save', exact=True).click(); editor.wait_for(state='hidden')
+                assert all(key not in storage.get_setting('network_targets', [])[0] for key in ('tcpPort', 'dnsPort', 'dnsName'))
+                assert page.locator('.network-probe-readings .is-empty').count() == 2
+                page.get_by_role('button', name='Customize', exact=True).click(); editor.wait_for()
+                editor.get_by_label('DNS check name', exact=True).fill('example.com')
+                editor.get_by_role('button', name='Save', exact=True).click(); editor.wait_for(state='hidden')
+                assert storage.get_setting('network_targets', [])[0]['dnsPort'] == 53
+                assert page.locator('.network-probe-readings .is-empty').count() == 1
                 original = {'type': 'url', 'value': 'https://images.example.com/image', 'fit': 'cover', 'cacheSeconds': 0, 'glass': 'default', 'glassEnabled': False}
                 storage.set_setting('login_background', original)
                 for invalid in ('', 'letters', '0', '65536', '-1'):

@@ -43,10 +43,11 @@ it("keeps a single degraded target visible despite healthy averages and labels r
   const target: NetworkTarget = { id: "qa", name: "QA", address: "192.0.2.1", provider: "QA", ipVersion: 4, latency: 10, jitter: 0, loss: 12.5, status: "degraded", history: [10, 12], complete: true, effectivePolicy: { latencyMs: 150, lossPercent: 5, windowSeconds: 120, minimumPackets: 24 }, timeHistory: [{ capturedAt: 1700000000, latency: 10, loss: 0, complete: true, status: "healthy" }, { capturedAt: 1700000020, latency: null, loss: null, complete: false, status: "unavailable" }, { capturedAt: 1700000040, latency: 20, loss: 12.5, complete: true, status: "degraded" }] };
   english(<NetworkPage targets={[target, { ...target, id: "healthy", name: "Healthy", status: "healthy", loss: 0, timeHistory: [] }]} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={vi.fn()} />);
   expect(screen.getByText("Poor")).toBeTruthy();
-  expect(screen.getAllByText("Replies this round")).toHaveLength(2);
-  expect(screen.getAllByText("Measured hour · gaps preserved")).toHaveLength(2);
-  expect(document.querySelectorAll('svg[aria-label="QA time trend"] circle')).toHaveLength(4);
-  expect(document.querySelectorAll('svg[aria-label="QA time trend"] [data-gap]')).toHaveLength(1);
+  expect(screen.getAllByText("Network probe")).toHaveLength(2);
+  expect(screen.getAllByText("Trend history")).toHaveLength(2);
+  expect(document.querySelectorAll('svg[aria-label="QA trend history"] [data-metric="loss"]').length).toBeGreaterThan(0);
+  expect(document.querySelectorAll('svg[aria-label="QA trend history"] [data-gap]').length).toBeGreaterThan(0);
+  expect(screen.queryByText("Measured hour · gaps preserved")).toBeNull();
 });
 
 it("keeps inherited thresholds empty when editing a measured target", async () => {

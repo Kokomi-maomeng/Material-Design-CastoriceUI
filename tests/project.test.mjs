@@ -134,13 +134,13 @@ test("network targets are editable and charts use real smooth sample paths", asy
   assert.match(network, /updateNetworkTargets/);
   assert.match(network, /FeatureIntro/);
   assert.match(network, /order/);
-  assert.match(network, /smoothPath/);
+  const networkChart = await read("components/charts/NetworkChart.tsx");
   assert.match(chart, / C /);
   assert.match(chart, /getScreenCTM\(\)/);
   assert.match(chart, /matrix\.inverse\(\)/);
-  assert.match(network, /getScreenCTM\(\)/);
-  assert.match(network, /sparkline-hit-area/);
-  assert.match(collector, /"-c", "8"/);
+  assert.match(networkChart, /getScreenCTM\(\)/);
+  assert.match(networkChart, /sparkline-hit-area/);
+  assert.match(collector, /"-c", str\(count\)/);
   assert.match(api, /settings\/network-targets/);
 });
 
@@ -211,7 +211,7 @@ test("v3.1 uses Material selection surfaces and a real password-change path", as
 
 test("v3.1 keeps chart time, responsive mobile sizing, setup order, and toast motion consistent", async () => {
   const [chart, network, setup, toast, styles, types, dashboard] = await Promise.all([
-    read("components/charts/TrafficChart.tsx"), read("components/pages/NetworkPage.tsx"), read("components/setup/SetupPanel.tsx"),
+    read("components/charts/TrafficChart.tsx"), read("components/charts/NetworkChart.tsx"), read("components/setup/SetupPanel.tsx"),
     read("components/ui/Toast.tsx"), readStyles(), read("lib/types.ts"), read("server/castoriceui/dashboard.py"),
   ]);
   assert.match(types, /capturedAt\?: string/);
@@ -357,7 +357,7 @@ test("v3.1 fails closed for config, payload fields, traffic resets, login abuse,
 
 test("v3.2 operator identity, layout, settings, and truthful status requirements remain enforced", async () => {
   const [overview, connections, network, services, setup, settings, datePicker, styles, dashboard, collector, storage, i18n] = await Promise.all([
-    read("components/pages/OverviewPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/NetworkPage.tsx"),
+    read("components/pages/OverviewPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/charts/NetworkChart.tsx"),
     read("components/pages/ServicesPage.tsx"), read("components/setup/SetupPanel.tsx"), read("components/settings/SettingsDialog.tsx"),
     read("components/ui/MaterialDatePicker.tsx"), readStyles(), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/collectors.py"), read("server/castoriceui/storage.py"), read("lib/i18n.tsx"),
@@ -375,7 +375,7 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.match(styles, /\.connection-list \{ display: grid; gap: 12px; \}/);
   assert.match(network, /preserveAspectRatio="xMinYMin meet"/);
   assert.match(network, /ResizeObserver/);
-  assert.match(network, /viewWidth/);
+  assert.match(network, /setWidth/);
   assert.match(styles, /\.sparkline \{ position: relative; width: 100%; min-width: 0; height: 200px; aspect-ratio: auto; overflow: visible; \}/);
   assert.doesNotMatch(network, /preserveAspectRatio="none"/);
   assert.match(services, /t\("刷新", "Refresh"\)/);

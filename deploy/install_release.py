@@ -201,8 +201,14 @@ def _install(archive: Path, config_path: Path) -> dict:
         if not re.fullmatch(r"/etc/castoriceui/[A-Za-z0-9_./-]+", str(config_path)):
             raise ValueError("Unsupported protected config path")
         command("python3", "-m", "compileall", "-q", str(source / "server"))
-        checked = command("python3", "-m", "unittest", "discover", "-s", str(source / "server/tests"), "-p", "test_*.py", check=False)
-        (backup / "backend-tests.log").write_text(checked.stdout + checked.stderr, encoding="utf-8")
+        test_log = backup / "backend-tests.log"
+        try:
+            checked = command("python3", "-m", "unittest", "discover", "-s", str(source / "server/tests"), "-p", "test_*.py", check=False, timeout=240)
+        except subprocess.TimeoutExpired as error:
+            partial = "".join(value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or "" for value in (error.stdout, error.stderr))
+            test_log.write_text(partial + "\nStaged backend regressions exceeded 240 seconds.\n", encoding="utf-8")
+            raise RuntimeError("Staged backend regressions timed out; see retained backend-tests.log") from error
+        test_log.write_text(checked.stdout + checked.stderr, encoding="utf-8")
         if checked.returncode:
             raise RuntimeError("Staged backend regressions failed")
         old_unit = Path("/etc/systemd/system/castoriceui-backend.service")

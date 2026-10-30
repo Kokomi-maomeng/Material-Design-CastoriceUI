@@ -45,25 +45,25 @@ describe("v5.6 audit regressions", () => {
     expect(screen.queryByText("Connections is not configured")).toBeNull();
   });
 
-  it("retains pending custom thresholds and protocol options on immediate rename, then supports explicit clearing", async () => {
+  it("retains pending protocol options on immediate rename, drops retired node rules and supports explicit clearing", async () => {
     const target: NetworkTarget = { id: "qa", name: "Synthetic DNS", provider: "Synthetic", address: "2606:4700:4700::1111", ipVersion: 6, order: 1, latency: null, loss: null, jitter: null, history: [], status: "unavailable", thresholdOverrides: { latencyMs: 321, lossPercent: 7 }, tcpPort: 443, dnsPort: 53, dnsName: "example.com" };
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetcher);
+    const writes = () => fetcher.mock.calls.filter((call) => call[1]?.method === "PUT");
     render(<I18nProvider><NetworkPage targets={[target]} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} /></I18nProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Customize" }));
     fireEvent.change(await screen.findByDisplayValue("Synthetic DNS"), { target: { value: "Renamed" } });
     fireEvent.click(screen.getByRole("button", { name: /Save/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalled());
-    const saved = JSON.parse(fetcher.mock.calls[0][1].body).targets[0];
-    expect(saved).toMatchObject({ name: "Renamed", latencyMs: 321, lossPercent: 7, tcpPort: 443, dnsPort: 53, dnsName: "example.com", ipVersion: 6 });
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    const saved = JSON.parse(writes()[0][1].body).targets[0];
+    expect(saved).toMatchObject({ name: "Renamed", tcpPort: 443, dnsPort: 53, dnsName: "example.com", ipVersion: 6 });
+    expect(saved.latencyMs).toBeUndefined(); expect(saved.lossPercent).toBeUndefined();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Customize" }));
-    fireEvent.change(await screen.findByDisplayValue("321"), { target: { value: "" } });
-    fireEvent.change(screen.getByDisplayValue("7"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("TCP port"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Save/ }));
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-    const cleared = JSON.parse(fetcher.mock.calls[1][1].body).targets[0];
-    expect(cleared.latencyMs).toBeUndefined(); expect(cleared.lossPercent).toBeUndefined();
-    expect(cleared.tcpPort).toBe(443);
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    const cleared = JSON.parse(writes()[1][1].body).targets[0];
+    expect(cleared.tcpPort).toBeUndefined(); expect(cleared.dnsPort).toBe(53);
   });
 
   it("uses the same background URL port boundaries before submitting", () => {

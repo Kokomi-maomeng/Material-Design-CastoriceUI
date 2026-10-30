@@ -71,13 +71,15 @@ class AuditRegressions(IsolatedState):
             self.dashboard.configure_integration('traffic', {'values': {'billingDay': '1', 'billingTimezone': 'UTC', 'initialUsedGb': '0', 'quotaGb': '1000'}})
             self.assertEqual(self.dashboard.traffic_quota_state(), expected)
 
-    def test_both_target_editors_keep_identity_policy_and_restart_history(self):
+    def test_both_target_editors_keep_identity_protocols_and_restart_history(self):
         target = {'id': 'existing-legacy', 'name': 'Resolver', 'address': '192.0.2.10', 'ipVersion': 4, 'order': 1, 'tcpPort': 443, 'dnsPort': 53, 'dnsName': 'example.com', 'latencyMs': 900, 'lossPercent': 20}
         self.config.network_targets = [target]
         self.storage.record_monitoring('network', target['id'], {'latency': 12})
         self.dashboard.configure_integration('network', {'values': {'targets': 'Renamed,192.0.2.10'}})
-        for key in ('id', 'tcpPort', 'dnsPort', 'dnsName', 'latencyMs', 'lossPercent', 'ipVersion'):
+        for key in ('id', 'tcpPort', 'dnsPort', 'dnsName', 'ipVersion'):
             self.assertEqual(self.config.network_targets[0][key], target[key])
+        self.assertNotIn('latencyMs', self.config.network_targets[0])
+        self.assertNotIn('lossPercent', self.config.network_targets[0])
         saved = self.dashboard.update_network_targets([{**self.config.network_targets[0], 'name': 'Again'}], '127.0.0.1', 'qa-operator')
         restarted = DashboardService(self.config, self.storage)
         self.assertEqual(saved[0]['id'], target['id'])

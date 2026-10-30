@@ -27,20 +27,23 @@
 .network-page .network-score-card strong, .network-page .network-metric strong { font-size: clamp(1.125rem, 1rem + .3vw, 1.5rem); }
 .network-page .network-metric > div { min-width: 0; overflow-wrap: anywhere; }
 .network-page .network-target__identity strong { font-size: clamp(1rem, .9rem + .2vw, 1.125rem); }
-.network-page .network-target__identity span { font-size: clamp(.8125rem, .75rem + .15vw, .9375rem); overflow-wrap: anywhere; white-space: normal; }
+.network-page .network-target__identity span { font-size: var(--text-xs); white-space: nowrap; }
 .network-page .md-chip { font-size: var(--text-sm); }
 .network-page .feature-intro strong, .services-page .service-health-card { font-size: var(--text-base); }
 .network-page .feature-intro p { font-size: clamp(.8125rem, .75rem + .15vw, .9375rem); }
 .network-page .segmented-control button { font-size: var(--text-sm); }
-.network-target-card__content { display: grid; grid-template-columns: minmax(110px, .28fr) minmax(0, 1fr); gap: 14px; margin-top: 18px; align-items: stretch; }
-.network-target-card__metrics { grid-template-columns: 1fr; gap: 8px; }
+.network-target-grid { align-items: start; }
+.network-target-card__header { height: 48px; }
+.network-target-card__content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 14px; align-items: start; }
+.network-target-card__metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: start; }
 .network-target-card__evidence { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .network-target-card__evidence > small { overflow-wrap: anywhere; color: var(--on-surface-variant); }
-.network-target-card__chart { min-width: 0; margin: 0; padding: 14px; }
-.network-target-card__chart-title { font-size: var(--text-sm); flex-wrap: wrap; }
-.network-measure { justify-content: center; padding: 10px 12px; }
-.network-measure span { font-size: clamp(.8125rem, .75rem + .15vw, .9375rem); }
-.network-measure b { font-size: clamp(.9375rem, .85rem + .15vw, 1.0625rem); white-space: normal; overflow-wrap: anywhere; }
+.network-target-card__chart { min-width: 0; height: 300px; margin: 0; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.network-target-card__chart-title { min-height: 32px; height: 32px; margin: 0; font-size: var(--text-sm); align-items: center; flex-wrap: nowrap; }
+.network-target-card__chart-title b { white-space: nowrap; }
+.network-measure { min-width: 0; height: 57px; justify-content: center; gap: 2px; padding: 8px 10px; }
+.network-measure span { font-size: var(--text-xs); }
+.network-measure b { font-size: .875rem; font-variant-numeric: tabular-nums; white-space: normal; overflow-wrap: anywhere; }
 
 
 .network-page .chart-axis-label { font-size: var(--text-xs); }
@@ -57,9 +60,8 @@
   .top-app-bar > div[aria-hidden="true"] { display: none; }
 }
 @media (max-width: 620px) {
-  .network-target-card__content { grid-template-columns: minmax(0, 1fr); }
-  .network-target-card__metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .network-measure { padding: 10px; }
+  .network-target-card__metrics { gap: 6px; }
+  .network-measure { height: 53px; padding: 6px; }
   .network-target-card__chart { padding: 12px; }
   .quota-schedule-grid { column-gap: 10px; }
   .quota-dialog .md-dialog__content { padding-inline: 16px; }

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from .monitoring import NetworkPolicy, ResourcePressure, event, timestamp, maintenance_info
 from .alert_policy import AlertPolicy
+from .network_sampling import NetworkSeries
 from .alert_dto import with_alert_time
 from .collectors import layered_probe
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -81,6 +82,11 @@ class DashboardService:
         self.collection_state: dict[str, dict[str, Any]] = {}
         self.started_monotonic = time.monotonic()
         self.network_policy = NetworkPolicy()
+        self.network_series = NetworkSeries()
+        self.network_recorded_at = 0.0
+        self.network_recorded_monotonic = 0.0
+        self.network_time_cache: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        self.network_alert_cache: dict[str, dict[str, Any]] = {}
         self.alert_policy = AlertPolicy()
         self.resource_pressure = ResourcePressure()
         self.layer_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -137,8 +143,7 @@ class DashboardService:
         for alert in storage.active_alerts():
             if str(alert["id"]).startswith("network-") and not str(alert["id"]).startswith("network-probe-"):
                 target_id = str(alert["id"])[8:]
-                target = next((item for item in self.config.network_targets if item["id"] == target_id), {})
-                signature = (float(target.get("latencyMs", self.config.alert_thresholds["latencyMs"])), float(target.get("lossPercent", self.config.alert_thresholds["lossPercent"])))
+                signature = (float(self.config.alert_thresholds["latencyMs"]), float(self.config.alert_thresholds["lossPercent"]))
                 self.network_policy.states[target_id] = {"confirmed": True, "good": 0, "policy": signature}
 
     def _apply_quota_state_to_config(self, state: dict[str, Any]) -> None:
@@ -673,20 +678,29 @@ class DashboardService:
     def _invalidate_network(self) -> None:
         with self.lock:
             self.network_generation += 1
+            self.network_series.clear()
+            self.network_time_cache.clear()
+            self.network_alert_cache.clear()
+            self.network_recorded_monotonic = 0.0
             self.runtime_cache["network"] = [
-                {**item, "thresholdOverrides": {key: item[key] for key in ("latencyMs", "lossPercent") if key in item}, "latency": None, "loss": None, "jitter": None,
-                 "history": [], "status": "unavailable", "measurementStatus": "unavailable",
+                {**item, "latency": None, "loss": None, "jitter": None,
+                 "history": [], "probeHistory": [], "sampleIntervalSeconds": 1, "status": "unavailable", "measurementStatus": "unavailable",
                  "probeReason": "pending", "observedAt": None}
                 for item in self.config.network_targets
             ]
             self.collection_state["network"] = {"observedAt": None, "error": "pending"}
 
-    def update_network_targets(self, payload: Any, source_ip: str, actor: str) -> list[dict[str, Any]]:
+    def update_network_targets(self, payload: Any, source_ip: str, actor: str, global_thresholds: Any = None) -> list[dict[str, Any]]:
         targets = self._normalize_network_targets(payload)
         with self.lock:
+            thresholds = None
+            if global_thresholds is not None:
+                if not isinstance(global_thresholds, dict) or set(global_thresholds) != {"latencyMs", "lossPercent"}:
+                    raise ValueError("Global network rules require latencyMs and lossPercent")
+                thresholds = self._alert_thresholds_from_values({key: str(number(value, key)) for key, value in global_thresholds.items()})
+            self._persist_network_targets(targets, global_thresholds=thresholds)
             self.config.network_targets = targets
             self._invalidate_network()
-            self._persist_network_targets(targets)
         self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
         return targets
 
@@ -721,18 +735,19 @@ class DashboardService:
                 "ipVersion": version if ":" in address or all(part.isdigit() for part in address.split(".")) else integer(item.get("ipVersion", 0), "ipVersion"),
                 "order": max(1, min(order, 999)),
             })
-            for key, minimum, maximum in (("latencyMs", 0, 60000), ("lossPercent", 0, 100), ("tcpPort", 1, 65535), ("dnsPort", 1, 65535)):
+            for key, minimum, maximum in (("tcpPort", 1, 65535), ("dnsPort", 1, 65535)):
                 if key in item:
                     value = number(item[key], key)
                     if not minimum <= value <= maximum or (key.endswith("Port") and value != int(value)):
                         raise ValueError("Invalid network probe policy")
                     targets[-1][key] = int(value) if key.endswith("Port") else value
-            if "dnsPort" in item:
+            if "dnsPort" in item or str(item.get("dnsName", "")).strip():
+                targets[-1].setdefault("dnsPort", 53)
                 try:
                     ipaddress.ip_address(address)
                 except ValueError as error:
                     raise ValueError("DNS resolver probe requires a numeric public IP") from error
-                dns_name = str(item.get("dnsName", "example.com"))
+                dns_name = str(item.get("dnsName") or "example.com").strip()
                 if not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", dns_name) or any(not 1 <= len(label) <= 63 for label in dns_name.split(".")):
                     raise ValueError("Invalid DNS probe name")
                 targets[-1]["dnsName"] = dns_name
@@ -749,9 +764,8 @@ class DashboardService:
     def _network_targets_text(targets: list[dict[str, Any]]) -> str:
         return "\n".join(f"{item['name']},{item['address']}" for item in targets)
 
-    def _persist_network_targets(self, targets: list[dict[str, Any]], state: dict[str, Any] | None = None) -> None:
+    def _persist_network_targets(self, targets: list[dict[str, Any]], state: dict[str, Any] | None = None, global_thresholds: dict[str, float] | None = None) -> None:
         """Keep the editor, wizard and runtime configuration on one canonical value."""
-        self.storage.set_setting("network_targets", targets)
         overrides = self.storage.get_setting("integration_overrides", {})
         if not isinstance(overrides, dict):
             overrides = {}
@@ -765,8 +779,15 @@ class DashboardService:
             "values": {"targets": self._network_targets_text(targets)},
         })
         overrides["network"] = current
-        self.storage.set_setting("integration_overrides", overrides)
+        if global_thresholds is not None:
+            alert_state = {**self.config.integrations.get("alerts", {}), **overrides.get("alerts", {}),
+                           "configured": True, "values": {key: str(value) for key, value in global_thresholds.items()}}
+            overrides["alerts"] = alert_state
+        self.storage.set_settings({"network_targets": targets, "integration_overrides": overrides})
         self.config.integrations.setdefault("network", {}).update(current)
+        if global_thresholds is not None:
+            self.config.alert_thresholds = global_thresholds
+            self.config.integrations.setdefault("alerts", {}).update(overrides["alerts"])
 
     def traffic_series(self) -> dict[str, Any]:
         now = int(time.time())
@@ -1033,13 +1054,21 @@ class DashboardService:
                 alerts.append({"id": "monitor-" + key, "severity": "warning", "title": title_en, "titleEn": title_en, "titleZh": title_zh, "description": service["detail"], "descriptionEn": service.get("detailEn", service["detail"]), "descriptionZh": service.get("detailZh", service["detail"]), "source": "Monitor evidence", "sourceEn": "Monitor evidence", "sourceZh": "监控证据", "time": "now", "acknowledged": False, "reason": reason, "evidence": service.get("evidence", {}), "affectedServices": [item["id"] for item in services if item.get("rootCauseId") == key]})
             else:
                 self.unknown_since.pop(str(service.get("rootCauseId") or service["id"]), None)
-        for target in network:
+        network_evidence_fields = ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")
+        for observed in network:
+            # Alerts use the same completed aggregate that confirmed the rule;
+            # a later successful one-second probe must not replace its evidence.
+            target = {**observed, **observed.get("_alertSample", {})}
+            if observed.get("status") == "unavailable":
+                target.update(status="unavailable", probeReason=observed.get("probeReason"))
             latency = target.get("latency")
             loss = target.get("loss")
-            evidence = {key: target.get(key) for key in ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")}
-            if target.get("status") == "unavailable":
-                alerts.append({"id": f"network-probe-{target['id']}", "severity": "warning", "title": f"{target['name']} probe is unavailable", "titleEn": f"{target['name']} probe is unavailable", "titleZh": f"{target['name']} 探测不可用", "description": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionEn": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionZh": f"探测原因：{target.get('probeReason', 'unknown')}", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测", "evidence": evidence})
-            if target.get("alertConfirmed", target["status"] != "unavailable" and (target["status"] == "down" or (latency is not None and latency >= float(target.get("latencyMs", latency_threshold))) or (loss is not None and loss >= float(target.get("lossPercent", loss_threshold))))):
+            evidence = {key: target.get(key) for key in network_evidence_fields}
+            evidence["effectivePolicy"] = evidence.get("effectivePolicy") or {"latencyMs": latency_threshold, "lossPercent": loss_threshold}
+            if observed.get("status") == "unavailable":
+                probe_evidence = {key: observed.get(key) for key in network_evidence_fields}
+                alerts.append({"id": f"network-probe-{target['id']}", "severity": "warning", "title": f"{target['name']} probe is unavailable", "titleEn": f"{target['name']} probe is unavailable", "titleZh": f"{target['name']} 探测不可用", "description": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionEn": f"Probe reason: {target.get('probeReason', 'unknown')}", "descriptionZh": f"探测原因：{target.get('probeReason', 'unknown')}", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测", "evidence": probe_evidence})
+            if target.get("alertConfirmed", target["status"] != "unavailable" and (target["status"] == "down" or (latency is not None and latency >= latency_threshold) or (loss is not None and loss >= loss_threshold))):
                 alerts.append({"id": f"network-{target['id']}", "severity": "warning", "title": f"{target['name']} network quality degraded", "titleEn": f"{target['name']} network quality degraded", "titleZh": f"{target['name']} 网络质量下降", "description": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionEn": f"Latency {target['latency']} ms · loss {target['loss']}%", "descriptionZh": f"延迟 {target['latency']} ms · 丢包 {target['loss']}%", "time": "latest probe", "timeEn": "latest probe", "timeZh": "最近探测", "acknowledged": False, "source": "Network probe", "sourceEn": "Network probe", "sourceZh": "网络探测", "evidence": evidence})
         # Losing listener evidence does not prove recovery of an existing fault.
         # Keep that episode open with an uncertainty warning until a fresh
@@ -1081,7 +1110,6 @@ class DashboardService:
                 matching = next((item for item in network if str(alert["id"]) in {"network-" + item["id"], "network-probe-" + item["id"]}), None)
                 if matching:
                     alert["targetName"] = matching["name"]
-                    alert["evidence"] = {key: matching.get(key) for key in ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")}
             elif str(alert["id"]) == "service-singbox":
                 alert["affectedServices"] = [item["id"] for item in services if item["id"] in PROTOCOLS and item.get("stateReason") == "core_offline"]
         alerts.extend(self.collection_alerts())
@@ -1347,46 +1375,77 @@ class DashboardService:
         with self.lock:
             self.collection_state.setdefault(name, {})["durationMs"] = round((time.monotonic() - started) * 1000)
 
+    @staticmethod
+    def _layer_signature(target: dict[str, Any]) -> tuple:
+        return tuple(target.get(key) for key in ("address", "ipVersion", "tcpPort", "dnsPort", "dnsName"))
+
+    def refresh_network_layers(self) -> None:
+        with self.lock:
+            generation = self.network_generation
+            targets = copy.deepcopy(self.config.network_targets)
+        pending = [item for item in targets if item.get("tcpPort") or item.get("dnsPort") or item.get("dnsName")]
+        if not pending:
+            with self.lock:
+                if generation == self.network_generation:
+                    self.layer_cache.clear()
+            return
+        with ThreadPoolExecutor(max_workers=min(12, len(pending)), thread_name_prefix="optional-probe") as pool:
+            results = list(pool.map(layered_probe, pending))
+        with self.lock:
+            if generation != self.network_generation:
+                return
+            self.layer_cache = {item["id"]: (time.monotonic(), {"signature": self._layer_signature(item), "layers": layers}) for item, layers in zip(pending, results)}
+
     def refresh_network(self) -> None:
         started = time.monotonic()
         with self.lock:
             candidate = copy.copy(self.config)
             candidate.network_targets = copy.deepcopy(self.config.network_targets)
             generation = self.network_generation
-        samples = network_snapshots(candidate)
+        samples = network_snapshots(candidate, count=1)
         with self.lock:
             if generation != self.network_generation:
                 return
-        ids = {item["id"] for item in samples}
-        self.layer_cache = {key: value for key, value in self.layer_cache.items() if key in ids}
-        batch = timestamp()
-        pending = []
-        for item in samples:
-            cached = self.layer_cache.get(item["id"])
-            signature = tuple(item.get(key) for key in ("address", "ipVersion", "tcpPort", "dnsPort", "dnsName"))
-            if cached is None or cached[1].get("signature") != signature or time.monotonic() - cached[0] >= (20 if item.get("status") in {"down", "degraded"} else 60):
-                pending.append(item)
-        with ThreadPoolExecutor(max_workers=6, thread_name_prefix="layered-probe") as pool:
-            for item, layers in zip(pending, pool.map(layered_probe, pending)):
-                signature = tuple(item.get(key) for key in ("address", "ipVersion", "tcpPort", "dnsPort", "dnsName"))
-                self.layer_cache[item["id"]] = time.monotonic(), {"signature": signature, "layers": layers}
-        for item in samples:
-            item["layers"] = self.layer_cache[item["id"]][1]["layers"]
-            item["batchId"] = batch
-        with self.lock:
-            if generation != self.network_generation:
-                return
-        self.network_policy.apply(samples, candidate.alert_thresholds)
-        for item in samples:
-            if not self.storage.record_monitoring("network", item["id"], {key: item.get(key) for key in ("batchId", "observedAt", "sampleStartedAt", "sampleEndedAt", "durationMs", "ipVersion", "resolvedIpVersion", "method", "status", "latency", "loss", "jitter", "sent", "received", "complete", "observedReplies", "probeReason", "alertConfirmed", "effectivePolicy", "qualityWindow", "layers")}):
-                event("storage", "monitoring_write_failed")
-            item["timeHistory"] = self.storage.monitoring_history("network", item["id"], limit=180)
-        with self.lock:
-            if generation != self.network_generation:
-                return
+            self.network_series.retain({item["id"] for item in samples})
+            self.network_alert_cache = {key: value for key, value in self.network_alert_cache.items() if key in self.network_series.samples}
+            for item in samples:
+                self.network_series.append(item)
+                cached = self.layer_cache.get(item["id"])
+                item["layers"] = copy.deepcopy(cached[1]["layers"]) if cached and cached[1].get("signature") == self._layer_signature(item) else {}
+            # The global alert policy and durable history retain their 20s cadence.
+            # Live ICMP points never write one database row per second.
+            if not self.network_recorded_monotonic or time.monotonic() - self.network_recorded_monotonic >= 20:
+                archives = [self.network_series.aggregate(item, self.network_recorded_at) for item in samples]
+                self.network_policy.apply(archives, candidate.alert_thresholds)
+                self.network_alert_cache = {item["id"]: copy.deepcopy(item) for item in archives}
+                for item in archives:
+                    payload = {key: item.get(key) for key in ("observedAt", "ipVersion", "resolvedIpVersion", "status", "latency", "loss", "jitter", "sent", "received", "complete", "hasGaps", "sampleIntervalSeconds")}
+                    if not self.storage.record_monitoring("network", item["id"], payload):
+                        event("storage", "monitoring_write_failed")
+                    family = item.get("resolvedIpVersion") or item.get("ipVersion", 0)
+                    self.network_time_cache[(item["id"], family)] = self.storage.network_time_history(item["id"], 1, family)["samples"]
+                self.network_recorded_at = time.time()
+                self.network_recorded_monotonic = time.monotonic()
+            for item in samples:
+                family = item.get("resolvedIpVersion") or item.get("ipVersion", 0)
+                item["timeHistory"] = self.network_time_cache.get((item["id"], family), [])
+                item["alertConfirmed"] = bool(self.network_policy.states.get(item["id"], {}).get("confirmed"))
+                item["_alertSample"] = copy.deepcopy(self.network_alert_cache.get(item["id"], {}))
             self.runtime_cache["network"] = samples
-            self._collection_result("network", observed_at=batch)
+            self._collection_result("network", observed_at=timestamp())
             self.collection_state["network"]["durationMs"] = round((time.monotonic() - started) * 1000)
+
+    def network_targets_snapshot(self) -> list[dict[str, Any]]:
+        with self.lock:
+            result = copy.deepcopy(self.runtime_cache.get("network", []))
+            freshness = self.collection_freshness()["network"]
+        stale = freshness["ageSeconds"] is None or freshness["ageSeconds"] > 5
+        for item in result:
+            for key in ("latencyMs", "lossPercent", "thresholdOverrides", "effectivePolicy", "qualityWindow", "alertConfirmed", "_alertSample"):
+                item.pop(key, None)
+            if stale:
+                item.update(status="unavailable", measurementStatus="unavailable", probeReason="pending" if freshness.get("error") == "pending" else "stale", latency=None, loss=None, jitter=None, history=[], probeHistory=[])
+        return result
 
     def refresh_subscription(self) -> None:
         started = time.monotonic()
@@ -1456,6 +1515,8 @@ class DashboardService:
         with self.lock:
             system = copy.deepcopy(self.system_cache)
             runtime = copy.deepcopy(self.runtime_cache)
+            current_rules = {key: str(value) for key, value in self.config.alert_thresholds.items()}
+            current_alert_configuration = {key: self.config.integrations.get("alerts", {}).get(key, True) for key in ("enabled", "configured")}
         if system is None:
             system = self.collect_system_snapshot()
         # Settings are current configuration, independent of the cached measurement interval.
@@ -1471,6 +1532,9 @@ class DashboardService:
         if freshness["network"]["status"] != "live":
             network = [{**target, "status": "unavailable", "measurementStatus": "unavailable", "probeReason": "stale" if freshness["network"]["status"] == "stale" else "pending" if freshness["network"].get("error") == "pending" else "probeFailed", "latency": None, "jitter": None, "loss": None, "history": []} for target in network]
         for integration in integrations:
+            if integration["id"] == "alerts":
+                integration.update(current_alert_configuration)
+                integration["values"] = current_rules
             if integration["id"] == "connections":
                 self.connection_integration(integration, hy2, singbox, freshness)
                 continue
@@ -1547,7 +1611,7 @@ class DashboardService:
                 "coverage": system.get("trafficCoverage"),
             },
             "subscriptions": self.public_subscriptions(),
-            "networkTargets": network,
+            "networkTargets": self.network_targets_snapshot(),
             "services": services,
             "alerts": runtime["alerts"],
             "alertSummary": self.storage.alert_summary(),
