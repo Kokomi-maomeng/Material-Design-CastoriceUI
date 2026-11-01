@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
+from .network_limits import MAX_NETWORK_TARGETS
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period
 
@@ -798,6 +799,6 @@ def layered_probe(target: dict[str, Any]) -> dict[str, Any]:
 
 
 def network_snapshots(config: AppConfig, count: int = 8) -> list[dict[str, Any]]:
-    targets = config.network_targets[:12]
-    with ThreadPoolExecutor(max_workers=min(12 if count == 1 else 6, max(1, len(targets))), thread_name_prefix="probe") as pool:
+    targets = sorted(config.network_targets, key=lambda target: target.get('order', 0))[:MAX_NETWORK_TARGETS]
+    with ThreadPoolExecutor(max_workers=min(MAX_NETWORK_TARGETS if count == 1 else 6, max(1, len(targets))), thread_name_prefix="probe") as pool:
         return list(pool.map(lambda target: ping_target(target, count), targets))

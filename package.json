@@ -1,6 +1,6 @@
 {
   "name": "material-design-castorice-ui",
-  "version": "5.9.0",
+  "version": "6.0.0",
   "private": false,
   "engines": {
     "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
@@ -30,7 +30,7 @@
     "privacy:identity": "node scripts/privacy-guard.mjs identity",
     "privacy:archive": "node scripts/privacy-guard.mjs archive",
     "test:privacy": "node --test tests/privacy-guard.test.mjs",
-    "lint": "eslint . --ignore-pattern dist",
+    "lint": "node --import ./scripts/minimatch-compat.mjs ./node_modules/eslint/bin/eslint.js . --ignore-pattern dist",
     "typecheck": "tsc --noEmit",
     "check": "npm run check:docs && npm run lint && npm run typecheck && npm test && npm run scan:sensitive && npm run build && npm run audit:production && npm run audit:all",
     "audit:production": "npm audit --omit=dev --audit-level=low",
@@ -65,11 +65,15 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.5.0",
     "jsdom": "^29.1.1",
+    "minimatch": "11.0.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0",
     "vite": "8.3.5",
     "vitest": "4.1.12"
   },
   "type": "module",
+  "overrides": {
+    "minimatch": "$minimatch"
+  },
   "license": "MIT"
 }

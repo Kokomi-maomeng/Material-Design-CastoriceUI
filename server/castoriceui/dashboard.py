@@ -13,6 +13,7 @@ from typing import Any
 from .monitoring import NetworkPolicy, ResourcePressure, event, timestamp, maintenance_info
 from .alert_policy import AlertPolicy
 from .network_sampling import NetworkSeries
+from .network_limits import MAX_NETWORK_TARGETS, NETWORK_LIMITS
 from .alert_dto import with_alert_time
 from .collectors import layered_probe
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -557,8 +558,8 @@ class DashboardService:
     @staticmethod
     def _network_target_lines(value: str) -> list[str]:
         lines = [line for line in value.splitlines() if line.strip()]
-        if len(lines) > 12:
-            raise ValueError("Network targets must contain at most 12 non-empty lines")
+        if len(lines) > MAX_NETWORK_TARGETS:
+            raise ValueError(f"Network targets must contain at most {MAX_NETWORK_TARGETS} non-empty lines")
         return lines
 
     def _alert_thresholds_from_values(self, values: dict[str, str]) -> dict[str, float]:
@@ -705,25 +706,48 @@ class DashboardService:
         return targets
 
     def _normalize_network_targets(self, payload: Any, *, restore: bool = False) -> list[dict[str, Any]]:
-        if not isinstance(payload, list) or not 1 <= len(payload) <= 12:
-            raise ValueError("Configure between 1 and 12 network targets")
+        if not isinstance(payload, list) or not payload or not restore and len(payload) > MAX_NETWORK_TARGETS:
+            raise ValueError(f"Configure between 1 and {MAX_NETWORK_TARGETS} network targets")
         targets: list[dict[str, Any]] = []
         seen_addresses: set[str] = set()
+        used_orders: set[int] = set()
+        for item in payload:
+            if not isinstance(item, dict):
+                raise ValueError("Each network target must be an object")
+            raw = item.get("order")
+            if raw in (None, ""):
+                continue
+            order = integer(raw, "order")
+            if not restore and (not 1 <= order <= MAX_NETWORK_TARGETS or order in used_orders):
+                raise ValueError("Network target orders must be unique and within the target limit")
+            used_orders.add(order)
         existing = {item["address"]: item for item in self.config.network_targets}
         for index, item in enumerate(payload):
             if not isinstance(item, dict):
                 raise ValueError("Each network target must be an object")
-            name = str(item.get("name", "")).strip()
-            if not name or len(name) > 60:
+            name = item.get("name", "")
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > NETWORK_LIMITS['maxNameLength'] or re.search(r'[\x00-\x1f\x7f]', name):
                 raise ValueError("Network target name must contain 1-60 characters")
+            name = name.strip()
             address, version = validate_probe_target(str(item.get("address", "")))
             if address in seen_addresses:
                 raise ValueError("Network target addresses must be unique")
             seen_addresses.add(address)
+            raw_order = item.get("order")
+            if raw_order in (None, ""):
+                order = 1
+                while order in used_orders:
+                    order += 1
+                used_orders.add(order)
+            else:
+                order = integer(raw_order, "order")
+            family = integer(item.get("ipVersion", 0), "ipVersion")
             try:
-                order = int(item.get("order", index + 1))
-            except (TypeError, ValueError) as error:
-                raise ValueError("Network target order must be an integer") from error
+                literal_family = ipaddress.ip_address(address).version
+            except ValueError:
+                literal_family = 0
+            if family not in {0, 4, 6} or literal_family and family not in {0, literal_family}:
+                raise ValueError("Address family must match the IP address or use auto")
             stable_id = (item if restore else existing.get(address, {})).get("id", "")
             if not isinstance(stable_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", stable_id):
                 stable_id = "custom-" + hashlib.sha256(address.encode("utf-8")).hexdigest()[:16]
@@ -732,23 +756,27 @@ class DashboardService:
                 "name": name,
                 "provider": "Custom",
                 "address": address,
-                "ipVersion": version if ":" in address or all(part.isdigit() for part in address.split(".")) else integer(item.get("ipVersion", 0), "ipVersion"),
-                "order": max(1, min(order, 999)),
+                "ipVersion": version if literal_family else family,
+                "order": order,
             })
             for key, minimum, maximum in (("tcpPort", 1, 65535), ("dnsPort", 1, 65535)):
-                if key in item:
-                    value = number(item[key], key)
+                if item.get(key) not in (None, ""):
+                    value = integer(item[key], key)
                     if not minimum <= value <= maximum or (key.endswith("Port") and value != int(value)):
                         raise ValueError("Invalid network probe policy")
                     targets[-1][key] = int(value) if key.endswith("Port") else value
-            if "dnsPort" in item or str(item.get("dnsName", "")).strip():
+            if "dnsPort" in targets[-1] or str(item.get("dnsName") or "").strip():
                 targets[-1].setdefault("dnsPort", 53)
                 try:
                     ipaddress.ip_address(address)
                 except ValueError as error:
                     raise ValueError("DNS resolver probe requires a numeric public IP") from error
-                dns_name = str(item.get("dnsName") or "example.com").strip()
-                if not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", dns_name) or any(not 1 <= len(label) <= 63 for label in dns_name.split(".")):
+                dns_name, _ = validate_probe_target(str(item.get("dnsName") or "example.com"))
+                try:
+                    ipaddress.ip_address(dns_name)
+                except ValueError:
+                    pass
+                else:
                     raise ValueError("Invalid DNS probe name")
                 targets[-1]["dnsName"] = dns_name
         if any(item["ipVersion"] not in {0, 4, 6} for item in targets):
@@ -1389,7 +1417,7 @@ class DashboardService:
                 if generation == self.network_generation:
                     self.layer_cache.clear()
             return
-        with ThreadPoolExecutor(max_workers=min(12, len(pending)), thread_name_prefix="optional-probe") as pool:
+        with ThreadPoolExecutor(max_workers=min(MAX_NETWORK_TARGETS, len(pending)), thread_name_prefix="optional-probe") as pool:
             results = list(pool.map(layered_probe, pending))
         with self.lock:
             if generation != self.network_generation:
@@ -1444,7 +1472,8 @@ class DashboardService:
             for key in ("latencyMs", "lossPercent", "thresholdOverrides", "effectivePolicy", "qualityWindow", "alertConfirmed", "_alertSample"):
                 item.pop(key, None)
             if stale:
-                item.update(status="unavailable", measurementStatus="unavailable", probeReason="pending" if freshness.get("error") == "pending" else "stale", latency=None, loss=None, jitter=None, history=[], probeHistory=[])
+                item.update(status="unavailable", measurementStatus="unavailable", probeReason="pending" if freshness.get("error") == "pending" else "stale", latency=None, loss=None, jitter=None)
+                item.setdefault("probeHistory", [])
         return result
 
     def refresh_subscription(self) -> None:

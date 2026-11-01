@@ -282,6 +282,8 @@ def validate_probe_target(value: str) -> tuple[str, int]:
         address = ipaddress.ip_address(candidate)
         return str(address), address.version
     except ValueError:
+        if re.fullmatch(r"[\d.]+", candidate):
+            raise ValueError("Invalid numeric IP address")
         try:
             ascii_host = candidate.rstrip(".").encode("idna").decode("ascii")
         except UnicodeError as error:

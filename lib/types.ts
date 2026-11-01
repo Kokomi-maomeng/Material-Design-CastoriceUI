@@ -120,6 +120,7 @@ export interface NetworkTarget {
 }
 
 export interface NetworkHistorySample { capturedAt: number; latency: number | null; loss: number | null; complete: boolean; status: string; hasGaps?: boolean; samples?: number }
+export type NetworkTargetConfig = Pick<NetworkTarget, "id" | "name" | "provider" | "address" | "ipVersion" | "order" | "tcpPort" | "dnsPort" | "dnsName">;
 export interface NetworkHistoryResponse { targetId: string; hours: number; ipVersion: number; start: number; end: number; granularitySeconds: number; aggregation: "maximum"; sourceSamples: number; truncated: boolean; samples: NetworkHistorySample[] }
 export interface ServiceStatus {
   kind?: "protocol" | "core" | "monitor";

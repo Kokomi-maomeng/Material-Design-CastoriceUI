@@ -14,7 +14,7 @@ const renderEnglish = (node: React.ReactNode) => render(<I18nProvider>{node}</I1
 beforeEach(() => { localStorage.setItem("castorice-language", "en"); vi.spyOn(api, "fetchNetworkTargets").mockResolvedValue([]); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
 
-it("keeps loss at 100% when no echo returns, and labels only actual minimum and maximum RTT", async () => {
+it("keeps loss at 100% and labels zero plus the actual RTT range", async () => {
   const at = Date.now() / 1000;
   renderEnglish(<NetworkChart label="Probe test" seconds samples={[
     { capturedAt: at - 2, latency: 10.1, loss: 0, complete: true, status: "healthy" },
@@ -24,8 +24,9 @@ it("keeps loss at 100% when no echo returns, and labels only actual minimum and 
   const chart = screen.getByRole("img", { name: "Probe test" });
   expect(chart.textContent).toContain("20.3 ms");
   expect(chart.textContent).toContain("10.1 ms");
-  expect(chart.querySelectorAll('text.chart-axis-label')).toHaveLength(7);
-  expect(chart.querySelector('[data-metric="loss"]')?.getAttribute("points")).toContain(",18");
+  expect(chart.textContent).toContain("0 ms");
+  expect(chart.querySelectorAll('text.chart-axis-label')).toHaveLength(8);
+  expect(chart.querySelector('[data-metric="loss"]')?.getAttribute("d")).toContain(",18");
   fireEvent.focus(chart);
   const tooltip = await screen.findByRole("tooltip");
   expect(tooltip.textContent).toContain(`${new Date(at * 1000).getSeconds()}s`);
@@ -97,13 +98,17 @@ it("shows configured TCP and DNS rows, retains zero RTT and leaves failed measur
   expect(rows[2].textContent).not.toContain("2000");
 });
 
-it("shows the shared global rules and actual network alerts in one separate card", () => {
+it("shows only the first ten actual network alerts with their count beside the title", () => {
   const onOpen = vi.fn();
   const alert: AlertItem = { id: "network-qa", episodeId: "episode", title: "Network delay", description: "RTT 190 ms", severity: "warning", time: "now", acknowledged: false, startedAt: "2026-10-30T00:00:00Z", source: "Test" };
-  const { container } = renderEnglish(<NetworkPage targets={[target]} alerts={[alert]} alertIntegration={rules} onOpenAlerts={onOpen} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={async () => {}} />);
+  const alerts = Array.from({ length: 14 }, (_, i) => ({ ...alert, episodeId: `episode-${i}`, title: `Network delay ${i}` }));
+  const { container } = renderEnglish(<NetworkPage targets={[target]} alerts={alerts} alertIntegration={rules} onOpenAlerts={onOpen} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={async () => {}} />);
   const global = container.querySelector(".network-alerts-card")!;
-  expect(global.textContent).toContain("≥ 150 ms");
-  expect(global.textContent).toContain("≥ 5%");
+  expect(global.textContent).not.toContain("≥ 150 ms");
+  expect(global.textContent).not.toContain("≥ 5%");
+  expect(global.querySelectorAll('[role="listitem"]')).toHaveLength(10);
+  expect(global.querySelector('.network-alerts-card__heading')?.textContent).toContain('14 alerts');
+  expect(global.textContent).not.toContain('Network delay 10');
   expect(global.textContent).toContain("Network delay");
   fireEvent.click(screen.getByRole("button", { name: "Alert center" }));
   expect(onOpen).toHaveBeenCalledOnce();

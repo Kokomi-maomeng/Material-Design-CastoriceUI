@@ -21,6 +21,9 @@ export function MaterialSelect({
   searchable = false,
   disabled = false,
   popupClassName = "",
+  invalid,
+  describedBy,
+  minimumPopupWidth = 240,
 }: {
   value: string;
   options: MaterialSelectOption[];
@@ -30,6 +33,9 @@ export function MaterialSelect({
   searchable?: boolean;
   disabled?: boolean;
   popupClassName?: string;
+  invalid?: boolean;
+  describedBy?: string;
+  minimumPopupWidth?: number;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -64,7 +70,7 @@ export function MaterialSelect({
       const viewportWidth = viewport?.width ?? window.innerWidth;
       const roomBelow = Math.max(0, viewportTop + viewportHeight - rect.bottom - gap - edge);
       const roomAbove = Math.max(0, rect.top - viewportTop - gap - edge);
-      const width = Math.max(1, Math.min(Math.max(rect.width, 240), viewportWidth - 24));
+      const width = Math.max(1, Math.min(Math.max(rect.width, minimumPopupWidth), viewportWidth - 24));
       const list = popup.querySelector<HTMLElement>(".md-select-list");
       const search = popup.querySelector<HTMLElement>(".md-select-search");
       const desiredHeight = Math.min(420, Math.max(46, (list?.scrollHeight ?? popup.scrollHeight) + (search ? search.offsetHeight + 9 : 0) + 14));
@@ -108,7 +114,7 @@ export function MaterialSelect({
       window.visualViewport?.removeEventListener("scroll", place);
       observer?.disconnect();
     };
-  }, [open, present, searchable]);
+  }, [open, present, searchable, minimumPopupWidth]);
 
   useLayoutEffect(() => {
     if (!open || !position.ready) return;
@@ -143,6 +149,8 @@ export function MaterialSelect({
         type="button"
         className={`md-select-trigger ${open ? "is-open" : ""}`}
         aria-label={ariaLabel}
+        data-invalid={invalid}
+        aria-describedby={describedBy}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}

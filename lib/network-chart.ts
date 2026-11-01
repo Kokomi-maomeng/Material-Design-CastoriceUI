@@ -2,6 +2,16 @@ import type { NetworkHistorySample, NetworkTarget } from "./types";
 
 export const NETWORK_CHART_POINTS = 60;
 
+/** Bounded cubic curves: horizontal runs remain connected, with no overshoot. */
+export function smoothNetworkPath(points: Array<[number, number]>): string {
+  return points.map(([x, y], index) => {
+    if (!index) return `M ${x},${y}`;
+    const [previousX, previousY] = points[index - 1];
+    const third = (x - previousX) / 3;
+    return `C ${previousX + third},${previousY} ${x - third},${y} ${x},${y}`;
+  }).join(" ");
+}
+
 export function networkProbeSamples(target: NetworkTarget): NetworkHistorySample[] {
   if (target.probeHistory) return target.probeHistory.slice(-NETWORK_CHART_POINTS);
   if (target.timeHistory?.length) return target.timeHistory.slice(-NETWORK_CHART_POINTS);

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useI18n } from "../../lib/i18n";
-import { networkTimeLabel } from "../../lib/network-chart";
+import { networkTimeLabel, smoothNetworkPath } from "../../lib/network-chart";
 import type { NetworkHistorySample } from "../../lib/types";
 import { usePresence } from "../ui/usePresence";
 
@@ -20,6 +20,8 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
   const tooltipId = useId();
   const [width, setWidth] = useState(360);
   const [now, setNow] = useState(() => Date.now() / 1000);
+  const lastProgress = useRef<{ at?: number; received: number }>({ received: 0 });
+  const [paused, setPaused] = useState(false);
   const [activeAt, setActiveAt] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const present = usePresence(open, 180);
@@ -35,13 +37,23 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
   }, []);
   useEffect(() => {
     if (!seconds) return;
-    const timer = window.setInterval(() => setNow(Date.now() / 1000), 1000);
+    const timer = window.setInterval(() => {
+      const tick = Date.now() / 1000;
+      setNow(tick);
+      setPaused(tick - lastProgress.current.received > 5);
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [seconds]);
 
   const points = samples.filter((sample) => Number.isFinite(sample.capturedAt));
   const last = points.at(-1)?.capturedAt ?? now;
-  const end = requestedEnd ?? (seconds ? Math.max(last, now) : last);
+  const latestAt = points.at(-1)?.capturedAt;
+  useEffect(() => {
+    if (lastProgress.current.at !== latestAt) lastProgress.current = { at: latestAt, received: now };
+  }, [latestAt, now]);
+  // Anchor to the last real server observation. Browser clock skew, background
+  // throttling and temporary transport failures must not scroll real data away.
+  const end = requestedEnd ?? last;
   const start = requestedStart ?? (seconds ? end - 59 : points[0]?.capturedAt ?? end - step * 59);
   const visible = points.filter((sample) => sample.capturedAt >= start && sample.capturedAt <= end);
   const measured = visible.flatMap((sample) => sample.complete && typeof sample.latency === "number" && Number.isFinite(sample.latency) ? [sample.latency] : []);
@@ -51,21 +63,20 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
   const x = (at: number) => plot.left + (plot.right - plot.left) * Math.max(0, Math.min(1, (at - start) / Math.max(step, end - start)));
   const y = (value: number, metric: "latency" | "loss") => metric === "loss"
     ? plot.bottom - Math.max(0, Math.min(100, value)) / 100 * (plot.bottom - plot.top)
-    : maximum === minimum ? (plot.top + plot.bottom) / 2
-      : plot.bottom - (value - (minimum ?? 0)) / Math.max(.001, (maximum ?? 1) - (minimum ?? 0)) * (plot.bottom - plot.top);
+    : maximum === minimum ? value === 0 ? plot.bottom : plot.top
+      : value <= 0 ? plot.bottom : plot.bottom - (plot.bottom - plot.top) * (.22 + .78 * (value - (minimum ?? 0)) / Math.max(.001, (maximum ?? 1) - (minimum ?? 0)));
   const segments = (metric: "latency" | "loss") => {
-    const result: string[][] = [];
-    let segment: string[] = [];
+    const result: Array<Array<[number, number]>> = [];
+    let segment: Array<[number, number]> = [];
     let previous: number | undefined;
     for (const sample of visible) {
       const value = sample[metric];
       const usable = sample.complete && typeof value === "number" && Number.isFinite(value);
-      if (!usable || sample.hasGaps || previous !== undefined && sample.capturedAt - previous > step * 1.5) {
+      if (!usable || previous !== undefined && sample.capturedAt - previous > step * (seconds ? 2.5 : 1.5)) {
         if (segment.length) result.push(segment);
         segment = [];
       }
-      if (usable) segment.push(`${x(sample.capturedAt)},${y(value, metric)}`);
-      if (sample.hasGaps && segment.length) { result.push(segment); segment = []; }
+      if (usable) segment.push([x(sample.capturedAt), y(value, metric)]);
       previous = sample.capturedAt;
     }
     if (segment.length) result.push(segment);
@@ -104,14 +115,15 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
         <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--primary)" stopOpacity=".14" /><stop offset="100%" stopColor="var(--primary)" stopOpacity="0" /></linearGradient></defs>
         {[plot.top, plot.bottom].map((row) => <line key={row} className="chart-grid-line" x1={plot.left} x2={plot.right} y1={row} y2={row} />)}
         <text x={plot.left - 7} y={plot.top + 4} textAnchor="end" className="chart-axis-label">{maximum === null ? "—" : maximum.toFixed(1)} ms</text>
-        <text x={plot.left - 7} y={plot.bottom + 4} textAnchor="end" className="chart-axis-label">{minimum === null ? "—" : minimum.toFixed(1)} ms</text>
+        <text x={plot.left - 7} y={plot.bottom + 4} textAnchor="end" className="chart-axis-label">0 ms</text>
+        {minimum !== null && minimum > 0 && maximum !== minimum ? <g data-minimum="true"><line className="chart-grid-line" x1={plot.left} x2={plot.right} y1={y(minimum, "latency")} y2={y(minimum, "latency")} strokeDasharray="3 4" /><text x={plot.left - 7} y={y(minimum, "latency") + 4} textAnchor="end" className="chart-axis-label">{minimum.toFixed(1)} ms</text></g> : null}
         <text x={plot.right + 6} y={plot.top + 4} className="chart-axis-label">100%</text>
         <text x={plot.right + 6} y={plot.bottom + 4} className="chart-axis-label">0%</text>
-        {visible.filter((sample) => !sample.complete || sample.hasGaps).map((sample) => <line key={sample.capturedAt} data-gap="true" x1={x(sample.capturedAt)} x2={x(sample.capturedAt)} y1={plot.top} y2={plot.bottom} stroke="var(--error)" strokeOpacity=".25" strokeDasharray="2 4" />)}
+        {visible.filter((sample) => !sample.complete || sample.hasGaps).map((sample) => <line key={sample.capturedAt} data-gap="true" data-partial={sample.complete} x1={x(sample.capturedAt)} x2={x(sample.capturedAt)} y1={sample.complete ? plot.bottom - 4 : plot.top} y2={plot.bottom} stroke={sample.complete ? "var(--warning)" : "var(--error)"} strokeOpacity={sample.complete ? ".6" : ".25"} strokeDasharray={sample.complete ? undefined : "2 4"}><title>{sample.complete ? t("部分采样缺失", "Partial sample coverage") : t("未采样", "Missing sample")}</title></line>)}
         {(["latency", "loss"] as const).flatMap((metric) => segments(metric).map((segment, index) => <g key={`${metric}-${index}`}>
-          {metric === "latency" && segment.length > 1 ? <path d={`M ${segment.join(" L ")} L ${segment.at(-1)?.split(",")[0]},${plot.bottom} L ${segment[0].split(",")[0]},${plot.bottom} Z`} fill={`url(#${gradient})`} /> : null}
-          {segment.length > 1 ? <polyline data-metric={metric} points={segment.join(" ")} fill="none" stroke={metric === "latency" ? "var(--primary)" : "var(--warning)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            : <circle data-metric={metric} cx={segment[0].split(",")[0]} cy={segment[0].split(",")[1]} r="2.5" fill={metric === "latency" ? "var(--primary)" : "var(--warning)"} />}
+          {metric === "latency" && segment.length > 1 ? <path d={`${smoothNetworkPath(segment)} L ${segment.at(-1)![0]},${plot.bottom} L ${segment[0][0]},${plot.bottom} Z`} fill={`url(#${gradient})`} /> : null}
+          {segment.length > 1 ? <path data-metric={metric} d={smoothNetworkPath(segment)} fill="none" stroke={metric === "latency" ? "var(--primary)" : "var(--warning)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            : <circle data-metric={metric} cx={segment[0][0]} cy={segment[0][1]} r="2.5" fill={metric === "latency" ? "var(--primary)" : "var(--warning)"} />}
         </g>))}
         {selected && present ? <g className={`network-chart__cursor ${open ? "is-open" : ""}`} aria-hidden="true" style={{ transform: `translateX(${x(selected.capturedAt)}px)` }}>
           <line x1="0" x2="0" y1={plot.top} y2={plot.bottom} />
@@ -121,7 +133,7 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
         {[start, (start + end) / 2, end].map((at, index) => <text key={index} x={index === 0 ? plot.left : index === 2 ? plot.right : (plot.left + plot.right) / 2} y="210" textAnchor={index === 0 ? "start" : index === 2 ? "end" : "middle"} className="chart-axis-label">{networkTimeLabel(at, seconds, language)}</text>)}
         <rect className="sparkline-hit-area" x={plot.left} y={plot.top} width={plot.right - plot.left} height={plot.bottom - plot.top} />
       </svg>
-      {!valid || state ? <div className="network-chart__empty" role={state === "error" ? "alert" : "status"}>{state === "loading" ? t("读取中", "Loading") : state === "error" ? t("读取失败", "Unable to load history") : "—"}</div> : null}
+      {!valid ? <div className="network-chart__empty" role={state === "error" ? "alert" : "status"}>{state === "loading" ? t("读取中", "Loading") : state === "error" ? t("读取失败", "Unable to load history") : "—"}</div> : null}
       {selected && present ? <div className="network-chart__tooltip-position" style={{ transform: `translate3d(${tooltipX}px, ${tooltipY}px, 0)` }}>
         <div id={tooltipId} className={`network-chart__tooltip ${open ? "is-open" : "is-leaving"}`} role="tooltip" aria-hidden={!open}>
           <div className="network-chart__tooltip-values" key={selected.capturedAt}>
@@ -132,6 +144,7 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
         </div>
       </div> : null}
     </div>
-    <div className="network-chart__legend"><span>{t("延迟 ms", "Latency ms")}</span><span>{t("丢包 %", "Loss %")}</span></div>
+    {valid && (state === "error" || seconds && points.length > 0 && paused) ? <span className="network-chart__stale" role="status">{t("更新暂停 · 保留上次采样", "Updates paused · last samples retained")}</span> : null}
+    <div className="network-chart__legend"><span>{t("延迟 ms · 区间放大", "Latency ms · expanded range")}</span><span>{t("丢包 %", "Loss %")}</span></div>
   </div>;
 }

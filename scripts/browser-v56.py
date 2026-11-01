@@ -16,6 +16,7 @@ import urllib.request
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 from qa_browser import settled, open_page
+from qa_network import network_product
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'server'))
@@ -76,7 +77,7 @@ def main():
             for engine in sys.argv[1:] or ['chromium', 'firefox', 'webkit']:
                 browser = getattr(playwright, engine).launch()
                 context = browser.new_context(ignore_https_errors=True, viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
-                context.add_init_script("localStorage.setItem('castorice-language','en')")
+                context.add_init_script("if(!localStorage.getItem('castorice-language'))localStorage.setItem('castorice-language','en')")
                 page = context.new_page(); page_errors = []
                 page.on('pageerror', lambda e: page_errors.append(str(e)))
                 page.goto(origin, wait_until='networkidle')
@@ -180,8 +181,9 @@ def main():
                     result = context.request.put(origin + '/api/v2/settings/login-background', data={**original, 'value': 'https://images.example.com:' + invalid + '/image'}, headers=headers)
                     assert result.status == 400 and result.json()['field'] == 'value'
                     assert storage.get_setting('login_background', {}) == original
+                network = network_product(page, context, dashboard, storage, origin, headers, refresh)
                 assert not page_errors and not errors
-                reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'pageErrors': page_errors})
+                reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'networkProduct': network, 'pageErrors': page_errors})
                 context.close(); browser.close()
     print(json.dumps({'auditFixes': reports, 'apiRoutesMocked': False, 'backendErrors': errors, 'passed': True}), flush=True)
 

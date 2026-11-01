@@ -15,6 +15,7 @@ from castoriceui.dashboard import DashboardService
 from castoriceui.network_sampling import NetworkSeries
 from castoriceui.storage import Storage
 from castoriceui.alert_policy import level, present
+from castoriceui.network_limits import MAX_NETWORK_TARGETS
 
 
 def sample(at, latency=12.3, family=4):
@@ -35,6 +36,47 @@ class NetworkSamplingTests(unittest.TestCase):
 
     def tearDown(self):
         self.folder.cleanup()
+
+    def test_editor_policy_is_atomic_strict_and_persists_canonical_order(self):
+        first = {"name": "First", "address": "192.0.2.1", "order": 2, "ipVersion": 4}
+        second = {"name": "Second", "address": "192.0.2.2", "order": 1}
+        third = {"name": "Third", "address": "EXAMPLE.com."}
+        saved = self.dashboard.update_network_targets([first, second, third], "127.0.0.1", "qa")
+        self.assertEqual([row['name'] for row in saved], ['Second', 'First', 'Third'])
+        self.assertEqual([row['order'] for row in saved], [1, 2, 3])
+        self.assertEqual(saved[-1]['address'], 'example.com')
+        restarted = DashboardService(self.config, self.storage)
+        self.assertEqual(restarted.config.network_targets, saved)
+        before = copy.deepcopy(saved)
+        cases = [
+            [first, {**second, 'order': 2}],
+            [{**first, 'order': 1.2}], [{**first, 'order': True}],
+            [{**first, 'order': MAX_NETWORK_TARGETS + 1}],
+            [{**first, 'name': ''}], [{**first, 'address': '999.2.3.4'}],
+            [{**first, 'address': 'https://example.com'}],
+            [{**first, 'tcpPort': 65536}], [{**first, 'tcpPort': 1.2}],
+            [{**first, 'dnsName': 'bad.-name.test'}],
+            [{**first, 'dnsName': '192.0.2.1'}],
+            [{**first, 'ipVersion': 6}],
+            [{**first, 'address': 'example.com', 'dnsPort': 53}],
+            [{**first, 'order': i + 1, 'address': f'192.0.2.{i + 1}'} for i in range(MAX_NETWORK_TARGETS + 1)],
+        ]
+        for payload in cases:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                self.dashboard.update_network_targets(payload, '127.0.0.1', 'qa')
+            self.assertEqual(self.storage.get_setting('network_targets', []), before)
+            self.assertEqual(self.config.network_targets, before)
+
+    def test_stale_snapshot_retains_real_timestamps_and_history_without_live_values(self):
+        at = time.time() - 120
+        with patch('castoriceui.dashboard.network_snapshots', return_value=[sample(at)]):
+            self.dashboard.refresh_network()
+        self.dashboard._collection_result('network', observed_at=datetime.fromtimestamp(at, timezone.utc).isoformat())
+        stale = self.dashboard.network_targets_snapshot()[0]
+        self.assertEqual(stale['status'], 'unavailable')
+        self.assertIsNone(stale['latency'])
+        self.assertEqual(len(stale['probeHistory']), 1)
+        self.assertAlmostEqual(stale['probeHistory'][0]['capturedAt'], at, places=2)
 
     def test_sixty_real_points_keep_loss_and_reset_on_family_change(self):
         series = NetworkSeries()

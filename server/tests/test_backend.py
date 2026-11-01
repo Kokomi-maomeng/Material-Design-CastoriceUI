@@ -249,8 +249,8 @@ class BackendTests(unittest.TestCase):
             storage = Storage(config.database_path)
             dashboard = DashboardService(config, storage)
             saved = dashboard.update_network_targets([
-                {"name": "Second", "address": "8.8.8.8", "order": 20},
-                {"name": "First", "address": "1.1.1.1", "order": 10},
+            {"name": "Second", "address": "8.8.8.8", "order": 2},
+            {"name": "First", "address": "1.1.1.1", "order": 1},
             ], "127.0.0.1", "tester")
             self.assertEqual([item["name"] for item in saved], ["First", "Second"])
             self.assertEqual([item["order"] for item in saved], [1, 2])
@@ -1001,7 +1001,7 @@ class BackendTests(unittest.TestCase):
                 dashboard.configure_integration("system", {"values": {"nodeName": "n" * 81}})
             self.assertEqual(config.node_name, original_name)
             targets = "\n".join(f"target-{index},192.0.2.{index}" for index in range(1, 14))
-            with self.assertRaisesRegex(ValueError, "at most 12"):
+            with self.assertRaisesRegex(ValueError, "at most 10"):
                 dashboard.configure_integration("network", {"values": {"targets": targets}})
             self.assertEqual(config.network_targets, [])
             self.assertIsNone(storage.get_setting("network_targets", None))
