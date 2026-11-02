@@ -152,11 +152,11 @@ def main():
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
                 assert disclosure.locator('.connection-target').count()==20
-                copied=disclosure.locator('.connection-target code').first.inner_text()
+                copied=disclosure.locator('.connection-target code').first.text_content()
                 # Observe the actual clipboard write without opening OS permission prompts.
                 page.evaluate("()=>{window.qaCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}})}")
-                disclosure.locator('.copy-ip-button').first.click()
-                assert page.evaluate('window.qaCopied')==copied
+                disclosure.get_by_role('button',name=f'Copy destination address {copied}',exact=True).click()
+                page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
                 first_id=page.locator('.connection-card').first.get_attribute('data-connection-id')
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
                 page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
