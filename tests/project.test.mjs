@@ -131,9 +131,11 @@ test("connections group honestly, copy source IPs, and omit explanatory footer c
 
 test("network targets are editable and charts use real smooth sample paths", async () => {
   const [network, chart, collector, api] = await Promise.all([read("components/pages/NetworkPage.tsx"), read("components/charts/TrafficChart.tsx"), read("server/castoriceui/collectors.py"), read("lib/api.ts")]);
-  assert.match(network, /updateNetworkTargets/);
-  assert.match(network, /FeatureIntro/);
-  assert.match(network, /order/);
+  const editor = await read("components/network/NetworkProbeDialog.tsx");
+  assert.match(network, /NetworkProbeDialog/);
+  assert.match(editor, /updateNetworkTargets/);
+  assert.match(network, /NetworkHelp/);
+  assert.match(editor, /order/);
   const networkChart = await read("components/charts/NetworkChart.tsx");
   assert.match(chart, / C /);
   assert.match(chart, /getScreenCTM\(\)/);

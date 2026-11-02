@@ -24,7 +24,8 @@ export function NetworkHistory({ target }: { target: NetworkTarget }) {
         const data = await fetchNetworkHistory(target.id, hours, family, controller.signal);
         if (!controller.signal.aborted) setResult({ hours, family, query, data });
       } catch {
-        if (!controller.signal.aborted) setResult({ hours, family, query, error: true });
+        if (!controller.signal.aborted) setResult((previous) => ({ hours, family, query, error: true,
+          data: previous?.hours === hours && previous.family === family && previous.query === query ? previous.data : undefined }));
       } finally { loading = false; }
     };
     void load();

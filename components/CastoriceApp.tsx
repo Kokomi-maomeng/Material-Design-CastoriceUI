@@ -40,6 +40,7 @@ import type {
 import { AuthPage } from "./auth/AuthPage";
 import { useLoginBackground } from "./auth/useLoginBackground";
 import { SettingsDialog, SettingsSwitch } from "./settings/SettingsDialog";
+import { NetworkProbeDialog } from "./network/NetworkProbeDialog";
 
 export { SettingsSwitch };
 import { FirstRunConfiguration } from "./setup/FirstRunConfiguration";
@@ -120,6 +121,8 @@ export function CastoriceApp() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [desktopNavigationHidden, setDesktopNavigationHidden] = useState(() => readBooleanPreference("castorice-desktop-navigation-hidden", false));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [networkEditorOpen, setNetworkEditorOpen] = useState(false);
+  const networkConfigurationGeneration = useRef(0);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
@@ -235,6 +238,8 @@ export function CastoriceApp() {
     setDashboard(emptyDashboard);
     setAlerts([]);
     setConnections([]);
+    setNetworkEditorOpen(false);
+    setSettingsOpen(false);
     hasLiveData.current = false;
     setUserMenuOpen(false);
     setPage("overview");
@@ -243,9 +248,10 @@ export function CastoriceApp() {
   const loadDashboard = useCallback(async () => {
     if (!session || dashboardLoading.current) return;
     dashboardLoading.current = true;
+    const networkGeneration = networkConfigurationGeneration.current;
     try {
       const payload = await fetchDashboard();
-      setDashboard(payload);
+      setDashboard((current) => networkGeneration === networkConfigurationGeneration.current ? payload : { ...payload, networkTargets: current.networkTargets });
       setAlerts(payload.alerts);
       setConnections(payload.connections);
       hasLiveData.current = true;
@@ -574,6 +580,7 @@ export function CastoriceApp() {
             onToast={showToast}
             integration={integrationFor("network")}
             onConfigure={() => configurePage("network")}
+            onCustomize={() => setNetworkEditorOpen(true)}
             onSaved={async () => {
               await loadDashboard();
               setSetupDrafts((current) => {
@@ -810,6 +817,7 @@ export function CastoriceApp() {
           nodeName={dashboard.overview.nodeName}
           trafficLimitBytes={dashboard.overview.trafficLimitBytes}
           onEditQuota={openQuota}
+          onEditNetwork={() => setNetworkEditorOpen(true)}
           onSaveNodeName={async (nodeName) => {
             await saveIntegration("system", { nodeName });
           }}
@@ -836,6 +844,21 @@ export function CastoriceApp() {
         onSave={saveQuota}
         onToast={showToast}
       />
+      <NetworkProbeDialog open={networkEditorOpen} onClose={() => setNetworkEditorOpen(false)} targets={dashboard.networkTargets} alertIntegration={integrationFor("alerts")} onToast={showToast}
+        onSaved={async (targets) => {
+          networkConfigurationGeneration.current += 1;
+          await loadDashboard();
+          setDashboard((current) => ({ ...current, networkTargets: targets.map((target) => ({
+            ...current.networkTargets.find((item) => item.id === target.id),
+            latency: null, loss: null, jitter: null, history: [], probeHistory: [], timeHistory: [], layers: {}, observedAt: undefined, status: "unavailable", ...target,
+          })) }));
+          setSetupDrafts((current) => {
+            if (!current.alerts) return current;
+            const next = { ...current.alerts };
+            delete next.latencyMs; delete next.lossPercent;
+            return { ...current, alerts: next };
+          });
+        }} />
       <Toast key={`toast-${toast?.id ?? "closed"}`} message={toast?.message ?? null} onDismiss={dismissToast} />
     </div>
   );

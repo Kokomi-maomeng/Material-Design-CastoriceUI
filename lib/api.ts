@@ -1,5 +1,7 @@
 import type { AlertPageResponse, AuditPageResponse, BootstrapState, ConnectionTargets, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { parseDashboard, validNetworkSamples, validNetworkTarget } from "./dashboard-validation";
+import { NETWORK_LIMITS } from "./network-editor";
+import type { NetworkTargetConfig } from "./types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 let csrfToken = "";
@@ -151,12 +153,12 @@ export function configureIntegration(id: string, enabled: boolean, values: Recor
 }
 
 export function updateNetworkTargets(targets: Array<Pick<NetworkTarget, "name" | "address"> & { order: number; ipVersion?: 0 | 4 | 6 }>, globalThresholds?: { latencyMs: number; lossPercent: number }) {
-  return request<{ targets: NetworkTarget[] }>("/api/v2/settings/network-targets", { method: "PUT", body: JSON.stringify({ targets, globalThresholds }) }, true);
+  return request<{ targets: NetworkTargetConfig[] }>("/api/v2/settings/network-targets", { method: "PUT", body: JSON.stringify({ targets, globalThresholds }) }, true);
 }
 
 export async function fetchNetworkTargets(signal?: AbortSignal) {
   const body = await request<{ targets: NetworkTarget[] }>("/api/v2/network", { signal });
-  if (!Array.isArray(body?.targets) || body.targets.length > 12 || !body.targets.every(validNetworkTarget)) throw new ApiError(502, "invalid_network_targets");
+  if (!Array.isArray(body?.targets) || body.targets.length > NETWORK_LIMITS.maxTargets || !body.targets.every(validNetworkTarget)) throw new ApiError(502, "invalid_network_targets");
   return body.targets;
 }
 

@@ -1,33 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { updateNetworkTargets } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import type { AlertItem, IntegrationStatus, NetworkTarget } from "../../lib/types";
 import { networkProbeSamples } from "../../lib/network-chart";
 import { useNetworkTargets } from "../../lib/useNetworkTargets";
 import { NetworkChart } from "../charts/NetworkChart";
-import { FeatureIntro } from "../setup/FeatureIntro";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
-import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
-import { MaterialSelect } from "../ui/MaterialSelect";
 import { PageHeader } from "../ui/Page";
 import { NetworkHistory } from "./NetworkHistory";
+import { NetworkProbeDialog } from "../network/NetworkProbeDialog";
+import { NetworkHelp } from "../network/NetworkHelp";
 import { networkQuality, qualityLabels } from "../../lib/network-quality";
-
-interface TargetDraft {
-  ipVersion: 0 | 4 | 6;
-  name: string;
-  address: string;
-  order: number;
-  tcpPort?: number;
-  dnsPort?: number;
-  dnsName?: string;
-}
 
 export function NetworkPage({
   targets: initialTargets,
@@ -38,6 +26,7 @@ export function NetworkPage({
   alertIntegration,
   alerts = [],
   onOpenAlerts,
+  onCustomize,
 }: {
   targets: NetworkTarget[];
   onToast: (message: string) => void;
@@ -47,14 +36,12 @@ export function NetworkPage({
   alertIntegration?: IntegrationStatus;
   alerts?: AlertItem[];
   onOpenAlerts?: () => void;
+  onCustomize?: () => void;
 }) {
   const { t } = useI18n();
   const targets = useNetworkTargets(initialTargets);
   const [version, setVersion] = useState<"all" | 4 | 6>("all");
   const [editorOpen, setEditorOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [drafts, setDrafts] = useState<TargetDraft[]>([]);
-  const [globalDraft, setGlobalDraft] = useState({ latencyMs: "", lossPercent: "" });
   const filtered = useMemo(
     () =>
       targets.filter(
@@ -70,44 +57,6 @@ export function NetworkPage({
   const state = networkQuality(filtered);
   const quality = t(qualityLabels[state][0], qualityLabels[state][1]);
   const grade = state === "excellent" ? "A" : state === "poor" ? "C" : "—";
-  const openEditor = () => {
-    setDrafts(
-      targets.map((target, index) => ({
-        ...Object.fromEntries(Object.entries(target).filter(([key]) => ["tcpPort", "dnsPort", "dnsName"].includes(key))),
-        ipVersion: target.ipVersion,
-        name: target.name,
-        address: target.address,
-        order: target.order ?? index + 1,
-      })),
-    );
-    setGlobalDraft({ latencyMs: alertIntegration?.values?.latencyMs ?? "", lossPercent: alertIntegration?.values?.lossPercent ?? "" });
-    setEditorOpen(true);
-  };
-  const change = (index: number, key: keyof TargetDraft, value: string) =>
-    setDrafts((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index
-          ? { ...item, [key]: ["order", "ipVersion", "tcpPort", "dnsPort"].includes(key) ? (value === "" ? undefined : Number(value)) : value }
-          : item,
-      ),
-    );
-  const save = async () => {
-    setSaving(true);
-    try {
-      const globalThresholds = globalDraft.latencyMs !== "" && globalDraft.lossPercent !== "" ? { latencyMs: Number(globalDraft.latencyMs), lossPercent: Number(globalDraft.lossPercent) } : undefined;
-      await updateNetworkTargets(drafts.map((item) => ({ ...item, dnsName: item.dnsName?.trim() || undefined })), globalThresholds);
-      await onSaved();
-      setEditorOpen(false);
-      onToast(t("网络探测目标已保存", "Network probe targets saved"));
-    } catch {
-      onToast(t(
-        "保存失败，请检查探测目标与全局告警设置",
-        "Unable to save. Check probe targets and global alert settings.",
-      ));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="page-content page-enter network-page">
@@ -115,9 +64,12 @@ export function NetworkPage({
         eyebrow={t("链路可观测性", "Link observability")}
         title={t("网络质量", "Network quality")}
         actions={
-          <Button variant="tonal" icon="edit" onClick={openEditor}>
+          <>
+          <NetworkHelp />
+          <Button variant="tonal" icon="edit" onClick={onCustomize ?? (() => setEditorOpen(true))}>
             {t("自定义", "Customize")}
           </Button>
+          </>
         }
       />
       <IntegrationGate
@@ -127,34 +79,6 @@ export function NetworkPage({
         description="配置 IPv4 / IPv6 探测目标。"
         descriptionEn="Configure IPv4 / IPv6 probe targets."
         onConfigure={onConfigure}
-      />
-      <FeatureIntro
-        items={[
-          {
-            icon: "timer",
-            title: t("延迟", "Latency"),
-            description: t(
-              "衡量请求往返时间，数值越低越好。",
-              "Measures round-trip time; lower is better.",
-            ),
-          },
-          {
-            icon: "ssid_chart",
-            title: t("抖动", "Jitter"),
-            description: t(
-              "反映多次真实探测之间的稳定程度。",
-              "Shows stability across real probe responses.",
-            ),
-          },
-          {
-            icon: "network_check",
-            title: t("丢包", "Packet loss"),
-            description: t(
-              "表示未收到响应的探测比例。",
-              "The percentage of probes that received no response.",
-            ),
-          },
-        ]}
       />
       <div className="network-overview">
         <Card variant="elevated" className="network-score-card">
@@ -255,113 +179,7 @@ export function NetworkPage({
           ))}
         </div>
       </section>
-      <Dialog
-        open={editorOpen}
-        onClose={() => setEditorOpen(false)}
-        title={t("自定义网络探测", "Customize network probes")}
-        description={t(
-          "编辑名称、地址和顺序；最多 12 个目标",
-          "Edit names, addresses, and order for up to 12 targets",
-        )}
-        size="large"
-        actions={
-          <>
-            <Button variant="text" onClick={() => setEditorOpen(false)}>
-              {t("取消", "Cancel")}
-            </Button>
-            <Button
-              icon="save"
-              disabled={
-                saving ||
-                drafts.length === 0 ||
-                Boolean(globalDraft.latencyMs) !== Boolean(globalDraft.lossPercent) ||
-                Boolean(alertIntegration) && (globalDraft.latencyMs === "" || globalDraft.lossPercent === "") ||
-                (globalDraft.latencyMs !== "" && (!Number.isFinite(Number(globalDraft.latencyMs)) || Number(globalDraft.latencyMs) < 0 || Number(globalDraft.latencyMs) > 60000)) ||
-                (globalDraft.lossPercent !== "" && (!Number.isFinite(Number(globalDraft.lossPercent)) || Number(globalDraft.lossPercent) < 0 || Number(globalDraft.lossPercent) > 100)) ||
-                drafts.some((item) => !item.name.trim() || !item.address.trim())
-              }
-              onClick={() => void save()}
-            >
-              {saving ? t("保存中…", "Saving…") : t("保存", "Save")}
-            </Button>
-          </>
-        }
-      >
-        <div className="network-editor">
-          <fieldset className="network-alert-editor"><legend>{t("全局网络告警", "Global network alerts")}</legend><div className="form-grid">
-            <label><span>{t("延迟阈值 (ms)", "Latency threshold (ms)")}</span><input type="number" min="0" max="60000" value={globalDraft.latencyMs} onChange={(event) => setGlobalDraft((current) => ({ ...current, latencyMs: event.target.value }))} /></label>
-            <label><span>{t("丢包阈值 (%)", "Loss threshold (%)")}</span><input type="number" min="0" max="100" step="0.1" value={globalDraft.lossPercent} onChange={(event) => setGlobalDraft((current) => ({ ...current, lossPercent: event.target.value }))} /></label>
-          </div></fieldset>
-          {drafts.map((item, index) => (
-            <div
-              className="network-editor-row"
-                key={index}
-            >
-              <label>
-                <span>{t("名称", "Name")}</span>
-                <input
-                  maxLength={60}
-                  value={item.name}
-                  onChange={(event) =>
-                    change(index, "name", event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                <span>{t("探测地址", "Probe address")}</span>
-                <input
-                  value={item.address}
-                  onChange={(event) =>
-                    change(index, "address", event.target.value)
-                  }
-                  placeholder="1.1.1.1"
-                />
-              </label>
-              <label>
-                <span>{t("排序", "Order")}</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="999"
-                  value={item.order}
-                  onChange={(event) =>
-                    change(index, "order", event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                <span>{t("解析协议族", "Address family")}</span>
-                <MaterialSelect ariaLabel={t("解析协议族", "Address family")} value={String(item.ipVersion)} onChange={(value) => change(index, "ipVersion", value)} options={[{ value: "0", label: t("自动", "Automatic") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }]} />
-              </label>
-              <div className="network-target-editor-probes">{(["tcpPort", "dnsPort"] as const).map((key) => <label key={key}><span>{key === "tcpPort" ? t("TCP 端口", "TCP port") : t("DNS(UDP) 端口", "DNS(UDP) port")}</span><input type="number" min="1" max="65535" value={item[key] ?? ""} onChange={(event) => change(index, key, event.target.value)} placeholder={t("未启用", "Disabled")} /></label>)}<label><span>{t("DNS 验证名称", "DNS check name")}</span><input value={item.dnsName ?? ""} onChange={(event) => change(index, "dnsName", event.target.value)} placeholder="example.com" /></label></div>
-              <button
-                className="icon-button"
-                aria-label={t("删除目标", "Remove target")}
-                onClick={() =>
-                  setDrafts((current) =>
-                    current.filter((_, itemIndex) => itemIndex !== index),
-                  )
-                }
-              >
-                <Icon name="delete" />
-              </button>
-            </div>
-          ))}
-          <Button
-            variant="tonal"
-            icon="add"
-            disabled={drafts.length >= 12}
-            onClick={() =>
-              setDrafts((current) => [
-                ...current,
-                { name: "", address: "", order: current.length + 1, ipVersion: 0 },
-              ])
-            }
-          >
-            {t("添加目标", "Add target")}
-          </Button>
-        </div>
-      </Dialog>
+      {!onCustomize ? <NetworkProbeDialog open={editorOpen} onClose={() => setEditorOpen(false)} targets={targets} alertIntegration={alertIntegration} onSaved={onSaved} onToast={onToast} /> : null}
     </div>
   );
 }
@@ -386,11 +204,11 @@ function ProbeReadings({ target }: { target: NetworkTarget }) {
 function NetworkAlerts({ integration, alerts, onOpen }: { integration?: IntegrationStatus; alerts: AlertItem[]; onOpen?: () => void }) {
   const { t } = useI18n();
   const networkAlerts = alerts.filter((item) => item.id.startsWith("network-"));
-  const rule = (key: string) => { const raw = integration?.values?.[key]; return raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? String(Number(raw)) : "—"; };
+
   return <Card variant="outlined" className="network-alerts-card">
-    <div className="network-alerts-card__heading"><h2>{t("网络告警", "Network alerts")}</h2>{onOpen ? <Button variant="text" icon="notifications" onClick={onOpen}>{t("告警中心", "Alert center")}</Button> : null}</div>
-    <div className="network-alerts-card__rules"><span>{t("全局延迟", "Global latency")} <b>≥ {rule("latencyMs")} ms</b></span><span>{t("全局丢包", "Global loss")} <b>≥ {rule("lossPercent")}%</b></span><Chip staticChip tone={networkAlerts.length || integration?.enabled === false ? "warning" : "success"}>{integration?.enabled === false ? t("已停用", "Disabled") : `${networkAlerts.length} ${t("项告警", "alerts")}`}</Chip></div>
-    {networkAlerts.length ? <div className="network-alerts-card__list" role="list">{networkAlerts.map((item) => <div role="listitem" key={item.episodeId ?? item.id}><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div>)}</div> : null}
+    <div className="network-alerts-card__heading"><div className="network-alerts-card__title"><h2>{t("网络告警", "Network alerts")}</h2><Chip staticChip tone={networkAlerts.length || integration?.enabled === false ? "warning" : "success"}>{integration?.enabled === false ? t("已停用", "Disabled") : `${networkAlerts.length} ${t("项告警", "alerts")}`}</Chip></div>{onOpen ? <Button variant="text" icon="notifications" onClick={onOpen}>{t("告警中心", "Alert center")}</Button> : null}</div>
+
+    {networkAlerts.length ? <div className="network-alerts-card__list" role="list">{networkAlerts.slice(0, 10).map((item) => <div role="listitem" key={item.episodeId ?? item.id}><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div>)}</div> : null}
   </Card>;
 }
 

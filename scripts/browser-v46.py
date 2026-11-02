@@ -114,7 +114,7 @@ def run(engine, timezone, browser):
             page.wait_for_timeout(80)
             stable(before)
             if section == "overview":
-                page.locator(".settings-row--action").get_by_role("button", name="Set", exact=True).click()
+                page.locator(".settings-row--action").filter(has=page.get_by_text("Total traffic quota", exact=True)).get_by_role("button", name="Set", exact=True).click()
                 page.wait_for_function("document.querySelectorAll('.md-dialog').length===2")
                 stable(before)
                 page.locator(".md-dialog").last.get_by_role("button", name="Close", exact=True).click()

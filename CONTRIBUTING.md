@@ -29,3 +29,12 @@ Before every commit, inspect the staged diff and scan for credentials. Never com
 Security vulnerabilities should be reported privately as described in `SECURITY.md`.
 
 Follow [the privacy gate](docs/PRIVACY_RELEASE_GATE.md) for staged objects, pushed history, Git identities, web merges and final release archives. Keep private-value lists outside this repository. Never bypass failed checks; inspect the actual remote merge metadata before tagging or publishing.
+# Development glob compatibility
+
+The development toolchain replaces legacy minimatch dependencies with the local
+`scripts/minimatch-compat.mjs` adapter loaded by the lint command. It preserves both callable CommonJS and named
+APIs while delegating matching to upstream minimatch 11.0.1, which fixes
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+The adapter contains no pattern implementation. Keep the API regression and both
+dependency audits enabled; remove the adapter when upstream lint packages accept
+the patched API directly. This development dependency is not shipped in the panel.

@@ -60,3 +60,9 @@ The sample byte budget limits logical payload storage, not total filesystem byte
 ## Upgrade from external observer monitoring
 
 Version 5.5 removes the external observer reporter and ingestion endpoint. Upgrade accepts retired configuration keys only to discard them, removes those keys transactionally from the protected configuration and deletes only external-observer history, evidence, samples, incident state and replay tokens. Local core/listener probes and network measurements remain active. Restoring a historical alert archive skips retired observer records. Protected deployment backups retain the original data for rollback. Disable and remove any separately scheduled external reporter. Do not clear a shared system journal, as that would destroy unrelated operational history.
+
+## Network presentation (v6.0)
+
+The live window follows the last real observation rather than the browser clock. Collection or transport pauses retain original timestamps and curves, label updates as paused, and leave current measurements unavailable. Resuming visibility or connectivity triggers an immediate poll. Refresh failures retain previously retrieved trend measurements.
+
+RTT uses a zero baseline with an explicitly expanded positive range: the measured minimum sits above a reserved lower band and the measured maximum remains the top label. This is a presentation scale, not a linear zero-to-maximum scale. Smooth bounded curves join equal values and measured partial buckets. Partial buckets keep gap markers; fully missing samples or intervals still break the curve. The network alert card shows only the first ten returned network records; the alert center retains the complete history.

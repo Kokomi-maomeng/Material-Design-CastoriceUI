@@ -50,7 +50,8 @@ with sync_playwright() as playwright:
                 data = {"targetId": "qa", "hours": 24, "ipVersion": 4, "start": 1700000000, "end": 1700086400, "granularitySeconds": 300, "aggregation": "maximum", "sourceSamples": 3, "truncated": False, "samples": [{"capturedAt": 1700000300, "latency": 900, "loss": 100, "complete": True, "hasGaps": True, "status": "down"}]}
             elif path == "settings/network-targets":
                 mutations.append(route.request.post_data_json)
-                data = {"ok": True}
+                dashboard["networkTargets"] = [{**target, **config} for config in mutations[-1]["targets"]]
+                data = {"targets": dashboard["networkTargets"]}
             else:
                 if route.request.method != "GET":
                     raise AssertionError("Unexpected monitoring mutation")
@@ -83,7 +84,8 @@ with sync_playwright() as playwright:
             expect(page.locator('svg[aria-label="Synthetic target trend history"] [data-gap]')).to_have_count(1)
             page.get_by_role("button", name="1h", exact=True).click()
             expect(page.locator(".network-probe-readings > div")).to_have_count(3)
-            expect(page.locator(".network-probe-readings .is-empty")).to_have_count(2)
+            # Later viewports retain the TCP port saved in the first case.
+            expect(page.locator(".network-probe-readings .is-empty")).to_have_count(2 if cases == 0 else 1)
             expect(page.get_by_text("Correlation and official incidents", exact=True)).to_have_count(0)
             page.get_by_role("button", name="Customize", exact=True).click()
             page.get_by_label("Loss threshold (%)", exact=True).fill("20")
@@ -94,6 +96,7 @@ with sync_playwright() as playwright:
             page.get_by_role("heading", name="Customize network probes", exact=True).wait_for(state="detached")
             assert mutations[-1]["globalThresholds"]["lossPercent"] == 20
             assert mutations[-1]["targets"][0]["tcpPort"] == 443
+            expect(page.locator(".network-probe-readings .is-empty")).to_have_count(1)
             cases += 1
         assert not errors, errors
         print(json.dumps({"engine": engine, "monitoringViewportCases": cases, "pageErrors": len(errors), "automaticAcknowledgements": 0}))

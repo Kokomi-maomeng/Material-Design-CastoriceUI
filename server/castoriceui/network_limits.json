@@ -1,0 +1,7 @@
+{
+  "maxTargets": 10,
+  "maxNameLength": 60,
+  "maxHostLength": 253,
+  "minPort": 1,
+  "maxPort": 65535
+}

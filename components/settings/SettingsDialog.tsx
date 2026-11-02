@@ -27,6 +27,7 @@ export function SettingsDialog({
   nodeName,
   trafficLimitBytes,
   onEditQuota,
+  onEditNetwork,
   onSaveNodeName,
   onToast,
   onAppearance,
@@ -42,6 +43,7 @@ export function SettingsDialog({
   nodeName: string;
   trafficLimitBytes: number;
   onEditQuota: () => void;
+  onEditNetwork?: () => void;
   onSaveNodeName: (name: string) => Promise<void>;
   onToast: (message: string) => void;
   onAppearance?: (appearance: LoginAppearance) => void;
@@ -212,10 +214,17 @@ export function SettingsDialog({
           </div>
         </AnimatedDetails>
       </section>
+      <section className="theme-section network-settings-group">
+        <h3><Icon name="network_check" /><span>{t("网络", "Network")}</span></h3>
+        <div className="settings-row settings-row--action">
+          <span><Icon name="network_ping" /><span><strong>{t("自定义网络探测", "Customize network probes")}</strong><small>{t("目标、顺序与告警规则", "Targets, order and alert rules")}</small></span></span>
+          <Button variant="tonal" compact icon="edit" onClick={onEditNetwork}>{t("设置", "Set")}</Button>
+        </div>
       <div className="settings-row settings-row--action">
         <span><Icon name="data_usage" /><span><strong>{t("总流量额度", "Total traffic quota")}</strong><small>{formatDecimalBytes(trafficLimitBytes)}</small></span></span>
         <Button variant="tonal" compact icon="edit" onClick={onEditQuota}>{t("设置", "Set")}</Button>
       </div>
+      </section>
       <AnimatedDetails className="settings-disclosure security-settings">
         <summary>
           <span><Icon name="password" /><span><strong>{t("更换密码", "Change password")}</strong></span></span>
