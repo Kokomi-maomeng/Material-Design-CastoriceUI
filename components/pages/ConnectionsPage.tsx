@@ -31,10 +31,21 @@ function TargetList({ details, now, stale, onCopy }: { details: LiveDetail[]; no
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(10);
+  const [viewedIds, setViewedIds] = useState<string[]>([]);
   const filtered = useMemo(() => details.map((item) => ({ ...item, ...connectionDestination(item.destination) })).filter((item) => `${item.destination} ${item.address} ${item.port ?? ""}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).sort((a, b) => Number(a.closedAt !== undefined) - Number(b.closedAt !== undefined) || ((b.downloadBps ?? 0) + (b.uploadBps ?? 0)) - ((a.downloadBps ?? 0) + (a.uploadBps ?? 0)) || a.id.localeCompare(b.id)), [details, search]);
+  const page = filtered.slice(0, limit);
+  const pageIds = new Set(page.map((item) => item.id));
+  // A flow already on screen must survive closure even when sorting would put
+  // it beyond the page limit. Unseen closed flows remain available via paging.
+  const shown = [...page, ...filtered.filter((item) => item.closedAt !== undefined && viewedIds.includes(item.id) && !pageIds.has(item.id))];
+  const shownKey = JSON.stringify(shown.map((item) => item.id));
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setViewedIds(JSON.parse(shownKey) as string[]));
+    return () => window.cancelAnimationFrame(frame);
+  }, [shownKey]);
   return <div className="connection-targets">
     {details.length > 10 || search !== "" ? <label className="connection-search">{t("查找目标", "Find destination")}<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setLimit(10); }} placeholder={t("域名或 IP", "Domain or IP")} /></label> : null}
-    <AnimatedRecords itemCount={Math.min(filtered.length, limit)} transitionKey={filtered.slice(0, limit).map((detail) => detail.id).join("|")}><ul className="connection-target-list">{filtered.slice(0, limit).map((detail) => {
+    <AnimatedRecords itemCount={shown.length} transitionKey={shownKey}><ul className="connection-target-list">{shown.map((detail) => {
       const seconds = connectionDuration(detail.connectedAt, now);
       const closed = detail.closedAt !== undefined;
       const remaining = Math.max(0, Math.ceil((CLOSED_CONNECTION_RETENTION_MS - (now - (detail.closedAt ?? now))) / 1000));
@@ -44,7 +55,7 @@ function TargetList({ details, now, stale, onCopy }: { details: LiveDetail[]; no
       </li>;
     })}</ul></AnimatedRecords>
     {!filtered.length ? <p role="status">{t("没有符合条件的目标", "No matching destinations")}</p> : null}
-    {filtered.length > limit ? <Button variant="text" onClick={() => setLimit((value) => value + 10)}>{t("再显示 10 条", "Show 10 more")}</Button> : null}
+    {filtered.length > shown.length ? <Button variant="text" onClick={() => setLimit((value) => value + 10)}>{t("再显示 10 条", "Show 10 more")}</Button> : null}
   </div>;
 }
 

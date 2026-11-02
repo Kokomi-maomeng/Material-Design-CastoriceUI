@@ -14,7 +14,7 @@ import threading
 import time
 import urllib.request
 from unittest.mock import patch
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from qa_browser import settled, open_page, frames
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -125,6 +125,15 @@ def main():
                 disclosure.locator('summary').press('Enter');settled(page)
                 assert disclosure.get_attribute('open') is None
                 disclosure.locator('summary').press('Enter');settled(page)
+                # Keep an observed row through closure even when live rows
+                # would otherwise push it beyond the ten-row page.
+                refresh(99)
+                expect(disclosure.locator('.connection-target.is-closed')).to_have_count(1, timeout=10000)
+                expect(disclosure.locator('.connection-target')).to_have_count(11)
+                assert 'target-0-99.' in disclosure.locator('.connection-target.is-closed code').inner_text()
+                refresh(100)
+                expect(disclosure.locator('.connection-target.is-closed')).to_have_count(0, timeout=10000)
+                expect(disclosure.locator('.connection-target')).to_have_count(10)
                 disclosure.get_by_role('searchbox').fill('target-0-99.')
                 assert disclosure.locator('.connection-target').count()==1
                 refresh(3)
@@ -221,7 +230,7 @@ def main():
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)
                 assert not errors and not server_errors,(errors,server_errors)
-                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
+                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
                 context.close();browser.close()
 
 

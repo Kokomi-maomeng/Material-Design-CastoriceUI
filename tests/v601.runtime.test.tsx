@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import * as api from "../lib/api";
 import { ConnectionsPage } from "../components/pages/ConnectionsPage";
 import { NetworkPage } from "../components/pages/NetworkPage";
@@ -97,6 +97,24 @@ it("shows a closed countdown instead of open duration and keeps the target throu
 });
 
 const alert: AlertItem = { id: "network-qa", episodeId: "network-episode", title: "RTT high", description: "RTT 200ms", severity: "warning", time: "now", source: "Monitor", acknowledged: false, startedAt: "2026-11-01T00:00:00Z" };
+it("keeps a previously visible closed destination on screen beyond the ten-row live page", async () => {
+  const details = Array.from({ length: 15 }, (_, i) => ({ ...detail, id: `flow-${i}`, downloadBps: i }));
+  const value = (rows: typeof details): ConnectionTargets => ({ available: true, sampledAt: null, groups: [{ id: group.id, details: rows.map((row) => ({ id: row.id, destination: `${row.id}.example.test:443` })) }] });
+  const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue(value(details));
+  const page = (rows: typeof details) => english(<ConnectionsPage connections={[{ ...group, details: rows }]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  const view = render(page(details));
+  fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+  await screen.findByText("View destinations");
+  fireEvent.click(screen.getByText("View destinations"));
+  await act(async () => { await new Promise(requestAnimationFrame); });
+  expect(view.container.querySelectorAll(".connection-target")).toHaveLength(10);
+  const current = details.slice(0, -1);
+  fetch.mockResolvedValue(value(current));
+  view.rerender(page(current));
+  await waitFor(() => expect(view.container.querySelector(".connection-target.is-closed code")?.textContent).toBe("flow-14.example.test"));
+  expect(view.container.querySelectorAll(".connection-target")).toHaveLength(11);
+});
+
 it("shows pending reminders in blue with recovery times and the shared acknowledge action before alert center", async () => {
   vi.spyOn(api, "fetchNetworkTargets").mockResolvedValue([]);
   let done: (() => void) | undefined;
