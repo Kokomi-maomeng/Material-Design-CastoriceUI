@@ -12,6 +12,8 @@ Linux counters / Hysteria2 / sing-box / systemd / certificates
 
 The browser must never receive an upstream Secret, raw configuration, private key, stored password hash, or privileged command capability. Dashboard responses redact subscription tokens; only an explicit authenticated reveal/copy action returns one complete subscription URL.
 
+Dashboard `networkAlerts` contains the ten newest unacknowledged network episodes in `items` and the complete unacknowledged count in `pending`. Both active and recovered episodes are included, with `startedAt` and `resolvedAt` from the alert history. Acknowledgment uses the same episode records and endpoints as the alert center; acknowledged history remains stored.
+
 ## v2 API surface
 
 Public, intentionally credential-free endpoints:

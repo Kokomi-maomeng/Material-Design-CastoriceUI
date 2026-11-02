@@ -14,8 +14,8 @@ import threading
 import time
 import urllib.request
 from unittest.mock import patch
-from playwright.sync_api import sync_playwright
-from qa_browser import settled, open_page
+from playwright.sync_api import expect, sync_playwright
+from qa_browser import settled, open_page, frames
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'server'))
@@ -100,9 +100,24 @@ def main():
                 switch = page.locator('.connection-summary').get_by_role('switch',name='Show live connections',exact=True)
                 assert switch.get_attribute('aria-checked') == 'false'
                 assert page.get_by_text('About these measurements',exact=True).count() == 0
+                filter_motion=page.locator('.connection-filters-collapse')
+                motion_rows=frames(filter_motion,lambda:page.get_by_role('button',name='Filter',exact=True).click(),False)
+                assert len({round(row['height'],1) for row in motion_rows})>=3,motion_rows
+                assert filter_motion.get_attribute('aria-hidden')=='false'
+                assert float(filter_motion.evaluate("e=>getComputedStyle(e).transitionDuration.split(',')[0].replace('s','')"))>0
+                page.get_by_role('searchbox',name='Destination domain',exact=True).fill('draft-kept')
+                page.get_by_role('button',name='Filters applied',exact=True).click()
+                assert filter_motion.get_attribute('aria-hidden')=='true'
+                page.get_by_role('button',name='Filters applied',exact=True).click()
+                assert page.get_by_role('searchbox',name='Destination domain',exact=True).input_value()=='draft-kept'
+                page.get_by_role('button',name='Clear filters',exact=True).first.click()
+                page.get_by_role('button',name='Filter',exact=True).click()
                 switch.click()
                 page.locator('.connection-disclosure').first.wait_for();disclosure=page.locator('.connection-disclosure').first
                 assert switch.get_attribute('aria-checked') == 'true'
+                assert disclosure.get_attribute('open') is None
+                assert page.get_by_text('Reading live destinations…',exact=True).count()==0
+                disclosure.locator('summary').press('Enter');settled(page)
                 assert all('[' not in value and ']' not in value for value in page.locator('.connection-target code').all_text_contents())
                 assert page.locator('.connection-port').first.inner_text() == 'Port 443'
                 assert page.locator('.connection-target-list').first.locator('li').count()==10
@@ -110,11 +125,24 @@ def main():
                 disclosure.locator('summary').press('Enter');settled(page)
                 assert disclosure.get_attribute('open') is None
                 disclosure.locator('summary').press('Enter');settled(page)
-                assert disclosure.get_attribute('open') is not None
+                # Keep an observed row through closure even when live rows
+                # would otherwise push it beyond the ten-row page.
+                refresh(99)
+                expect(disclosure.locator('.connection-target.is-closed')).to_have_count(1, timeout=10000)
+                expect(disclosure.locator('.connection-target')).to_have_count(11)
+                assert 'target-0-99.' in disclosure.locator('.connection-target.is-closed code').inner_text()
+                refresh(100)
+                expect(disclosure.locator('.connection-target.is-closed')).to_have_count(0, timeout=10000)
+                expect(disclosure.locator('.connection-target')).to_have_count(10)
                 disclosure.get_by_role('searchbox').fill('target-0-99.')
                 assert disclosure.locator('.connection-target').count()==1
                 refresh(3)
-                page.get_by_text('No matching destinations',exact=True).wait_for()
+                disclosure.locator('.connection-countdown').wait_for()
+                retained_at=time.monotonic()
+                assert 'Closed' in disclosure.locator('.connection-target-meta').inner_text()
+                assert 'Open for' not in disclosure.locator('.connection-target-meta').inner_text()
+                page.get_by_text('No matching destinations',exact=True).wait_for(timeout=38000)
+                assert time.monotonic()-retained_at>=28
                 assert disclosure.get_by_role('searchbox').input_value()=='target-0-99.'
                 disclosure.get_by_role('searchbox').fill('')
                 assert disclosure.locator('.connection-target').count()==3
@@ -124,21 +152,35 @@ def main():
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
                 assert disclosure.locator('.connection-target').count()==20
-                copied=disclosure.locator('.connection-target code').first.inner_text()
+                copied=disclosure.locator('.connection-target code').first.text_content()
                 # Observe the actual clipboard write without opening OS permission prompts.
                 page.evaluate("()=>{window.qaCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}})}")
-                disclosure.locator('.copy-ip-button').first.click()
-                assert page.evaluate('window.qaCopied')==copied
+                disclosure.get_by_role('button',name=f'Copy destination address {copied}',exact=True).click()
+                page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
                 first_id=page.locator('.connection-card').first.get_attribute('data-connection-id')
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
                 page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
                 assert page.locator(f'[data-connection-id="{first_id}"] details').get_attribute('open') is not None
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
                 page.get_by_role('switch',name='Show live connections',exact=True).click()
+                page.locator('.connection-disclosure').first.wait_for(state='detached')
                 assert page.locator('.connection-disclosure').count()==0 and page.locator('.connection-target').count()==0
                 page.get_by_role('button',name='Filter',exact=True).click();page.get_by_role('button',name='Source IP',exact=True).click()
                 page.get_by_role('option',name='IPv4',exact=True).click();settled(page)
                 page.get_by_role('button',name='Protocol',exact=True).click();page.get_by_role('option',name='Hysteria2',exact=True).click();settled(page)
+                page.get_by_text('No connections match these filters',exact=True).wait_for()
+                page.get_by_role('button',name='Clear filters',exact=True).first.click()
+                page.get_by_role('searchbox',name='Destination domain',exact=True).fill('target-0-99.')
+                page.wait_for_function('document.querySelectorAll(".connection-card").length===1')
+                page.get_by_role('button',name='Domain match mode',exact=True).click()
+                page.get_by_role('option',name='Exact match',exact=True).click()
+                page.get_by_text('No connections match these filters',exact=True).wait_for()
+                page.get_by_role('button',name='Clear filters',exact=True).first.click()
+                page.get_by_role('searchbox',name='IP address',exact=True).fill('192.0.2.3')
+                page.get_by_role('button',name='IP match mode',exact=True).click()
+                page.get_by_role('option',name='Exact match',exact=True).click()
+                page.wait_for_function('document.querySelectorAll(".connection-card").length===1')
+                page.get_by_role('searchbox',name='Destination port',exact=True).fill('8443')
                 page.get_by_text('No connections match these filters',exact=True).wait_for()
                 page.get_by_role('button',name='Clear filters',exact=True).first.click()
                 page.get_by_role('button',name='Filter',exact=True).click()
@@ -188,7 +230,7 @@ def main():
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)
                 assert not errors and not server_errors,(errors,server_errors)
-                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
+                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
                 context.close();browser.close()
 
 

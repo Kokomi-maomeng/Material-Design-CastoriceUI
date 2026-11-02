@@ -8,6 +8,8 @@ import { useNetworkTargets } from "../../lib/useNetworkTargets";
 import { NetworkChart } from "../charts/NetworkChart";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { Button } from "../ui/Button";
+import { AlertTimes } from "../ui/AlertTimes";
+import { AnimatedRecords } from "../ui/RecordHistory";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
@@ -25,7 +27,9 @@ export function NetworkPage({
   onSaved,
   alertIntegration,
   alerts = [],
+  networkAlertCount,
   onOpenAlerts,
+  onAcknowledgeAll,
   onCustomize,
 }: {
   targets: NetworkTarget[];
@@ -35,7 +39,9 @@ export function NetworkPage({
   onSaved: () => Promise<void>;
   alertIntegration?: IntegrationStatus;
   alerts?: AlertItem[];
+  networkAlertCount?: number;
   onOpenAlerts?: () => void;
+  onAcknowledgeAll?: () => Promise<void>;
   onCustomize?: () => void;
 }) {
   const { t } = useI18n();
@@ -125,7 +131,7 @@ export function NetworkPage({
           }
         />
       </div>
-      <NetworkAlerts integration={alertIntegration} alerts={alerts} onOpen={onOpenAlerts} />
+      <NetworkAlerts integration={alertIntegration} alerts={alerts} pendingCount={networkAlertCount} onOpen={onOpenAlerts} onAcknowledgeAll={onAcknowledgeAll} onToast={onToast} />
       <section className="network-targets-section">
         <div className="network-targets-heading">
           <h2>{t("目标节点", "Targets")}</h2>
@@ -150,7 +156,7 @@ export function NetworkPage({
             </button>
           </div>
         </div>
-        <div className="network-target-grid">
+        <AnimatedRecords itemCount={filtered.length} transitionKey={`${version}:${filtered.map((target) => target.id).join("|")}`}><div className="network-target-grid">
           {filtered.map((target) => (
             <Card variant="outlined" className="network-target-card" key={target.id}>
               <div className="network-target-card__header">
@@ -177,7 +183,7 @@ export function NetworkPage({
               </div>
             </Card>
           ))}
-        </div>
+        </div></AnimatedRecords>
       </section>
       {!onCustomize ? <NetworkProbeDialog open={editorOpen} onClose={() => setEditorOpen(false)} targets={targets} alertIntegration={alertIntegration} onSaved={onSaved} onToast={onToast} /> : null}
     </div>
@@ -201,14 +207,23 @@ function ProbeReadings({ target }: { target: NetworkTarget }) {
   </dl>;
 }
 
-function NetworkAlerts({ integration, alerts, onOpen }: { integration?: IntegrationStatus; alerts: AlertItem[]; onOpen?: () => void }) {
+function NetworkAlerts({ integration, alerts, pendingCount, onOpen, onAcknowledgeAll, onToast }: { integration?: IntegrationStatus; alerts: AlertItem[]; pendingCount?: number; onOpen?: () => void; onAcknowledgeAll?: () => Promise<void>; onToast: (message: string) => void }) {
   const { t } = useI18n();
-  const networkAlerts = alerts.filter((item) => item.id.startsWith("network-"));
+  const [busy, setBusy] = useState(false);
+  const networkAlerts = alerts.filter((item) => item.id.startsWith("network-") && !item.acknowledged);
+  const count = pendingCount ?? networkAlerts.length;
+  const confirm = async () => {
+    if (busy || !onAcknowledgeAll) return;
+    setBusy(true);
+    try { await onAcknowledgeAll(); }
+    catch { onToast(t("告警确认失败，请重试", "Unable to acknowledge the alert. Try again.")); }
+    finally { setBusy(false); }
+  };
 
   return <Card variant="outlined" className="network-alerts-card">
-    <div className="network-alerts-card__heading"><div className="network-alerts-card__title"><h2>{t("网络告警", "Network alerts")}</h2><Chip staticChip tone={networkAlerts.length || integration?.enabled === false ? "warning" : "success"}>{integration?.enabled === false ? t("已停用", "Disabled") : `${networkAlerts.length} ${t("项告警", "alerts")}`}</Chip></div>{onOpen ? <Button variant="text" icon="notifications" onClick={onOpen}>{t("告警中心", "Alert center")}</Button> : null}</div>
+    <div className="network-alerts-card__heading"><div className="network-alerts-card__title"><h2>{t("网络告警", "Network alerts")}</h2><Chip staticChip tone="info">{integration?.enabled === false ? t("已停用", "Disabled") : `${count} ${t("项提醒", "reminders")}`}</Chip></div><div className="network-alerts-card__actions">{onAcknowledgeAll ? <Button variant="text" compact icon="done_all" disabled={busy || !count} onClick={() => void confirm()}>{t("全部确认", "Acknowledge all")}</Button> : null}{onOpen ? <Button variant="text" icon="notifications" onClick={onOpen}>{t("告警中心", "Alert center")}</Button> : null}</div></div>
 
-    {networkAlerts.length ? <div className="network-alerts-card__list" role="list">{networkAlerts.slice(0, 10).map((item) => <div role="listitem" key={item.episodeId ?? item.id}><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div>)}</div> : null}
+    <AnimatedRecords itemCount={Math.min(10, networkAlerts.length)} transitionKey={networkAlerts.slice(0, 10).map((item) => item.episodeId).join("|")}><div className="network-alerts-card__list" role="list">{networkAlerts.slice(0, 10).map((item) => <div role="listitem" key={item.episodeId ?? item.id}><div className="network-alerts-card__message"><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div><AlertTimes alert={item} /></div>)}</div></AnimatedRecords>
   </Card>;
 }
 

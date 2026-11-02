@@ -10,15 +10,19 @@ export function AnimatedRecords({ children, transitionKey, itemCount, ready = tr
   useLayoutEffect(() => {
     const element = container.current, inner = content.current;
     if (!element || !inner || typeof ResizeObserver === "undefined") return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const cancel = () => { element.getAnimations().forEach((animation) => animation.cancel()); inner.getAnimations().forEach((animation) => animation.cancel()); };
+    const reduce = () => { if (media.matches) cancel(); };
+    media.addEventListener?.("change", reduce);
     // Responsive reflow is a new baseline, not a record expansion. Keeping the
     // old desktop height would briefly shrink a mobile list and clamp scroll.
     const observer = new ResizeObserver(() => {
       const rect = inner.getBoundingClientRect();
-      if (rect.width !== previous.current.width) element.getAnimations().forEach((animation) => animation.cancel());
+      if (rect.width !== previous.current.width) cancel();
       previous.current = { ...previous.current, height: rect.height, width: rect.width };
     });
     observer.observe(inner);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); media.removeEventListener?.("change", reduce); cancel(); };
   }, []);
   useLayoutEffect(() => {
     const element = container.current, inner = content.current;
@@ -29,13 +33,16 @@ export function AnimatedRecords({ children, transitionKey, itemCount, ready = tr
     if (!element.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     if (!before.ready || !ready) return;
     if (before.count === itemCount && before.key === transitionKey) return;
-    if (before.width === width && before.height && height && before.height !== height) {
+    if (before.width === width && before.height !== height) {
       const running = element.getAnimations();
       const startHeight = running.length ? element.getBoundingClientRect().height : before.height;
       running.forEach((animation) => animation.cancel());
       element.animate([{ height: `${startHeight}px`, overflow: "clip" }, { height: `${height}px`, overflow: "clip" }], { duration: 220, easing: "cubic-bezier(.2,0,0,1)" });
     }
-    if (before.key !== transitionKey) inner.animate([{ opacity: .35, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" });
+    if (before.key !== transitionKey) {
+      inner.getAnimations().forEach((animation) => animation.cancel());
+      inner.animate([{ opacity: .35, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" });
+    }
   });
   return <div ref={container} className="record-transition"><div ref={content}>{children}</div></div>;
 }

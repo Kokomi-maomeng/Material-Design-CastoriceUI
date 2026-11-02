@@ -15,6 +15,7 @@ import {
   configureIntegration,
   fetchBootstrap,
   fetchDashboard,
+  fetchAlerts,
   fetchSession,
   logout,
   reportActivity,
@@ -123,6 +124,7 @@ export function CastoriceApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [networkEditorOpen, setNetworkEditorOpen] = useState(false);
   const networkConfigurationGeneration = useRef(0);
+  const alertAcknowledgementGeneration = useRef(0);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
@@ -249,10 +251,16 @@ export function CastoriceApp() {
     if (!session || dashboardLoading.current) return;
     dashboardLoading.current = true;
     const networkGeneration = networkConfigurationGeneration.current;
+    const alertGeneration = alertAcknowledgementGeneration.current;
     try {
       const payload = await fetchDashboard();
-      setDashboard((current) => networkGeneration === networkConfigurationGeneration.current ? payload : { ...payload, networkTargets: current.networkTargets });
-      setAlerts(payload.alerts);
+      setDashboard((current) => ({ ...payload,
+        networkTargets: networkGeneration === networkConfigurationGeneration.current ? payload.networkTargets : current.networkTargets,
+        alerts: alertGeneration === alertAcknowledgementGeneration.current ? payload.alerts : current.alerts,
+        alertSummary: alertGeneration === alertAcknowledgementGeneration.current ? payload.alertSummary : current.alertSummary,
+        networkAlerts: alertGeneration === alertAcknowledgementGeneration.current ? payload.networkAlerts : current.networkAlerts,
+      }));
+      if (alertGeneration === alertAcknowledgementGeneration.current) setAlerts(payload.alerts);
       setConnections(payload.connections);
       hasLiveData.current = true;
     } catch (error) {
@@ -416,6 +424,14 @@ export function CastoriceApp() {
     }));
     await loadDashboard();
   }, [loadDashboard]);
+  const confirmAlerts = async (id?: string) => {
+    if (id) await acknowledgeAlert(id); else await acknowledgeAllAlerts();
+    alertAcknowledgementGeneration.current += 1;
+    const [pending, refreshed] = await Promise.all([fetchAlerts({ page: 1, pageSize: 50, filter: "pending" }), fetchDashboard()]);
+    setAlerts(pending.items);
+    setDashboard((current) => ({ ...current, alerts: pending.items, alertSummary: pending.summary, networkAlerts: refreshed.networkAlerts }));
+    showToast(id ? t("告警已确认", "Alert acknowledged") : t("全部告警已确认", "All alerts acknowledged"));
+  };
   const saveIntegration = useCallback(
     async (id: IntegrationId, values: Record<string, string>) => {
       try {
@@ -574,9 +590,11 @@ export function CastoriceApp() {
         return (
           <NetworkPage
             targets={dashboard.networkTargets}
-            alerts={dashboard.alerts}
+            alerts={dashboard.networkAlerts?.items ?? alerts}
+            networkAlertCount={dashboard.networkAlerts?.pending}
             alertIntegration={integrationFor("alerts")}
             onOpenAlerts={() => navigate("alerts")}
+            onAcknowledgeAll={() => confirmAlerts()}
             onToast={showToast}
             integration={integrationFor("network")}
             onConfigure={() => configurePage("network")}
@@ -611,20 +629,8 @@ export function CastoriceApp() {
             alerts={alerts}
             integration={integrationFor("alerts")}
             onConfigure={() => configurePage("alerts")}
-            onAcknowledge={async (id) => {
-              await acknowledgeAlert(id);
-              setAlerts((current) =>
-                current.map((item) =>
-                  item.episodeId === id ? { ...item, acknowledged: true } : item,
-                ),
-              );
-              showToast(t("告警已确认", "Alert acknowledged"));
-            }}
-            onAcknowledgeAll={async () => {
-              await acknowledgeAllAlerts();
-              setAlerts((current) => current.map((item) => ({ ...item, acknowledged: true })));
-              showToast(t("全部告警已确认", "All alerts acknowledged"));
-            }}
+            onAcknowledge={confirmAlerts}
+            onAcknowledgeAll={() => confirmAlerts()}
             onSummaryChange={(summary) => setDashboard((current) => ({ ...current, alertSummary: summary }))}
             onToast={showToast}
           />

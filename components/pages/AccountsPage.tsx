@@ -9,6 +9,7 @@ import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
+import { AnimatedRecords } from "../ui/RecordHistory";
 
 export function AccountsPage({ accounts, integration, onConfigure }: { accounts: Account[]; integration?: IntegrationStatus; onConfigure: () => void }) {
   const { t } = useI18n();
@@ -28,7 +29,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("搜索账号或邮箱", "Search account or email")} aria-label={t("搜索账号", "Search accounts")} />{search ? <button onClick={() => setSearch("")} aria-label={t("清空搜索", "Clear search")}><Icon name="close" size={18} /></button> : null}</label>
         <div className="filter-chips" aria-label={t("账号状态筛选", "Account status filter")}><Chip selected={filter === "all"} onClick={() => setFilter("all")}>{t("全部", "All")} {accounts.length}</Chip><Chip selected={filter === "active"} onClick={() => setFilter("active")}>{t("账号启用", "Account enabled")}</Chip><Chip selected={filter === "disabled"} onClick={() => setFilter("disabled")}>{t("账号禁用", "Account disabled")}</Chip></div>
       </div>
-      <div className="responsive-table accounts-table"><table>
+      <AnimatedRecords itemCount={filtered.length} transitionKey={`${filter}:${search}`}><div className="responsive-table accounts-table"><table>
         <thead><tr><th>{t("管理账号", "Managed account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("映射协议累计流量", "Mapped protocol usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
         <tbody>{filtered.map((account) => {
           return <tr key={account.id}>
@@ -39,7 +40,7 @@ export function AccountsPage({ accounts, integration, onConfigure }: { accounts:
             <td data-label={t("到期时间", "Expires")}><span className={account.expiryStatus === "expiring" || account.expiryStatus === "expired" ? "text-warning" : ""}>{account.expiresAt ? formatDate(account.expiresAt) : t("未登记", "Not registered")}</span></td>
           </tr>;
         })}</tbody>
-      </table></div>
+      </table></div></AnimatedRecords>
       <div className="table-footer"><span>{t(`显示 ${filtered.length} / ${accounts.length} 个账号`, `Showing ${filtered.length} of ${accounts.length} accounts`)}</span></div>
     </Card>
   </div>;
