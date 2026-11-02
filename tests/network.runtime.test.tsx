@@ -107,7 +107,7 @@ it("shows only the first ten actual network alerts with their count beside the t
   expect(global.textContent).not.toContain("≥ 150 ms");
   expect(global.textContent).not.toContain("≥ 5%");
   expect(global.querySelectorAll('[role="listitem"]')).toHaveLength(10);
-  expect(global.querySelector('.network-alerts-card__heading')?.textContent).toContain('14 alerts');
+  expect(global.querySelector('.network-alerts-card__heading')?.textContent).toContain('14 reminders');
   expect(global.textContent).not.toContain('Network delay 10');
   expect(global.textContent).toContain("Network delay");
   fireEvent.click(screen.getByRole("button", { name: "Alert center" }));

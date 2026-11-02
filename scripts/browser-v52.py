@@ -177,10 +177,12 @@ def main():
                                             filter.get_by_role('button',name=t('Apply filters','应用筛选'),exact=True).click()
                                             page.locator('.alert-row').nth(29).wait_for()
                                             settle_view(page)
-                                            page.locator('.alert-row').first.get_by_text(t('Record details','记录详情'),exact=True).click()
-                                            details=page.locator('.alert-record-details[open]')
-                                            assert details.get_by_text(t('Source','监测来源'),exact=True).is_visible()
-                                            assert details.get_by_text(t('Occurrences','发生次数'),exact=True).is_visible()
+                                            details=page.locator('.alert-row__content').first
+                                            assert details.locator('details').count()==0
+                                            assert details.get_by_text(t('Record details','记录详情'),exact=True).count()==0
+                                            assert details.get_by_text(t('Source','监测来源'),exact=True).count()==0
+                                            assert details.get_by_text(t('Occurrences','发生次数'),exact=True).count()==0
+                                            assert details.locator('time').count()>=1
                                             assert 'journalctl' not in details.inner_text() and storage.path not in details.inner_text()
                                             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+2')
                                             results.append({"engine":engine,"language":language,"motion":motion,"width":width,"immediateToggle":True,"scrollPreserved":True,"combinedFilters":True,"calendarPortal":True,"logLocator":True})

@@ -8,7 +8,7 @@ import { ConnectionsPage } from "../components/pages/ConnectionsPage";
 import type { AlertItem, Connection, ConnectionTargets } from "../lib/types";
 
 const entry = (id = "a", protocol: Connection["protocol"] = "Hysteria2"): Connection => ({ id, protocol, account: "", sourceIp: "", ipVersion: null, connections: 100, onlineClients: protocol === "Hysteria2" ? 4 : undefined, connectedAt: "2026-01-01T00:00:00Z", downloadBps: null, uploadBps: 0, details: Array.from({ length: 100 }, (_, i) => ({ id: `${id}-${i}`, destination: null, connectedAt: null, downloadBps: i, uploadBps: 0 })) });
-const view = (connections: Connection[], stale = false) => <I18nProvider><ConnectionsPage connections={connections} stale={stale} now={Date.parse("2026-01-02T00:00:00Z")} onToast={vi.fn()} onConfigure={vi.fn()} /></I18nProvider>;
+const view = (connections: Connection[], stale = false, now = Date.parse("2026-01-02T00:00:00Z")) => <I18nProvider><ConnectionsPage connections={connections} stale={stale} now={now} onToast={vi.fn()} onConfigure={vi.fn()} /></I18nProvider>;
 beforeEach(() => { localStorage.clear(); localStorage.setItem("castorice-language", "en"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -51,6 +51,7 @@ describe("v5.7 connection product regressions", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
     await waitFor(() => expect(container.querySelectorAll(".connection-target")).toHaveLength(10));
     expect(container.querySelector(".connection-target code")?.textContent).toBe("target-a-99.example.test");
+    fireEvent.click(screen.getByText("View destinations", { exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Show 10 more" }));
     expect(container.querySelectorAll(".connection-target")).toHaveLength(20);
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
@@ -71,12 +72,17 @@ describe("v5.7 connection product regressions", () => {
 
   it("keeps a nonempty destination search clearable when polling shrinks the list below ten", async () => {
     const a = entry();
-    vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });
+    const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });
     const { container, rerender } = render(view([a]));
     fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    await screen.findByText("View destinations");
+    fireEvent.click(screen.getByText("View destinations", { exact: true }));
     await screen.findByRole("searchbox", { name: "Find destination" });
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
+    fetch.mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.slice(0, 3).map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });
     rerender(view([{ ...a, connections: 3, details: a.details.slice(0, 3) }]));
+    await waitFor(() => expect(container.querySelector(".connection-countdown")).not.toBeNull());
+    rerender(view([{ ...a, connections: 3, details: a.details.slice(0, 3) }], false, Date.now() + 31_000));
     await screen.findByText("No matching destinations");
     expect(screen.getByRole("searchbox", { name: "Find destination" })).toBeTruthy();
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "" } });

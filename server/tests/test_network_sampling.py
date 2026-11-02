@@ -228,6 +228,24 @@ class NetworkSamplingTests(unittest.TestCase):
         self.assertEqual(shown["descriptionEn"], "Latency — ms · loss 100.0%")
         self.assertIn("None ms", original["descriptionZh"])
 
+    def test_network_preview_counts_all_pending_beyond_history_limit_and_retains_recovery(self):
+        events = [{"id": f"network-qa-{i}", "title": "Network QA", "description": "Synthetic", "severity": "info", "source": "QA"} for i in range(211)]
+        events.append({"id": "collector-qa", "title": "Other", "description": "Synthetic", "severity": "warning", "source": "QA"})
+        self.storage.reconcile_alerts(events)
+        self.storage.reconcile_alerts([events[0]])
+        preview = self.storage.network_alert_preview()
+        self.assertEqual(preview["pending"], 211)
+        self.assertEqual(len(preview["items"]), 10)
+        self.assertTrue(all(item["id"].startswith("network-") for item in preview["items"]))
+        recovered = next(item for item in preview["items"] if item.get("resolvedAt"))
+        self.assertTrue(recovered["startedAt"])
+        self.storage.acknowledge(recovered["episodeId"])
+        updated = self.storage.network_alert_preview()
+        self.assertEqual(updated["pending"], 210)
+        self.assertNotIn(recovered["episodeId"], [item["episodeId"] for item in updated["items"]])
+        self.storage.acknowledge_all()
+        self.assertEqual(self.storage.network_alert_preview(), {"pending": 0, "items": []})
+
 
 if __name__ == "__main__":
     unittest.main()

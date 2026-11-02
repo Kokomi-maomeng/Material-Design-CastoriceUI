@@ -104,13 +104,13 @@ describe("P2 truthfulness and interaction regressions", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
     await screen.findByText("example.test");
     const details = container.querySelector<HTMLDetailsElement>(".connection-disclosure")!;
-    expect(details.open).toBe(true);
-    fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(false);
     fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(false);
     fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
-    expect(screen.queryByText("example.test")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("example.test")).toBeNull());
   });
 
   it("does not compare lifetime protocol counters with a billing-cycle quota", () => {

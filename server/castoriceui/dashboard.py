@@ -1644,6 +1644,7 @@ class DashboardService:
             "services": services,
             "alerts": runtime["alerts"],
             "alertSummary": self.storage.alert_summary(),
+            "networkAlerts": self.storage.network_alert_preview(),
             "integrations": integrations,
             "runtimeObservedAt": runtime["observedAt"],
             "uiSettings": {

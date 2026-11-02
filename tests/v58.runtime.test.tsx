@@ -25,13 +25,15 @@ it("keeps totals for all connections while filtering and places controls with up
   expect(screen.queryByText("About these measurements")).toBeNull();
 });
 
-it("shows IPv6 targets immediately with separate ports, copies the address, and clears targets on switch off", async () => {
+it("keeps IPv6 target disclosures closed by default, separates ports and clears them after switch exit", async () => {
   const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: "qa", details: [{ id: "flow", destination: "[2001:db8::2]:443" }] }] });
   const copy = vi.spyOn(clipboard, "copyText").mockResolvedValue();
   const { container, unmount } = render(view());
   expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("switch", { name: "Show live connections", checked: false }));
-  await waitFor(() => expect(container.querySelector("details")?.open).toBe(true));
+  await waitFor(() => expect(container.querySelector("details")?.open).toBe(false));
+  expect(screen.queryByText("Reading live destinations…")).toBeNull();
+  fireEvent.click(screen.getByText("View destinations", { exact: true }));
   expect(screen.getByRole("switch", { name: "Show live connections", checked: true })).toBeTruthy();
   expect(container.querySelector(".connection-target code")?.textContent).toBe("2001:db8::2");
   expect(container.querySelector(".connection-port")?.textContent).toBe("Port 443");
@@ -40,7 +42,7 @@ it("shows IPv6 targets immediately with separate ports, copies the address, and 
   fireEvent.click(screen.getByRole("button", { name: "Copy destination address 2001:db8::2" }));
   expect(copy).toHaveBeenCalledWith("2001:db8::2");
   fireEvent.click(screen.getByRole("switch", { name: "Show live connections", checked: true }));
-  expect(container.querySelector(".connection-target")).toBeNull();
+  await waitFor(() => expect(container.querySelector(".connection-target")).toBeNull());
   unmount();
   render(view());
   expect(screen.getByRole("switch", { name: "Show live connections", checked: false })).toBeTruthy();

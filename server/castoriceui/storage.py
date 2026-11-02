@@ -697,6 +697,15 @@ class Storage:
         with self.connect() as connection:
             return self.pending_summary(connection)
 
+    def network_alert_preview(self) -> dict[str, Any]:
+        """Bounded preview with a complete count, including recovered pending episodes."""
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            where = "acknowledged_at IS NULL AND substr(alert_id,1,8)='network-'"
+            count = int(connection.execute(f"SELECT COUNT(*) FROM alert_history WHERE {where}").fetchone()[0])
+            rows = connection.execute(f"SELECT * FROM alert_history WHERE {where} ORDER BY started_at DESC,episode_id DESC LIMIT 10").fetchall()
+        return {"items": [self.alert_payload(row) for row in rows], "pending": count}
+
     def alert_page(self, page: int = 1, page_size: int = 30, pending: bool = False, status: str = "", severity: str = "", start: str = "", end: str = "") -> dict[str, Any]:
         page_size = max(1, min(int(page_size), 100))
         if status not in {"", "pending", "all", "active", "recovered"} or severity not in {"", "critical", "warning", "info"}:

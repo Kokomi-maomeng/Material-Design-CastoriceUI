@@ -62,15 +62,17 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
                     'probeHistory': [{'capturedAt': now - 59 + i, 'latency': 1.3 if i < 30 else 1.6, 'loss': 0, 'complete': True, 'status': 'healthy'} for i in range(60)],
                     'timeHistory': [{'capturedAt': now - 3600 + i * 60, 'latency': 1.3 + i % 3 / 10, 'loss': 0, 'complete': True, 'hasGaps': True, 'status': 'healthy'} for i in range(60)]}
                     for target in dashboard.config.network_targets]
-                dashboard.runtime_cache['alerts'] = [{'id': 'network-qa', 'episodeId': f'qa-{i}', 'title': f'Synthetic network event {i}', 'description': 'RTT 1.3 ms · loss 0%', 'severity': 'warning', 'time': 'now', 'source': 'Synthetic', 'acknowledged': False} for i in range(25)]
             refresh()
-            # refresh() also refreshes alerts, so retain the intended fixture afterwards.
-            with dashboard.lock:
-                dashboard.runtime_cache['alerts'] = [{'id': f'network-qa-{i}', 'episodeId': f'qa-{i}', 'title': f'Synthetic network event {i}', 'description': 'RTT 1.3 ms · loss 0%', 'severity': 'warning', 'time': 'now', 'source': 'Synthetic', 'acknowledged': False} for i in range(25)]
+            storage.reconcile_alerts([])
+            storage.acknowledge_all()
+            events = [{'id': f'network-qa-{i}', 'title': f'Synthetic network event {i}', 'description': 'RTT 1.3 ms · loss 0%', 'severity': 'warning', 'time': 'now', 'source': 'Synthetic', 'acknowledged': False} for i in range(25)]
+            storage.reconcile_alerts(events)
             page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
             editor = page.get_by_role('dialog', name='Customize network probes' if language == 'en' else '自定义网络探测', exact=True)
             assert page.locator('.network-alerts-card [role=listitem]').count() == 10
             assert page.locator('.network-alerts-card__rules').count() == 0
+            assert page.locator('.network-alerts-card .md-chip--info').inner_text() == ('25 reminders' if language == 'en' else '25 项提醒')
+            assert page.locator('.network-alerts-card time').count() >= 10
             for motion in ('reduce', 'no-preference'):
                 page.emulate_media(reduced_motion=motion)
                 for width in (320, 390, 620, 768, 1440):
@@ -100,4 +102,20 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
                 page.get_by_role('button', name='Customize' if language == 'en' else '自定义', exact=True).click(); editor.wait_for(); settled(page)
                 page.screenshot(path=str(Path(directory) / f'editor-{language}-{theme}.png'))
                 page.keyboard.press('Escape'); editor.wait_for(state='hidden')
-    return {'layoutCases': 40, 'duplicatesBlocked': True, 'savedOrderPersists': True, 'settingsEntry': True, 'tenAlertLimit': True, 'uniformControls': True, 'metricsHelp': True}
+    # Recovery and both acknowledgment entry points use the same real SQLite episodes.
+    storage.reconcile_alerts([])
+    page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
+    card = page.locator('.network-alerts-card')
+    assert card.locator('time').count() >= 20
+    before = storage.network_alert_preview()['pending']; assert before == 25
+    card.get_by_role('button', name='Alert center' if language == 'en' else '告警中心', exact=True).click()
+    page.get_by_role('heading', level=1, name='Alerts' if language == 'en' else '告警中心', exact=True).wait_for()
+    page.locator('.alert-row').first.get_by_role('button', name='Acknowledge' if language == 'en' else '确认', exact=True).click()
+    page.wait_for_function('document.querySelectorAll(".alert-row").length===24')
+    open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
+    assert card.locator('.md-chip--info').inner_text() == ('24 reminders' if language == 'en' else '24 项提醒')
+    card.get_by_role('button', name='Acknowledge all' if language == 'en' else '全部确认', exact=True).click()
+    page.wait_for_function('document.querySelector(".network-alerts-card .md-chip--info").textContent.trim().startsWith("0 ")')
+    assert card.locator('[role=listitem]').count() == 0
+    assert storage.network_alert_preview()['pending'] == 0
+    return {'layoutCases': 40, 'duplicatesBlocked': True, 'savedOrderPersists': True, 'settingsEntry': True, 'tenAlertLimit': True, 'uniformControls': True, 'metricsHelp': True, 'recoveryTimes': True, 'sharedAcknowledgement': True}

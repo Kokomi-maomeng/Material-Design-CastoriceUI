@@ -249,6 +249,7 @@ export interface DashboardPayload {
   services: ServiceStatus[];
   alerts: AlertItem[];
   alertSummary?: AlertSummary;
+  networkAlerts?: { items: AlertItem[]; pending: number };
   integrations: IntegrationStatus[];
   uiSettings: UiSettings;
 }
