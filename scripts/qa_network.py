@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import time
+from playwright.sync_api import expect
 from qa_browser import open_page, settled
 
 
@@ -67,11 +68,12 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
             storage.acknowledge_all()
             events = [{'id': f'network-qa-{i}', 'title': f'Synthetic network event {i}', 'description': 'RTT 1.3 ms · loss 0%', 'severity': 'warning', 'time': 'now', 'source': 'Synthetic', 'acknowledged': False} for i in range(25)]
             storage.reconcile_alerts(events)
+            assert storage.network_alert_preview()['pending'] == 25, storage.network_alert_preview()
             page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
             editor = page.get_by_role('dialog', name='Customize network probes' if language == 'en' else '自定义网络探测', exact=True)
             assert page.locator('.network-alerts-card [role=listitem]').count() == 10
             assert page.locator('.network-alerts-card__rules').count() == 0
-            assert page.locator('.network-alerts-card .md-chip--info').inner_text() == ('25 reminders' if language == 'en' else '25 项提醒')
+            expect(page.locator('.network-alerts-card .md-chip--info')).to_have_text('25 reminders' if language == 'en' else '25 项提醒')
             assert page.locator('.network-alerts-card time').count() >= 10
             for motion in ('reduce', 'no-preference'):
                 page.emulate_media(reduced_motion=motion)
@@ -113,7 +115,7 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
     page.locator('.alert-row').first.get_by_role('button', name='Acknowledge' if language == 'en' else '确认', exact=True).click()
     page.wait_for_function('document.querySelectorAll(".alert-row").length===24')
     open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
-    assert card.locator('.md-chip--info').inner_text() == ('24 reminders' if language == 'en' else '24 项提醒')
+    expect(card.locator('.md-chip--info')).to_have_text('24 reminders' if language == 'en' else '24 项提醒')
     card.get_by_role('button', name='Acknowledge all' if language == 'en' else '全部确认', exact=True).click()
     page.wait_for_function('document.querySelector(".network-alerts-card .md-chip--info").textContent.trim().startsWith("0 ")')
     assert card.locator('[role=listitem]').count() == 0
