@@ -87,6 +87,7 @@ it("shows a closed countdown instead of open duration and keeps the target throu
   fetch.mockResolvedValue(emptyTargets);
   view.rerender(page([]));
   await waitFor(() => expect(view.container.querySelector(".connection-countdown")?.textContent).toContain("Closed"));
+  expect(view.container.querySelector(".connection-countdown")?.textContent).toContain("Removed in 30s");
   expect(view.container.querySelector(".connection-target-meta")?.textContent).not.toContain("Open for");
   fetch.mockRejectedValue(new Error("unavailable"));
   view.rerender(page([]));

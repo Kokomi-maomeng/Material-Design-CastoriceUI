@@ -48,7 +48,7 @@ function TargetList({ details, now, stale, onCopy }: { details: LiveDetail[]; no
     <AnimatedRecords itemCount={shown.length} transitionKey={shownKey}><ul className="connection-target-list">{shown.map((detail) => {
       const seconds = connectionDuration(detail.connectedAt, now);
       const closed = detail.closedAt !== undefined;
-      const remaining = Math.max(0, Math.ceil((CLOSED_CONNECTION_RETENTION_MS - (now - (detail.closedAt ?? now))) / 1000));
+      const remaining = Math.max(0, Math.ceil((CLOSED_CONNECTION_RETENTION_MS - Math.max(0, now - (detail.closedAt ?? now))) / 1000));
       return <li key={detail.id} className={`connection-target ${closed ? "is-closed" : ""}`}>
         <div className="connection-address"><code>{detail.address}</code><button className="copy-ip-button" aria-label={t(`复制目标地址 ${detail.address}`, `Copy destination address ${detail.address}`)} onClick={() => onCopy(detail.address)}><Icon name="content_copy" size={17} /></button></div>
         <div className="connection-target-meta">{detail.port ? <span className="connection-port">{t("端口", "Port")} <b>{detail.port}</b></span> : null}<span className="rate rate--up">↑ {closed || stale || detail.uploadBps === null ? "—" : formatRate(detail.uploadBps)}</span><span className="rate rate--down">↓ {closed || stale || detail.downloadBps === null ? "—" : formatRate(detail.downloadBps)}</span>{closed ? <span className="connection-countdown">{t("已关闭", "Closed")} · {t(`${remaining}s 后移除`, `Removed in ${remaining}s`)}</span> : seconds !== null ? <span>{t("已持续", "Open for")} {formatDuration(seconds)}</span> : null}</div>
