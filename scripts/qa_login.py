@@ -49,20 +49,21 @@ def verify_light(page):
       reduced:matchMedia('(prefers-reduced-motion:reduce), (prefers-reduced-transparency:reduce), (prefers-contrast:more)').matches})""")
     card.evaluate("e=>e.addEventListener('pointermove',event=>window.__qaPointerType=event.pointerType,{once:true})")
     def move(x, y): page.mouse.move(box['x']+box['width']*x, box['y']+box['height']*y)
-    def trace(action):
-        card.evaluate("""e=>{window.__qaLight=[];window.__qaLightDone=false;
-          const start=performance.now();function sample(){window.__qaLight.push(parseFloat(e.style.getPropertyValue('--glass-light-x'))||18);
-          if(performance.now()-start<850)requestAnimationFrame(sample);else window.__qaLightDone=true}sample()}""")
+    def trace(action, target):
+        card.evaluate("""(e,target)=>{window.__qaLight=[];window.__qaLightDone=false;
+          const start=performance.now();function sample(){const x=parseFloat(e.style.getPropertyValue('--glass-light-x'))||18;window.__qaLight.push(x);
+          const settled=window.__qaLight.length>=4&&Math.abs(x-target)<.02;
+          if(!settled&&performance.now()-start<5000)requestAnimationFrame(sample);else window.__qaLightDone=true}sample()}""", target)
         action(); page.wait_for_function('window.__qaLightDone')
         return page.evaluate('window.__qaLight')
     move(.1, .1); page.wait_for_timeout(700)
     def reenter():
         page.mouse.move(0, 0); move(.9, .8)
-    values = trace(reenter)
+    values = trace(reenter, 90)
     capabilities['pointerType'] = page.evaluate("window.__qaPointerType")
     assert len({round(x, 1) for x in values}) >= 4 and abs(values[-1]-90) < .1, (capabilities, values)
     assert max(abs(b-a) for a,b in zip(values,values[1:])) < 45, values
-    returning = trace(lambda: page.mouse.move(0, 0))
+    returning = trace(lambda: page.mouse.move(0, 0), 18)
     assert len({round(x, 1) for x in returning}) >= 4 and abs(returning[-1]-18) < .1, returning
     page.dispatch_event('.auth-card', 'pointermove', {'pointerType':'touch','clientX':box['x']+box['width']*.9,'clientY':box['y']+box['height']*.8})
     page.wait_for_timeout(150)
