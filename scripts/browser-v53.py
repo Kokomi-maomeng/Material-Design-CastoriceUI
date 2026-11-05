@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
 from qa_browser import settled
+from qa_login import verify_arrival, verify_light, verify_navigation_focus
 
 sys.path.insert(0, str(Path(__file__).parent))
 from importlib.util import spec_from_file_location, module_from_spec
@@ -34,6 +35,7 @@ def run(engine, context):
     page.on('pageerror', page_error)
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode='live', generatedAt='2026-01-01T00:00:00Z')
+    dashboard['uiSettings']['visiblePanels'] = ['alerts', 'accounts', 'subscriptions', 'services', 'network', 'connections', 'traffic', 'audit']
     appearance = {'type': 'default', 'url': '', 'fit': 'cover', 'cacheSeconds': 0, 'glass': 'clear', 'glassEnabled': True, 'revision': 'v53-default'}
     state = {'authenticated': False, 'requests': 0, 'hold': False, 'fail': False, 'corrupt': False, 'stale': False, 'bootstrapRequests': 0}
 
@@ -125,6 +127,7 @@ def run(engine, context):
         page.get_by_role('menuitem', name='Sign out', exact=True).click()
         page.locator('.auth-page').wait_for()
         assert page.locator('.auth-page').evaluate('e=>e.style.backgroundImage') == retained
+        expect(page.locator('.auth-background-placeholder')).to_have_css('opacity', '0')
         assert page.evaluate('window.__qaLogoutPaint.every(s=>s===document.querySelector(".auth-page").style.backgroundImage)')
         page.evaluate('window.__qaLogoutObserver.disconnect()')
         assert state['requests'] == count and state['bootstrapRequests'] == bootstraps
@@ -165,6 +168,10 @@ def run(engine, context):
     assert state['requests'] == count + 2
     count = state['requests']; page.wait_for_timeout(2300); assert state['requests'] == count
 
+    phase = 'photo-arrival'
+    arrival = verify_arrival(page, state, appearance, deliver, SHOTS, engine)
+    phase = 'light-follow'
+    lighting = verify_light(page)
     optical = []; optical_proof = None
     for preset in ('clear', 'default', 'tinted'):
         appearance.update(glassEnabled=True, glass=preset, revision='v53-optics-' + preset)
@@ -203,6 +210,9 @@ def run(engine, context):
     page.get_by_role('textbox', name='Username', exact=True).fill('qa-admin')
     page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
     page.get_by_role('button', name='Sign in', exact=True).click(); page.locator('.top-app-bar').wait_for()
+    phase = 'navigation-focus'
+    navigation_focus = verify_navigation_focus(page)
+    phase = 'settings'
     page.get_by_role('button', name='Settings', exact=True).click(); page.get_by_text('Sign-in background', exact=True).click()
     source = page.get_by_role('button', name='Sign-in background source', exact=True)
     source.click(); page.get_by_role('option', name='Default Material background', exact=True).click()
@@ -232,7 +242,7 @@ def run(engine, context):
     phase = 'shared-controls'
     controls = verify_controls(page, state, appearance, configured_url='https://images.example.com/random')
     assert not errors, errors
-    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
+    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'photoArrival': arrival, 'glassLighting': lighting, 'navigationFocus': navigation_focus, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
 
 
 if __name__ == '__main__':

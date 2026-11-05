@@ -7,6 +7,7 @@ import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
 import { useLoginBackground } from "./useLoginBackground";
 import { LiquidGlass } from "./LiquidGlass";
+import { useGlassLight } from "./useGlassLight";
 
 export function AuthPage({ bootstrap, onAuthenticated, background: documentBackground }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void; background?: string }) {
   const { preference, setPreference, t } = useI18n();
@@ -19,7 +20,14 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
   const ownBackground = useLoginBackground(documentBackground === undefined ? bootstrap.appearance : { type: "default", url: "", fit: "cover" });
   const background = documentBackground ?? ownBackground;
   const [glassTone, setGlassTone] = useState<"light" | "dark">("dark");
-  const glass = background && bootstrap.appearance.type !== "default" && bootstrap.appearance.glassEnabled === true ? bootstrap.appearance.glass ?? "default" : "solid";
+  const custom = bootstrap.appearance.type !== "default";
+  const glass = custom && bootstrap.appearance.glassEnabled === true ? bootstrap.appearance.glass ?? "default" : "solid";
+  const card = useGlassLight(glass !== "solid");
+  const [initialBackground] = useState(background);
+  const [opticalBackground, setOpticalBackground] = useState("");
+  // Cached document images remain visible on the first logout paint. A first
+  // download reveals the photo and its measured glass image in one transition.
+  const ready = !!background && (background === initialBackground || glass === "solid" || background === opticalBackground);
   const style = background ? { backgroundImage: `url("${background}")`, backgroundSize: bootstrap.appearance.fit, backgroundRepeat: "no-repeat" } : undefined;
 
   const submit = async (event: FormEvent) => {
@@ -51,14 +59,10 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
     }
   };
 
-  return <main className={`auth-page ${background ? "auth-page--custom" : ""}`} style={style}>
-    <section className="auth-card" data-glass={glass} data-glass-tone={glassTone} aria-labelledby="auth-title" onPointerMove={(event) => {
-      if (glass === "solid" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      const rect = event.currentTarget.getBoundingClientRect();
-      event.currentTarget.style.setProperty("--glass-light-x", `${(event.clientX - rect.left) / rect.width * 100}%`);
-      event.currentTarget.style.setProperty("--glass-light-y", `${(event.clientY - rect.top) / rect.height * 100}%`);
-    }}>
-      {glass !== "solid" ? <LiquidGlass background={background} fit={bootstrap.appearance.fit} preset={glass} onTone={setGlassTone} /> : null}
+  return <main className={`auth-page ${custom ? "auth-page--custom" : ""}`} data-background-state={ready ? "ready" : "pending"} style={style}>
+    {custom ? <div className="auth-background-placeholder" aria-hidden="true" /> : null}
+    <section ref={card} className="auth-card" data-glass={glass} data-glass-tone={glassTone} aria-labelledby="auth-title">
+      {glass !== "solid" ? <LiquidGlass background={background} fit={bootstrap.appearance.fit} preset={glass} onTone={setGlassTone} onReady={setOpticalBackground} /> : null}
       <div className="auth-brand"><span className="brand-mark"><Icon name="ac_unit" size={28} filled /></span><div><strong>CastoriceUI</strong><span>Material Design VPS Console</span></div></div>
       <div className="auth-heading"><span className="auth-heading__icon"><Icon name={initialize ? "rocket_launch" : "shield_person"} filled /></span><div><p>{initialize ? t("安全初始化", "Secure setup") : t("管理员登录", "Administrator sign in")}</p><h1 id="auth-title">{initialize ? t("创建第一个管理员", "Create the first administrator") : t("欢迎回来", "Welcome back")}</h1>{initialize ? <span>{t("验证服务器的一次性引导码后创建本地账号。", "Verify the server's one-time bootstrap token to create a local account.")}</span> : null}</div></div>
       {initialize && !bootstrap.bootstrapAvailable ? <div className="auth-warning" role="alert"><Icon name="warning" /><span>{t("服务器缺少一次性引导码。请先在服务器执行部署文档中的生成命令。", "The server is missing a bootstrap token. Run the generation command in the deployment guide first.")}</span></div> : null}

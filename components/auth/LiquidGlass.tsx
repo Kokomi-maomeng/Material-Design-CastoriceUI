@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-type Frame = { width: number; height: number; x: number; y: number; imageWidth: number; imageHeight: number };
+type Frame = { source: string; width: number; height: number; x: number; y: number; imageWidth: number; imageHeight: number };
 
-export function LiquidGlass({ background, fit, preset, onTone }: { background: string; fit: "cover" | "contain"; preset: "clear" | "default" | "tinted"; onTone: (tone: "light" | "dark") => void }) {
+export function LiquidGlass({ background, fit, preset, onTone, onReady }: { background: string; fit: "cover" | "contain"; preset: "clear" | "default" | "tinted"; onTone: (tone: "light" | "dark") => void; onReady: (source: string) => void }) {
   const svg = useRef<SVGSVGElement>(null);
   const id = "login-glass-" + useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const [frame, setFrame] = useState<Frame>();
@@ -16,7 +16,8 @@ export function LiquidGlass({ background, fit, preset, onTone }: { background: s
   useEffect(() => {
     const card = svg.current?.parentElement;
     const page = card?.parentElement;
-    if (!card || !page || reduced) return;
+    if (!card || !page || !background) return;
+    if (reduced) { onReady(background); return; }
     let disposed = false, scheduled = 0;
     const image = new Image();
     const measure = () => {
@@ -27,7 +28,8 @@ export function LiquidGlass({ background, fit, preset, onTone }: { background: s
       const outer = { width: page.clientWidth, height: page.clientHeight };
       const scale = Math[fit === "contain" ? "min" : "max"](outer.width / image.naturalWidth, outer.height / image.naturalHeight);
       const imageWidth = image.naturalWidth * scale, imageHeight = image.naturalHeight * scale;
-      const next = { width: rect.width, height: rect.height, x: (outer.width - imageWidth) / 2 - card.offsetLeft - card.clientLeft, y: (outer.height - imageHeight) / 2 - card.offsetTop - card.clientTop, imageWidth, imageHeight };
+      if (!rect.width || !rect.height) return;
+      const next = { source: background, width: rect.width, height: rect.height, x: (outer.width - imageWidth) / 2 - card.offsetLeft - card.clientLeft, y: (outer.height - imageHeight) / 2 - card.offsetTop - card.clientTop, imageWidth, imageHeight };
       setFrame((old) => old && Object.keys(next).every((key) => old[key as keyof Frame] === next[key as keyof Frame]) ? old : next);
       try {
         const sample = document.createElement("canvas"); sample.width = sample.height = 24;
@@ -42,15 +44,16 @@ export function LiquidGlass({ background, fit, preset, onTone }: { background: s
           onTone(luminance / (pixels.length / 4) > .28 ? "light" : "dark");
         }
       } catch { /* The CSS material remains readable if sampling is unavailable. */ }
+      onReady(background);
     };
     const schedule = () => { cancelAnimationFrame(scheduled); scheduled = requestAnimationFrame(measure); };
     image.onload = schedule; image.src = background;
     const observer = new ResizeObserver(schedule); observer.observe(card); observer.observe(page);
     window.addEventListener("resize", schedule);
-    return () => { disposed = true; cancelAnimationFrame(scheduled); observer.disconnect(); window.removeEventListener("resize", schedule); };
-  }, [background, fit, onTone, reduced]);
+    return () => { disposed = true; image.onload = null; cancelAnimationFrame(scheduled); observer.disconnect(); window.removeEventListener("resize", schedule); };
+  }, [background, fit, onTone, onReady, reduced]);
   return <svg ref={svg} className="auth-glass-optics" aria-hidden="true" focusable="false" width="100%" height="100%">
-    {frame && !reduced ? <>
+    {frame?.source === background && !reduced ? <>
       <defs><filter id={id} x="0" y="0" width={frame.width} height={frame.height} filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
         <feGaussianBlur stdDeviation={preset === "clear" ? .25 : preset === "tinted" ? 3 : 1.2} />
       </filter></defs>

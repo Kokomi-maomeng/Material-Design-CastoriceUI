@@ -1,6 +1,8 @@
 /* Photo-backed glass with an undistorted image, beveled rim and specular light. */
 .auth-page--custom { position: relative; isolation: isolate; }
 .auth-page--custom::before { content: ""; position: absolute; inset: 0; z-index: -1; background: rgb(0 0 0 / .18); pointer-events: none; }
+.auth-background-placeholder { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--auth-backdrop); opacity: 1; transition: opacity 480ms var(--motion-standard); }
+.auth-page[data-background-state="ready"] .auth-background-placeholder { opacity: 0; }
 .auth-card {
   --auth-input-fill: color-mix(in srgb, var(--surface-container-lowest) 82%, var(--surface-container-high));
   isolation: isolate;
@@ -9,6 +11,7 @@
   background: color-mix(in srgb, var(--surface-container-high) 92%, transparent);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  transition: background-color 480ms var(--motion-standard), color 240ms var(--motion-standard), border-color 480ms var(--motion-standard);
 }
 .auth-card > :not(.auth-glass-optics) { position: relative; z-index: 1; }
 .auth-card:not([data-glass="solid"]) {
@@ -23,13 +26,15 @@
   backdrop-filter: blur(1.2px) saturate(115%);
 }
 .auth-card[data-glass-tone="light"]:not([data-glass="solid"]) { --glass-wash: rgb(255 255 255 / .16); --auth-ink: #151b27; --auth-input-fill: rgb(250 252 255 / .76); }
+.auth-page[data-background-state="pending"] .auth-card:not([data-glass="solid"]) { --glass-wash: color-mix(in srgb, var(--surface-container-high) 82%, transparent); --auth-ink: var(--on-surface); --auth-input-fill: color-mix(in srgb, var(--surface-container-lowest) 82%, var(--surface-container-high)); }
 .auth-card[data-glass="clear"] { --glass-wash: rgb(14 20 32 / .055); -webkit-backdrop-filter: blur(.25px); backdrop-filter: blur(.25px); }
 .auth-card[data-glass="clear"][data-glass-tone="light"] { --glass-wash: rgb(255 255 255 / .055); }
 .auth-card[data-glass="tinted"] { --glass-wash: color-mix(in srgb, var(--primary) 16%, rgb(14 20 32 / .3)); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .auth-card[data-glass="tinted"][data-glass-tone="light"] { --glass-wash: color-mix(in srgb, var(--primary) 12%, rgb(255 255 255 / .3)); }
 .auth-card:not([data-glass="solid"])::after { content: ""; position: absolute; z-index: 2; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse at var(--glass-light-x, 18%) var(--glass-light-y, 0%), rgb(255 255 255 / .22), transparent 58%), linear-gradient(130deg, rgb(255 255 255 / .32), transparent 18%, transparent 76%, rgb(255 255 255 / .12)); opacity: .65; }
 .auth-card:not([data-glass="solid"])::before { content: ""; position: absolute; z-index: 2; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; background: linear-gradient(135deg, rgb(255 255 255 / .95), rgb(255 255 255 / .12) 24%, rgb(0 0 0 / .2) 48%, rgb(255 255 255 / .16) 70%, rgb(255 255 255 / .65)); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; }
-.auth-glass-optics { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; border-radius: inherit; }
+.auth-glass-optics { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 480ms var(--motion-standard); }
+.auth-page[data-background-state="ready"] .auth-glass-optics { opacity: 1; }
 .auth-glass-wash { fill: var(--glass-wash); }
 .auth-card:not([data-glass="solid"]) :is(.auth-heading p, .auth-brand span, .field > span, .auth-input, .auth-input input, .auth-input > .material-symbols-rounded, .md-select-trigger) { color: var(--auth-ink); }
 .auth-card:not([data-glass="solid"]) :is(.auth-brand, .auth-heading, .field > span) { text-shadow: 0 1px 6px rgb(0 0 0 / .22); }
@@ -44,6 +49,7 @@
   overflow: hidden;
   background: var(--auth-input-fill);
   border-color: color-mix(in srgb, var(--on-surface) 35%, transparent);
+  transition: background-color 480ms var(--motion-standard), color 240ms var(--motion-standard);
 }
 .auth-card .auth-input > .material-symbols-rounded { flex: 0 0 44px; color: var(--on-surface); }
 .auth-card .auth-input input, .auth-card .auth-input input:focus {
@@ -90,5 +96,6 @@
   .auth-card::before, .auth-card::after, .auth-glass-optics { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .auth-background-placeholder, .auth-glass-optics, .auth-card, .auth-card .auth-input { transition: none; }
   .notification-button.has-critical > .material-symbols-rounded { animation: none; }
 }

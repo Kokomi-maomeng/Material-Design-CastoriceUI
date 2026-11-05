@@ -168,8 +168,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .brand > div { display: flex; flex-direction: column; }
 .brand strong { font-size: 1.0625rem; letter-spacing: -.2px; }
 .brand span:last-child { color: var(--on-surface-variant); font-size: var(--text-xs); letter-spacing: .5px; }
-.navigation-rail nav { display: flex; flex-direction: column; gap: 3px; margin-top: 24px; overflow-y: auto; scrollbar-width: thin; }
-.navigation-rail nav button, .nav-footer > button { height: 48px; border: 0; border-radius: 24px; background: transparent; display: flex; align-items: center; gap: 14px; padding: 0 16px; cursor: pointer; color: var(--on-surface-variant); text-align: left; transition: background .18s ease, color .18s ease, transform .18s ease; }
+/* Reserve the full focus outline inside the scrollport on all four sides. */
+.navigation-rail nav { display: flex; flex-direction: column; gap: 3px; margin: 18px -6px -6px; padding: 6px; scroll-padding: 6px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+.navigation-rail nav button, .nav-footer > button { flex-shrink: 0; height: 48px; border: 0; border-radius: 24px; background: transparent; display: flex; align-items: center; gap: 14px; padding: 0 16px; cursor: pointer; color: var(--on-surface-variant); text-align: left; transition: background .18s ease, color .18s ease, transform .18s ease; }
 .navigation-rail nav button:hover, .nav-footer > button:hover { background: var(--surface-container-high); color: var(--on-surface); }
 .navigation-rail nav button:active { transform: scale(.985); }
 .navigation-rail nav button.is-active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 650; }
