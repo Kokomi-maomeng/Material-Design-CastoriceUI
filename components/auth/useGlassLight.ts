@@ -8,7 +8,6 @@ export function useGlassLight(enabled: boolean) {
   useEffect(() => {
     const card = ref.current;
     if (!card || !enabled) return;
-    const hover = matchMedia("(any-hover: hover) and (any-pointer: fine)");
     const reduced = matchMedia("(prefers-reduced-motion: reduce), (prefers-reduced-transparency: reduce), (prefers-contrast: more)");
     let current = { ...REST }, target = { ...REST }, frame = 0, previous = 0;
     const paint = () => {
@@ -36,7 +35,9 @@ export function useGlassLight(enabled: boolean) {
       current = { ...REST }; target = { ...REST }; paint();
     };
     const move = (event: PointerEvent) => {
-      if (!hover.matches || reduced.matches || document.hidden) return;
+      if (reduced.matches || document.hidden) return;
+      // The current input is authoritative on hybrid devices and browsers
+      // whose device-wide hover query does not describe an attached mouse.
       if (event.pointerType === "touch") { rest(); return; }
       if (event.pointerType !== "mouse" && !(event.pointerType === "pen" && event.buttons === 0)) return;
       const rect = card.getBoundingClientRect();
@@ -52,7 +53,6 @@ export function useGlassLight(enabled: boolean) {
     window.addEventListener("blur", rest);
     window.addEventListener("resize", rest);
     document.addEventListener("visibilitychange", visibility);
-    hover.addEventListener("change", reset);
     reduced.addEventListener("change", reset);
     return () => {
       cancelAnimationFrame(frame);
@@ -63,7 +63,6 @@ export function useGlassLight(enabled: boolean) {
       window.removeEventListener("blur", rest);
       window.removeEventListener("resize", rest);
       document.removeEventListener("visibilitychange", visibility);
-      hover.removeEventListener("change", reset);
       reduced.removeEventListener("change", reset);
       card.style.removeProperty("--glass-light-x");
       card.style.removeProperty("--glass-light-y");

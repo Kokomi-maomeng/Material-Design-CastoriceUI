@@ -55,21 +55,27 @@ it("returns to a resting light after cancellation or window blur and stops sched
   }
 });
 
-it("keeps touch, non-hover and reduced-motion lighting still", () => {
-  for (const settings of [{ hover: false }, { reduced: true }, {}]) {
+it("keeps touch, unknown pointers and reduced-motion lighting still", () => {
+  for (const [settings, type] of [[{ reduced: true }, "mouse"], [{}, "touch"], [{}, ""], [{}, "unknown"]] as const) {
     const m = lighting(settings);
-    m.pointer("pointerenter", 90, 80, Object.keys(settings).length ? "mouse" : "touch");
+    m.pointer("pointerenter", 90, 80, type);
     m.step(70); expect(m.x()).toBe(18); expect(m.frames.size).toBe(0); m.view.unmount();
   }
+});
+
+it("follows actual mouse input when device-wide hover metadata is unavailable", () => {
+  const m = lighting({ hover: false });
+  m.pointer("pointerenter"); m.step(); expect(m.x()).toBeGreaterThan(18); expect(m.x()).toBeLessThan(90);
+  m.pointer("pointermove", 70, 60, "touch"); m.step(70); expect(m.x()).toBe(18); expect(m.frames.size).toBe(0);
 });
 
 it("resets a moving light when accessibility preferences change and cleans up on disable", () => {
   const m = lighting();
   m.pointer("pointermove"); m.step(2); expect(m.frames.size).toBe(1);
-  act(() => { m.queries[1].matches = true; m.queries[1].change?.(); });
+  act(() => { m.queries[0].matches = true; m.queries[0].change?.(); });
   expect(m.x()).toBe(18); expect(m.frames.size).toBe(0);
   m.pointer("pointermove"); expect(m.frames.size).toBe(0);
-  act(() => { m.queries[1].matches = false; m.queries[1].change?.(); });
+  act(() => { m.queries[0].matches = false; m.queries[0].change?.(); });
   m.pointer("pointermove"); expect(m.frames.size).toBe(1);
   m.disable(); expect(m.frames.size).toBe(0); expect(m.card.style.getPropertyValue("--glass-light-x")).toBe("");
   m.pointer("pointermove"); expect(m.frames.size).toBe(0);

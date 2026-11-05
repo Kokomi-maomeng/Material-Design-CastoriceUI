@@ -45,6 +45,9 @@ def verify_arrival(page, state, appearance, deliver, shots=None, engine='browser
 def verify_light(page):
     page.set_viewport_size({'width': 1536, 'height': 960}); settled(page)
     card = page.locator('.auth-card'); box = card.bounding_box()
+    capabilities = page.evaluate("""()=>({visible:!document.hidden,hover:matchMedia('(any-hover:hover) and (any-pointer:fine)').matches,
+      reduced:matchMedia('(prefers-reduced-motion:reduce), (prefers-reduced-transparency:reduce), (prefers-contrast:more)').matches})""")
+    card.evaluate("e=>e.addEventListener('pointermove',event=>window.__qaPointerType=event.pointerType,{once:true})")
     def move(x, y): page.mouse.move(box['x']+box['width']*x, box['y']+box['height']*y)
     def trace(action):
         card.evaluate("""e=>{window.__qaLight=[];window.__qaLightDone=false;
@@ -56,7 +59,8 @@ def verify_light(page):
     def reenter():
         page.mouse.move(0, 0); move(.9, .8)
     values = trace(reenter)
-    assert len({round(x, 1) for x in values}) >= 4 and abs(values[-1]-90) < .1, values
+    capabilities['pointerType'] = page.evaluate("window.__qaPointerType")
+    assert len({round(x, 1) for x in values}) >= 4 and abs(values[-1]-90) < .1, (capabilities, values)
     assert max(abs(b-a) for a,b in zip(values,values[1:])) < 45, values
     returning = trace(lambda: page.mouse.move(0, 0))
     assert len({round(x, 1) for x in returning}) >= 4 and abs(returning[-1]-18) < .1, returning
@@ -68,7 +72,7 @@ def verify_light(page):
     duration = page.locator('.auth-background-placeholder').evaluate("e=>parseFloat(getComputedStyle(e).transitionDuration)")
     assert duration <= .00002, duration  # The shared reduced-motion rule uses .01ms.
     page.emulate_media(reduced_motion='no-preference'); page.mouse.move(0, 0)
-    return {'smoothReentry': True, 'returnsToRest': True, 'touchStaysStill': True, 'reducedMotionStaysStill': True}
+    return {'smoothReentry': True, 'returnsToRest': True, 'touchStaysStill': True, 'reducedMotionStaysStill': True, 'inputCapabilities': capabilities}
 
 
 def verify_navigation_focus(page):
