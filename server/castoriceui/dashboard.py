@@ -39,7 +39,7 @@ from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
 
 
-VISIBLE_PANEL_ORDER = ("alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit")
+VISIBLE_PANEL_ORDER = ("alerts", "accounts", "services", "network", "connections", "traffic", "audit")
 INTEGRATION_FIELD_LIMITS = {
     "endpoint": 2048,
     "identityMappings": 8192,
@@ -1127,7 +1127,7 @@ class DashboardService:
                     "vmess": ("VMess", "VMess"), "trojan": ("Trojan", "Trojan"), "tuic": ("TUIC", "TUIC"),
                     "connections": ("Connection activity", "连接活动"), "traffic": ("Traffic collection", "流量采集"),
                     "subscriptions": ("Subscriptions", "订阅配置"), "network": ("Network quality", "网络质量"),
-                    "alerts": ("Alerts", "告警中心"), "audit": ("Audit log", "操作审计"),
+                    "alerts": ("Alerts", "告警中心"), "audit": ("Audit center", "审计中心"),
                 }
                 name_en, name_zh = integration_names.get(integration_id, (integration_id, integration_id))
                 summary_en = str(integration.get("summaryEn") or integration.get("summary") or "Runtime validation failed")
@@ -1619,6 +1619,7 @@ class DashboardService:
         else:
             saved_ui_settings = dict(saved_ui_settings)
         saved_ui_settings["visiblePanels"] = ordered_visible_panels(saved_ui_settings.get("visiblePanels"))
+        saved_ui_settings["auditRetentionDays"] = self.storage.audit_retention()
         if saved_ui_settings.get("idleTimeoutMinutes", 15) not in {2, 5, 10, 15, 20, 30}:
             saved_ui_settings["idleTimeoutMinutes"] = 15
         return {

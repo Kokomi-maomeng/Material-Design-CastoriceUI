@@ -53,7 +53,7 @@ export function AuditPage() {
   const total = result?.total ?? 0, totalPages = result?.totalPages ?? 1, currentPage = result?.page ?? 1;
 
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} description={t(`时间按本地时区 ${localTimeZone()} 显示。`, `Times are shown in your local time zone: ${localTimeZone()}.`)} />
+    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("审计中心", "Audit center")} description={t(`时间按本地时区 ${localTimeZone()} 显示。`, `Times are shown in your local time zone: ${localTimeZone()}.`)} />
     <Card variant="outlined" className="table-panel audit-panel">
       <div className="table-toolbar table-toolbar--wrap">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={t("搜索操作、账号或 IP", "Search action, account, or IP")} aria-label={t("搜索审计记录", "Search audit records")} /></label>
@@ -65,7 +65,7 @@ export function AuditPage() {
         {!loading && !loadError && events.length === 0 ? <tr><td colSpan={7}><span className="muted">{t("没有符合条件的审计记录。", "No audit records match these filters.")}</span></td></tr> : null}
       </tbody></table></div></AnimatedRecords>
       <RecordHistoryControls kind="audit" expanded={expanded} loading={loading} total={total} page={currentPage} totalPages={totalPages} onExpandedChange={toggleExpanded} />
-      {expanded && !loadError ? <RecordPagination loading={loading} page={currentPage} totalPages={totalPages} onPageChange={setPage} label={t("审计日志分页", "Audit log pagination")} /> : null}
+      {expanded && !loadError ? <RecordPagination loading={loading} page={currentPage} totalPages={totalPages} onPageChange={setPage} label={t("审计日志分页", "Audit center pagination")} /> : null}
     </Card>
   </div>;
 }

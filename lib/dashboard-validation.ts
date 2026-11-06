@@ -66,7 +66,9 @@ export function validDashboard(value: unknown): value is DashboardPayload {
   const resources = value.resourceHistory as Record<string, unknown>;
   if (!Object.values(resources).every((series) => Array.isArray(series) && series.every((point) => object(point) && typeof point.capturedAt === "string" && finite(point.cpuPercent) && finite(point.memoryPercent)))) return false;
   const ui = value.uiSettings as Record<string, unknown>;
-  return [2, 5, 10, 15, 20, 30].includes(Number(ui.idleTimeoutMinutes)) && (ui.visiblePanels as unknown[]).every((id) => typeof id === "string");
+  return [2, 5, 10, 15, 20, 30].includes(Number(ui.idleTimeoutMinutes))
+    && [30, 60, 90, 120, 150, 180, 365].includes(Number(ui.auditRetentionDays))
+    && (ui.visiblePanels as unknown[]).every((id) => typeof id === "string");
 }
 
 /** Invalid noncritical alert rows must not hide valid host and traffic data. */

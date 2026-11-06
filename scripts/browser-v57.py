@@ -219,7 +219,7 @@ def main():
                         badge_cases+=1
                 # Remove text override before the shared page and dialog coverage.
                 page.evaluate("()=>document.documentElement.style.fontSize=''")
-                routes={'overview':'Synthetic QA','connections':'Active connections','traffic':'Traffic analytics','accounts':'Account status','subscriptions':'Subscription management','services':'Services','network':'Network quality','alerts':'Alerts','audit':'Audit log','setup':'Setup'}
+                routes={'overview':'Synthetic QA','connections':'Active connections','traffic':'Traffic analytics','accounts':'Account status','services':'Services','network':'Network quality','alerts':'Alerts','audit':'Audit center','setup':'Setup'}
                 for route,heading in routes.items():
                     open_page(page,route,heading)
                     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'),(engine,route)
@@ -230,7 +230,7 @@ def main():
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)
                 assert not errors and not server_errors,(errors,server_errors)
-                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
+                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':len(routes),'pageErrors':errors}),flush=True)
                 context.close();browser.close()
 
 

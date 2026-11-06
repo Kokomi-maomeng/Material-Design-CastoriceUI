@@ -83,7 +83,7 @@ def verify_controls(page, state, appearance, configured_url):
     expect(page.get_by_role('status').filter(has_text='Sign-in background saved')).to_be_visible()
     page.get_by_role('button', name='Done', exact=True).click(); settled(page)
     page.evaluate("location.hash='/audit'")
-    page.get_by_role('heading', name='Audit log', exact=True).wait_for(); settled(page)
+    page.get_by_role('heading', name='Audit center', exact=True).wait_for(); settled(page)
     page.locator('.user-menu').click(); page.get_by_role('menuitem', name='Sign out', exact=True).click()
     page.locator('.auth-glass-optics image').wait_for(state='attached')
     expect(page.locator('.auth-card')).to_have_attribute('data-glass', 'clear')

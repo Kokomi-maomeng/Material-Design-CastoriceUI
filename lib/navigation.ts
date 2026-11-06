@@ -3,7 +3,6 @@ import type { NavigationItem, PageId } from "./types";
 export const PANEL_IDS: PageId[] = [
   "alerts",
   "accounts",
-  "subscriptions",
   "services",
   "network",
   "connections",
@@ -16,10 +15,9 @@ export const navigation: NavigationItem[] = [
   { id: "setup", labelZh: "初始化向导", labelEn: "Setup", icon: "checklist" },
   { id: "alerts", labelZh: "告警中心", labelEn: "Alerts", icon: "notifications" },
   { id: "accounts", labelZh: "账号状态", labelEn: "Account status", icon: "group" },
-  { id: "subscriptions", labelZh: "订阅管理", labelEn: "Subscriptions", icon: "qr_code_2" },
   { id: "services", labelZh: "服务状态", labelEn: "Services", icon: "dns" },
   { id: "network", labelZh: "网络质量", labelEn: "Network", icon: "network_check" },
   { id: "connections", labelZh: "在线连接", labelEn: "Connections", icon: "lan" },
   { id: "traffic", labelZh: "流量分析", labelEn: "Traffic", icon: "monitoring" },
-  { id: "audit", labelZh: "操作审计", labelEn: "Audit", icon: "history" },
+  { id: "audit", labelZh: "审计中心", labelEn: "Audit center", icon: "history" },
 ];

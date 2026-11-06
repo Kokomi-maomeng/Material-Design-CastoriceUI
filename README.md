@@ -1,6 +1,6 @@
 # CastoriceUI
 
-![Version](https://img.shields.io/badge/version-6.0.2-6750A4)
+![Version](https://img.shields.io/badge/version-6.1.0-6750A4)
 ![License](https://img.shields.io/badge/license-MIT-42664F)
 ![React](https://img.shields.io/badge/React-19-38618C)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-7B5F21)
@@ -16,7 +16,7 @@ CastoriceUI 是面向 Linux VPS 的 Material Design 3 可观测控制台，用�
 - Linux 主机 CPU、内存、存储、负载、运行时间及网卡计数器；服务状态提供近 1、6、24 小时 CPU 与内存采样曲线
 - 1 小时至 7 天的自适应流量趋势、跨重启统一增量账本、默认关闭或按日/周/月/年自定义的额度重置周期
 - 在线连接、连接速率、来源与目标信息（以协议核心实际输出为准）
-- IPv4/IPv6 网络质量探测、服务健康、告警确认及操作审计
+- IPv4/IPv6 网络质量探测、服务健康、告警确认及审计中心
 - 首次安全初始化、应用登录、真实密码更换、会话与 CSRF 防护、界面与面板设置
 - 响应式桌面与移动端布局、浅色/深色主题及减少动态效果支持
 
@@ -54,7 +54,7 @@ Debian 源码环境先安装 `python3-venv`。Windows PowerShell 将创建环境
 
 首次初始化向导可完成节点、额度、探测目标和已运行协议的接入验证。代理核心、API Secret、管理账号和订阅记录需要先在服务器受保护配置中准备；向导不会自动创建它们。CPU、内存和流量历史图只显示部署后实际积累的采样。
 
-安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v6.0.2.md`](docs/RELEASE_NOTES_v6.0.2.md)，背景和设置说明见 [`docs/V5.3_BACKGROUND.md`](docs/V5.3_BACKGROUND.md)。
+安全边界及漏洞报告方式见 [`SECURITY.md`](SECURITY.md)，贡献要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，本次发布说明见 [`docs/RELEASE_NOTES_v6.1.0.md`](docs/RELEASE_NOTES_v6.1.0.md)，背景和设置说明见 [`docs/V5.3_BACKGROUND.md`](docs/V5.3_BACKGROUND.md)。
 
 浏览器最低版本与发布验证边界见 [`docs/BROWSER_SUPPORT.md`](docs/BROWSER_SUPPORT.md)。
 

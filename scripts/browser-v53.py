@@ -35,7 +35,7 @@ def run(engine, context):
     page.on('pageerror', page_error)
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode='live', generatedAt='2026-01-01T00:00:00Z')
-    dashboard['uiSettings']['visiblePanels'] = ['alerts', 'accounts', 'subscriptions', 'services', 'network', 'connections', 'traffic', 'audit']
+    dashboard['uiSettings']['visiblePanels'] = ['alerts', 'accounts', 'services', 'network', 'connections', 'traffic', 'audit']
     appearance = {'type': 'default', 'url': '', 'fit': 'cover', 'cacheSeconds': 0, 'glass': 'clear', 'glassEnabled': True, 'revision': 'v53-default'}
     state = {'authenticated': False, 'requests': 0, 'hold': False, 'fail': False, 'corrupt': False, 'stale': False, 'bootstrapRequests': 0}
 

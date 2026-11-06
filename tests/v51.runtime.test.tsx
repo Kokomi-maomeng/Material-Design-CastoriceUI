@@ -10,7 +10,8 @@ import { OverviewPage } from "../components/pages/OverviewPage";
 import { NetworkPage } from "../components/pages/NetworkPage";
 import { ResourceChart } from "../components/charts/ResourceChart";
 import { TrafficChart } from "../components/charts/TrafficChart";
-import { SubscriptionsPage } from "../components/pages/SubscriptionsPage";
+import { AccountsPage } from "../components/pages/AccountsPage";
+import type { Account } from "../lib/types";
 
 beforeEach(() => { localStorage.clear(); localStorage.setItem("castorice-language", "en"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -65,10 +66,12 @@ describe("v5.1 audit regressions", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("Denied")) } });
     Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
     const url = "https://publisher.example.com/sub/synthetic-only-token";
-    render(<I18nProvider><SubscriptionsPage subscriptions={[{ id: "qa", account: "QA operator", protocols: ["AnyTLS"], enabled: true, url }]} onToast={vi.fn()} /></I18nProvider>);
+    const account: Account = { id: "qa", name: "QA operator", email: "", status: "registered", configuredStatus: "active", expiryStatus: "notConfigured", coreEvidence: "unknown", protocols: ["AnyTLS"], usedBytes: 0, usageSource: "unmapped", quotaBytes: 0, expiresAt: "", onlineDevices: 0 };
+    render(<I18nProvider><AccountsPage accounts={[account]} onConfigure={vi.fn()} subscriptions={[{ id: "qa", account: "QA operator", protocols: ["AnyTLS"], enabled: true, url }]} onToast={vi.fn()} /></I18nProvider>);
     expect(screen.queryByDisplayValue(url)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Copy URL" }));
-    const address = await screen.findByRole("textbox", { name: "Subscription URL" }) as HTMLTextAreaElement;
+    fireEvent.click(screen.getByRole("button", { name: "View QA operator subscriptions" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copy URL" }));
+    const address = await screen.findByRole("textbox", { name: "Copy link manually" }) as HTMLTextAreaElement;
     expect(address.value).toBe(url);
     fireEvent.focus(address);
     expect(address.selectionStart).toBe(0);

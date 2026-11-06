@@ -99,14 +99,14 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
   const [navigation, app, settings, projectMetadata, styles] = await Promise.all([
     read("lib/navigation.ts"), read("components/CastoriceApp.tsx"), read("components/settings/SettingsDialog.tsx"), read("lib/project.ts"), readStyles(),
   ]);
-  const order = ["overview", "setup", "alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"];
+  const order = ["overview", "setup", "alerts", "accounts", "services", "network", "connections", "traffic", "audit"];
   let previous = -1;
   for (const id of order) {
     const position = navigation.indexOf(`id: "${id}"`);
     assert.ok(position > previous, `${id} must follow the requested navigation order`);
     previous = position;
   }
-  assert.match(navigation, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"subscriptions"[^]*"services"[^]*"network"[^]*"connections"[^]*"traffic"[^]*"audit"/);
+  assert.match(navigation, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"services"[^]*"network"[^]*"connections"[^]*"traffic"[^]*"audit"/);
   assert.match(app, /desktopNavigationHidden/);
   assert.match(styles, /app-shell--navigation-hidden/);
   assert.doesNotMatch(app, /className="bottom-navigation"/);
@@ -232,7 +232,7 @@ test("v3.1 keeps chart time, responsive mobile sizing, setup order, and toast mo
 
 test("subscription hints are removed and traffic quota remains one shared value", async () => {
   const [subscriptions, overview, accounts, dashboard, quotaDialog] = await Promise.all([
-    read("components/pages/SubscriptionsPage.tsx"), read("components/pages/OverviewPage.tsx"), read("components/pages/AccountsPage.tsx"), read("server/castoriceui/dashboard.py"), read("components/traffic/TrafficQuotaDialog.tsx"),
+    read("components/pages/AccountSubscriptions.tsx"), read("components/pages/OverviewPage.tsx"), read("components/pages/AccountsPage.tsx"), read("server/castoriceui/dashboard.py"), read("components/traffic/TrafficQuotaDialog.tsx"),
   ]);
   assert.doesNotMatch(subscriptions, /FeatureIntro|独立入口|快速导入/);
   assert.doesNotMatch(subscriptions, /tokenHint|updatedAt|lastFetchedAt|订阅安全提示|Subscription security/);
@@ -396,7 +396,7 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
 test("v3.3 validates subscriptions, account attribution, ranking, alerts, and reset time end to end", async () => {
   const [wizard, definitions, traffic, accounts, connections, subscriptions, app, quotaDialog, dashboard, quota, security] = await Promise.all([
     read("components/setup/SetupWizard.tsx"), read("lib/integrations.ts"), read("components/pages/TrafficPage.tsx"),
-    read("components/pages/AccountsPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/SubscriptionsPage.tsx"),
+    read("components/pages/AccountsPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/AccountSubscriptions.tsx"),
     read("components/CastoriceApp.tsx"), read("components/traffic/TrafficQuotaDialog.tsx"), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/traffic_quota.py"), read("server/castoriceui/security.py"),
   ]);

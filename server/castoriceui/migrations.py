@@ -2,9 +2,20 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from typing import Any
 
 RETIRED_CONFIG_KEYS = frozenset({"external_probe_secret", "external_probe_agents", "external_probe_protocols"})
+
+
+def retire_subscription_panel(connection: sqlite3.Connection) -> None:
+    """Remove only the retired navigation preference; account links stay intact."""
+    row = connection.execute("SELECT value FROM settings WHERE key='ui_settings'").fetchone()
+    settings = json.loads(row[0]) if row else {}
+    panels = settings.get("visiblePanels") if isinstance(settings, dict) else None
+    if isinstance(panels, list) and "subscriptions" in panels:
+        settings["visiblePanels"] = [panel for panel in panels if panel != "subscriptions"]
+        connection.execute("UPDATE settings SET value=? WHERE key='ui_settings'", (json.dumps(settings, ensure_ascii=False),))
 
 
 def retired_config(raw: dict[str, Any]) -> dict[str, Any]:

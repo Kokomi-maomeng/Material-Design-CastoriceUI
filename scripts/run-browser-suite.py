@@ -25,8 +25,10 @@ def valid_reports(name, reports):
     def one(key, check):
         final = [r for r in reports if key in r]
         return len(final) == 1 and check(final[0])
+    if name == "browser-v61.py":
+        return one("accountAuditCenter", lambda r: r.get("passed") and len(r.get("languages", [])) == 2 and all(len(c["cases"]) == 18 and c["focusIndicators"] > 0 and c["clientLinks"] and c["securitySettings"] for c in r["languages"]))
     if name == "browser-v57.py":
-        return one("connectionProduct", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and r.get("layoutCases", 0) >= 152 and r.get("badgeCases") == 28 and r.get("populatedCounts") == [0, 1, 50, 100] and r.get("targetLifecycle") and r.get("searchSurvivesPolling") and r.get("stableGroupPolling") and r.get("routesPassed") == 10 and not r.get("pageErrors"))
+        return one("connectionProduct", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and r.get("layoutCases", 0) >= 152 and r.get("badgeCases") == 28 and r.get("populatedCounts") == [0, 1, 50, 100] and r.get("targetLifecycle") and r.get("searchSurvivesPolling") and r.get("stableGroupPolling") and r.get("routesPassed") == 9 and not r.get("pageErrors"))
     if name == "browser-v56.py":
         return one("auditFixes", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and not r.get("backendErrors") and len(r["auditFixes"]) == 1 and all(len(c["capacityCases"]) == 4 and c["nullCapacityRecovery"] and len(c["connectionCases"]) == 5 and c["pendingThresholdPersistence"] and c["invalidPortsRejected"] == 5 and not c["pageErrors"] and c.get("networkProduct", {}).get("layoutCases") == 40 and all(c["networkProduct"].get(k) for k in ("duplicatesBlocked", "savedOrderPersists", "settingsEntry", "tenAlertLimit", "uniformControls", "metricsHelp")) for c in r["auditFixes"]))
     if name == "browser-matrix.py":
@@ -40,7 +42,7 @@ def valid_reports(name, reports):
                    and (name != "browser-v51.py" or sum(c.get("realLogoutAndLoginReturn") is True for c in r["cases"]) == 2))
     if name == "browser-v532.py":
         return one("motionCases", lambda r: r.get("passed") and r.get("pageErrors") == 0 and len(r["motionCases"]) == 4
-                   and all(c.get("routes") == 10 and c.get("frameMeasurement") == "native-browser-timeline"
+                   and all(c.get("routes") == 9 and c.get("frameMeasurement") == "native-browser-timeline"
                            and (c.get("reducedMotion") or c.get("glassIntermediateFrames", 0) >= 3)
                            and all(c.get(k) for k in ("selectionMotion", "nativeSummaryKeyboard", "rapidReversal", "failedSignOutRestoresScreen", "logoutRemovesPrivateDom", "logoutKeepsDocumentImage", "postLoginOverview"))
                            and c.get("settingsWrites") == 0 for c in r["motionCases"]))
@@ -51,7 +53,7 @@ def valid_reports(name, reports):
                    and r.get("documentLifecycle", {}).get("firstLogoutPaintHasImage")
                     and r["documentLifecycle"].get("logoutCycles") == 3 and r["documentLifecycle"].get("authenticatedReloadPreloads")
                     and all(r.get("photoArrival", {}).get(k) for k in ("pendingGlass", "failedImageKeepsForm", "draftPreserved", "stableCardGeometry"))
-                    and r["photoArrival"].get("revealFrames", 0) >= 3 and len(r.get("navigationFocus", [])) == 30
+                    and r["photoArrival"].get("revealFrames", 0) >= 3 and len(r.get("navigationFocus", [])) == 27
                     and all(r.get("glassLighting", {}).get(k) for k in ("smoothReentry", "returnsToRest", "touchStaysStill", "reducedMotionStaysStill")))
     if name == "browser-v50.py":
         return one("glassThemeViewportCases", lambda r: r["glassThemeViewportCases"] == 32 and r.get("pageErrors") == 0)

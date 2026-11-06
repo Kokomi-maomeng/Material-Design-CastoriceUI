@@ -30,7 +30,7 @@ def main():
         folder = Path(temporary)
         config_file = folder / 'config.json'
         url = 'https://publisher.example.com/sub/synthetic-browser-only'
-        config_file.write_text(json.dumps({'database_path': str(folder / 'state.db'), 'bootstrap_token_path': str(folder / 'bootstrap'), 'login_background_directory': str(folder / 'images'), 'subscriptions': [{'id': 'qa-sub', 'account': 'Synthetic QA', 'url': url, 'protocols': ['AnyTLS'], 'enabled': True}]}))
+        config_file.write_text(json.dumps({'database_path': str(folder / 'state.db'), 'bootstrap_token_path': str(folder / 'bootstrap'), 'login_background_directory': str(folder / 'images'), 'managed_accounts': [{'id': 'qa-account', 'name': 'Synthetic QA', 'status': 'active', 'protocols': ['AnyTLS']}], 'subscriptions': [{'id': 'qa-sub', 'account': 'Synthetic QA', 'url': url, 'protocols': ['AnyTLS'], 'enabled': True}]}))
         config = AppConfig.load(config_file)
         config.listen_port = 0
         storage = Storage(config.database_path)
@@ -91,18 +91,19 @@ def main():
                                         page.locator('#main-content').wait_for()
                                         settled(page)
                                         overview_title = page.locator('#main-content h1').inner_text().strip()
-                                        page.goto(origin + '/#/subscriptions', wait_until='networkidle')
+                                        open_page(page, 'accounts', 'Account status')
+                                        page.get_by_role('button', name='View Synthetic QA subscriptions', exact=True).click()
                                         page.get_by_role('button', name='Copy URL', exact=True).click()
-                                        address = page.get_by_role('textbox', name='Subscription URL', exact=True)
+                                        address = page.get_by_role('textbox', name='Copy link manually', exact=True)
                                         address.wait_for(state='visible')
                                         assert address.input_value() == url
                                         address.focus(); address.press('Control+A')
                                         assert address.evaluate('element=>element.selectionStart===0 && element.selectionEnd===element.value.length')
                                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
                                         page.get_by_role('button', name='Done', exact=True).click()
-                                        assert page.get_by_role('textbox', name='Subscription URL', exact=True).count() == 0
+                                        assert page.get_by_role('textbox', name='Copy link manually', exact=True).count() == 0
                                         if clipboard == 'denied':
-                                            open_page(page, 'audit', 'Audit log')
+                                            open_page(page, 'audit', 'Audit center')
                                             page.locator('.user-menu').click()
                                             page.get_by_role('menuitem', name='Sign out', exact=True).click()
                                             page.get_by_role('heading', name='Welcome back', exact=True).wait_for()

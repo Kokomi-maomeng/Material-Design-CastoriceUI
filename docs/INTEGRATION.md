@@ -53,6 +53,10 @@ Authenticated endpoints:
 
 All authenticated mutations require both the session CSRF token and `X-CastoriceUI-Request: 1`. Session cookies are HttpOnly, SameSite=Strict, path `/`, and Secure when `secure_cookies` is enabled. Login uses a bounded failure window and serialized scrypt verification to limit CPU/memory amplification on small VPS instances.
 
+Account status opens subscription details for records whose protected `account` matches the managed account ID, name or nonempty email. Dashboard metadata contains no full URLs. Opening the card explicitly fetches the URL; closing or switching accounts aborts pending reads. Copying client links wraps this HTTPS URL as `clash://install-config` or `shadowrocket://add/sub://` with standard UTF-8 Base64 and an encoded display name. It does not convert the publisher format or contact third parties.
+
+`PUT /api/v2/settings/ui` accepts `auditRetentionDays` as an integer from 30, 60, 90, 120, 150, 180 or 365. Security settings default to 180 days. The saved value overrides the deployment default, survives restarts, and prunes expired audit records immediately after a settings update, at startup, on audit reads/writes and hourly. Removing the former subscription navigation preference preserves all other settings and protected records.
+
 ## Hysteria2
 
 The backend calls the authenticated Traffic Stats API on loopback. It maps `/traffic`, `/online`, and `/dump/streams` into account and activity shapes. The browser never receives the management port Secret.

@@ -155,7 +155,7 @@ small { font-size: var(--text-xs); }
 svg text { font-family: var(--font-ui); }
 button { color: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--primary); outline: 3px solid color-mix(in srgb, var(--primary) 42%, transparent); outline-offset: 2px; }
+:where(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible { outline: 3px solid var(--primary); outline: 3px solid color-mix(in srgb, var(--primary) 42%, transparent); outline-offset: -3px; scroll-margin: 6px; }
 ::selection { background: var(--primary-container); color: var(--on-primary-container); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .material-symbols-rounded { line-height: 1; display: inline-flex; align-items: center; justify-content: center; user-select: none; }

@@ -96,3 +96,21 @@
 .md-dialog { position: relative; z-index: 1; display: flex; flex-direction: column; overflow: hidden; }
 .md-dialog__header, .md-dialog__actions { flex: 0 0 auto; }
 .md-dialog__content { min-height: 0; overscroll-behavior: contain; }
+
+/* Account details use the shared dialog and record-history surfaces. */
+.account-subscription-trigger { width: 100%; min-width: 0; border: 0; padding: 6px; border-radius: 14px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.account-subscription-trigger:hover { background: var(--surface-container-high); }
+.account-subscription-trigger > span:nth-child(2) { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.account-subscription-trigger > span:nth-child(2) > span { color: var(--on-surface-variant); font-size: var(--text-xs); }
+.account-subscription-trigger > .material-symbols-rounded { margin-left: auto; flex-shrink: 0; color: var(--primary); }
+.account-subscriptions { display: grid; gap: 16px; min-width: 0; }
+.account-subscription-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.account-subscription-actions .md-button { white-space: normal; }
+.qr-surface svg { display: block; max-width: 100%; height: auto; }
+.account-subscriptions .qr-surface { max-width: 100%; }
+.accounts-table .quota-cell { min-width: 0; }
+.accounts-table .quota-cell > div { display: grid; gap: 4px; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .accounts-table td::before { max-width: 45%; white-space: normal; overflow-wrap: anywhere; }
+  .accounts-table .quota-cell { flex: 1; max-width: 65%; width: auto; }
+}

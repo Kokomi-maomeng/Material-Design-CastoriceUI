@@ -56,7 +56,7 @@ export function FirstRunConfiguration({ metrics, integrations, onConfigure, onSa
         <ul>
           <li>{t("部署前准备仅监听回环地址的后端、受保护配置文件和可写数据库目录。", "Before deployment, prepare a loopback-only backend, protected configuration file, and writable database directory.")}</li>
           <li>{t("使用 Hysteria2 或 sing-box 时，先在受保护配置中填写 API Secret，并确认对应探针服务正常运行。", "For Hysteria2 or sing-box, set API secrets in the protected server configuration and confirm the protocol probe is running.")}</li>
-          <li>{t("账号状态和订阅管理依赖受保护配置中的管理账号、身份映射和订阅记录；网页验证不会创建这些记录。", "Account status and subscriptions require managed accounts, identity mappings, and subscription records in protected configuration; web validation does not create them.")}</li>
+          <li>{t("账号状态及其订阅依赖受保护配置中的管理账号、身份映射和订阅记录；网页验证不会创建这些记录。", "Account status and its subscriptions require managed accounts, identity mappings, and subscription records in protected configuration; web validation does not create them.")}</li>
           <li>{t("CPU、内存和流量历史会在安装后逐步积累，近 24 小时曲线需要实际采样时间。", "CPU, memory, and traffic history accumulate after installation; the 24-hour charts need actual sampling time.")}</li>
         </ul>
       </Card>

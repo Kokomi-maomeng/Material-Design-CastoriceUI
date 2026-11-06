@@ -1,0 +1,9 @@
+/* Keep the whole keyboard indicator within scrollable and animated surfaces. */
+:root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 65%, transparent);
+  outline-offset: -3px;
+  scroll-margin: 6px;
+}
+@media (forced-colors: active) {
+  :root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible { outline-color: Highlight; }
+}

@@ -86,11 +86,6 @@ const ServicesPage = lazy(() =>
     default: module.ServicesPage,
   })),
 );
-const SubscriptionsPage = lazy(() =>
-  import("./pages/SubscriptionsPage").then((module) => ({
-    default: module.SubscriptionsPage,
-  })),
-);
 const TrafficPage = lazy(() =>
   import("./pages/TrafficPage").then((module) => ({
     default: module.TrafficPage,
@@ -301,6 +296,7 @@ export function CastoriceApp() {
     visiblePanels: PANEL_IDS,
     panelTitle: "CastoriceUI",
     idleTimeoutMinutes: 15,
+    auditRetentionDays: 180,
   };
   useEffect(() => {
     if (!session) return;
@@ -556,6 +552,8 @@ export function CastoriceApp() {
         return (
           <AccountsPage
             accounts={dashboard.accounts}
+            subscriptions={dashboard.subscriptions}
+            onToast={showToast}
             integration={integrationFor("hysteria2")}
             onConfigure={() => configurePage("hysteria2")}
           />
@@ -577,13 +575,6 @@ export function CastoriceApp() {
             traffic={dashboard.traffic}
             integration={integrationFor("traffic")}
             onConfigure={() => configurePage("traffic")}
-          />
-        );
-      case "subscriptions":
-        return (
-          <SubscriptionsPage
-            subscriptions={dashboard.subscriptions}
-            onToast={showToast}
           />
         );
       case "network":

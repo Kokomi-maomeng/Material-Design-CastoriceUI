@@ -132,8 +132,8 @@ export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: 
   return request<AlertPageResponse>(`/api/v2/alerts?${query}`, { signal: options.signal });
 }
 
-export function fetchSubscriptionUrl(id: string) {
-  return request<{ url: string }>(`/api/v2/subscriptions/${encodeURIComponent(id)}/url`);
+export function fetchSubscriptionUrl(id: string, signal?: AbortSignal) {
+  return request<{ url: string }>(`/api/v2/subscriptions/${encodeURIComponent(id)}/url`, { signal });
 }
 
 export function updateTrafficLimit(settings: Pick<TrafficQuotaSettings, "bytes"> & Partial<Pick<TrafficQuotaSettings, "autoReset" | "periodUnit" | "periodCount" | "resetAnchor" | "resetTime" | "timezone">>) {

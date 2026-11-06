@@ -15,7 +15,7 @@ from qa_browser import open_page as open_ready_page, settled
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
 VIEWPORTS = ((2560, 1440), (1440, 1000), (768, 1024), (390, 844), (320, 700))
-PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "subscriptions", "alerts", "audit", "setup")
+PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "alerts", "audit", "setup")
 
 
 def check_typography(page, case):
@@ -149,7 +149,7 @@ def synthetic_dashboard(page) -> dict[str, object]:
     ]
     dashboard["uiSettings"].update(
         showSetup=True,
-        visiblePanels=["alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"],
+        visiblePanels=["alerts", "accounts", "services", "network", "connections", "traffic", "audit"],
     )
     dashboard["connections"] = [
         {"id": "matrix-hy2", "protocol": "Hysteria2", "account": "QA", "sourceIp": "", "ipVersion": None, "connections": 50, "onlineClients": 4, "uploadBps": None, "downloadBps": 8192, "connectedAt": now.isoformat(), "details": [{"id": f"matrix-stream-{i}", "destination": None, "connectedAt": now.isoformat(), "uploadBps": None, "downloadBps": None} for i in range(50)]},
@@ -166,9 +166,8 @@ def open_page(page, section: str) -> None:
         "accounts": ("账号状态", "Account status"),
         "network": ("网络质量", "Network quality"),
         "services": ("服务状态", "Services"),
-        "subscriptions": ("订阅管理", "Subscription management"),
         "alerts": ("告警中心", "Alerts"),
-        "audit": ("操作审计", "Audit log"),
+        "audit": ("审计中心", "Audit center"),
         "setup": ("初始化向导", "Setup"),
     }
     language = page.locator("html").get_attribute("lang") or "en"

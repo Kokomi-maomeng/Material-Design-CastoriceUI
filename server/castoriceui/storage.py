@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .alert_policy import present, sql_level
-from .migrations import retire_external_monitoring
+from .migrations import retire_external_monitoring, retire_subscription_panel
 from .auth import dummy_password_check, hash_password, token_hash, validate_password, validate_username, verify_password
 
 
@@ -20,6 +20,7 @@ DELTA_RETENTION_SECONDS = 400 * 86400
 TRAFFIC_BUCKET_SECONDS = 3600
 MAX_CONTINUOUS_SAMPLE_GAP_SECONDS = 300
 TRAFFIC_LEDGER_SCHEMA = "4"
+AUDIT_RETENTION_DAYS = (30, 60, 90, 120, 150, 180, 365)
 
 
 def utc_now() -> str:
@@ -30,7 +31,7 @@ class Storage:
     def __init__(self, path: str, audit_retention_days: int = 180) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = path
-        self.audit_retention_days = max(7, min(int(audit_retention_days), 3650))
+        self.audit_retention_days = audit_retention_days if type(audit_retention_days) is int and audit_retention_days in AUDIT_RETENTION_DAYS else 180
         self.lock = threading.RLock()
         self.monitoring_writes: dict[tuple[str, str], tuple[int, str]] = {}
         self.monitoring_write_count = 0
@@ -151,8 +152,29 @@ class Storage:
             if "coverage_state" not in delta_columns:
                 connection.execute("ALTER TABLE traffic_deltas ADD COLUMN coverage_state TEXT NOT NULL DEFAULT 'source_start'")
             retire_external_monitoring(connection)
+            retire_subscription_panel(connection)
             self._initialize_traffic_ledger(connection)
             self._prune_monitoring(connection, int(time.time()))
+            self._prune_audits(connection)
+
+    def _audit_retention(self, connection: sqlite3.Connection) -> int:
+        row = connection.execute("SELECT value FROM settings WHERE key='ui_settings'").fetchone()
+        saved = json.loads(row[0]) if row else {}
+        value = saved.get("auditRetentionDays", self.audit_retention_days) if isinstance(saved, dict) else self.audit_retention_days
+        return value if type(value) is int and value in AUDIT_RETENTION_DAYS else 180
+
+    def audit_retention(self) -> int:
+        with self.connect() as connection:
+            return self._audit_retention(connection)
+
+    def _prune_audits(self, connection: sqlite3.Connection) -> int:
+        cutoff = time.time() - self._audit_retention(connection) * 86400
+        # SQLite parses both historical UTC forms and explicit timezone offsets.
+        return connection.execute("DELETE FROM audits WHERE julianday(created_at) < julianday(?, 'unixepoch')", (cutoff,)).rowcount
+
+    def prune_audits(self) -> int:
+        with self.lock, self.connect() as connection:
+            return self._prune_audits(connection)
 
     @staticmethod
     def _initialize_traffic_ledger(connection: sqlite3.Connection) -> None:
@@ -482,8 +504,7 @@ class Storage:
                 "INSERT INTO audits(action,category,actor,source_ip,result,detail,created_at) VALUES(?,?,?,?,?,?,?)",
                 (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
             )
-            cutoff = datetime.fromtimestamp(time.time() - self.audit_retention_days * 86400, timezone.utc).isoformat(timespec="seconds")
-            connection.execute("DELETE FROM audits WHERE created_at < ?", (cutoff,))
+            self._prune_audits(connection)
 
     def audit_page(self, page: int = 1, page_size: int = 30, search: str = "", category: str = "") -> dict[str, Any]:
         page = max(1, int(page))
@@ -500,7 +521,8 @@ class Storage:
             pattern = f"%{search}%"
             parameters.extend([pattern, pattern, pattern, pattern])
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        with self.connect() as connection:
+        with self.lock, self.connect() as connection:
+            self._prune_audits(connection)
             total = int(connection.execute(f"SELECT COUNT(*) FROM audits{where}", parameters).fetchone()[0])
             total_pages = max(1, (total + page_size - 1) // page_size)
             page = min(page, total_pages)
