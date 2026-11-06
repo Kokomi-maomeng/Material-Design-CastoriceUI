@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRecordHistory } from "../../lib/useRecordHistory";
 import { fetchAudits } from "../../lib/api";
 import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
-import type { AuditEvent, AuditPageResponse } from "../../lib/types";
+import type { AuditEvent, AuditPageResponse, UiSettings } from "../../lib/types";
 import { AnimatedRecords, RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
 import { formatLocalDateTime, localTimeZone } from "../../lib/format";
 import { Card } from "../ui/Card";
@@ -42,14 +42,14 @@ function auditDetailEn(value: string) {
     .replace(/^已确认 (\d+) 条告警$/, "$1 alerts were acknowledged");
 }
 
-export function AuditPage() {
+export function AuditPage({ retentionDays = 180 }: { retentionDays?: UiSettings["auditRetentionDays"] } = {}) {
   const { language, t } = useI18n();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"全部" | AuditEvent["category"]>("全部");
   const [querySearch, setQuerySearch] = useState("");
   useEffect(() => { const timer = window.setTimeout(() => setQuerySearch(search.trim()), 250); return () => window.clearTimeout(timer); }, [search]);
   const load = useCallback((page: number, signal: AbortSignal) => fetchAudits({ page, pageSize: 50, search: querySearch, category: category === "全部" ? "" : category, signal }), [category, querySearch]);
-  const { result, items: events, expanded, toggleExpanded, setPage, loading, loadError, retry } = useRecordHistory<AuditEvent, AuditPageResponse>(JSON.stringify([category, querySearch]), load);
+  const { result, items: events, expanded, toggleExpanded, setPage, loading, loadError, retry } = useRecordHistory<AuditEvent, AuditPageResponse>(JSON.stringify([category, querySearch]), load, retentionDays);
   const total = result?.total ?? 0, totalPages = result?.totalPages ?? 1, currentPage = result?.page ?? 1;
 
   return <div className="page-content page-enter">

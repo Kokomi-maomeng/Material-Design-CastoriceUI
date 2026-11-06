@@ -628,7 +628,7 @@ export function CastoriceApp() {
         );
       case "audit":
         return (
-          <AuditPage />
+          <AuditPage retentionDays={uiSettings.auditRetentionDays} />
         );
       default:
         return (

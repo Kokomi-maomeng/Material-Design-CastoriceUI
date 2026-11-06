@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../lib/i18n";
 import { AccountsPage } from "../components/pages/AccountsPage";
+import { AuditPage } from "../components/pages/AuditPage";
 import { RecordHistoryControls } from "../components/ui/RecordHistory";
 import { SettingsDialog } from "../components/settings/SettingsDialog";
 import { emptyDashboard } from "../lib/empty-dashboard";
@@ -37,6 +38,34 @@ it("paginates accounts, collapses to the first 30 and resets after filtering", (
   fireEvent.change(screen.getByRole("textbox", { name: "Search accounts" }), { target: { value: "QA 120" } });
   expect(screen.getByText("1 total records")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Show all records" })).toBeNull();
+});
+
+it("keeps expansion while filter round trips return to page one", () => {
+  english(<AccountsPage accounts={Array.from({ length: 121 }, (_, index) => account(index))} onConfigure={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Show all records" }));
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(screen.getByText("QA 50")).toBeTruthy();
+  const search = screen.getByRole("textbox", { name: "Search accounts" });
+  fireEvent.change(search, { target: { value: "QA 120" } });
+  expect(screen.getByText("1 total records")).toBeTruthy();
+  fireEvent.change(search, { target: { value: "" } });
+  expect(screen.getByText("Page 1 of 3")).toBeTruthy();
+  expect(screen.getByText("QA 0")).toBeTruthy();
+  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(50);
+});
+
+it("retains a clamped account page when polling removes and later restores records", () => {
+  const accounts = Array.from({ length: 121 }, (_, index) => account(index));
+  const { rerender } = english(<AccountsPage accounts={accounts} onConfigure={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Show all records" }));
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(screen.getByText("QA 100")).toBeTruthy();
+  rerender(<I18nProvider><AccountsPage accounts={accounts.slice(0, 60)} onConfigure={vi.fn()} /></I18nProvider>);
+  expect(screen.getByText("Page 2 of 2")).toBeTruthy();
+  rerender(<I18nProvider><AccountsPage accounts={accounts} onConfigure={vi.fn()} /></I18nProvider>);
+  expect(screen.getByText("Page 2 of 3")).toBeTruthy();
+  expect(screen.getByText("QA 50")).toBeTruthy();
 });
 
 it("fetches only the selected account subscription and aborts a late response on close", async () => {
@@ -84,6 +113,18 @@ it("encodes the original URL and Unicode name without changing query credentials
   expect(new TextDecoder().decode(Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)))).toBe(url);
   expect(() => subscriptionLinks("javascript:alert(1)", "QA")).toThrow();
   expect(() => subscriptionLinks("https://user:secret@example.com/a", "QA")).toThrow();
+});
+
+it("refreshes audit records immediately after a retention setting change", async () => {
+  const event = { id: "old", action: "Aged audit", category: "系统" as const, actor: "QA", ip: "192.0.2.1", time: "2026-11-01T00:00:00Z", result: "成功" as const, detail: "Synthetic" };
+  const response = { total: 1, page: 1, pageSize: 50, totalPages: 1 };
+  const fetch = vi.spyOn(api, "fetchAudits").mockResolvedValueOnce({ ...response, items: [event] }).mockResolvedValueOnce({ ...response, items: [{ ...event, id: "new", action: "Recent audit" }] });
+  const { rerender } = english(<AuditPage retentionDays={180} />);
+  await screen.findByText("Aged audit");
+  rerender(<I18nProvider><AuditPage retentionDays={30} /></I18nProvider>);
+  await screen.findByText("Recent audit");
+  expect(screen.queryByText("Aged audit")).toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it("groups timeout, password and all seven retention options under Security", async () => {
