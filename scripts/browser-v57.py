@@ -152,11 +152,18 @@ def main():
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
                 assert disclosure.locator('.connection-target').count()==20
+                # Finish the animated 10-to-20 row expansion and native scroll
+                # anchoring before targeting a button outside the current view.
+                settled(page)
                 copied=disclosure.locator('.connection-target code').first.text_content()
-                # Observe the actual clipboard write without opening OS permission prompts.
-                page.evaluate("()=>{window.qaCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}})}")
+                page.evaluate("""()=>{window.qaCopied='';window.qaCopyEvents=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}});
+                  for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,event=>{const b=event.target.closest?.('.copy-ip-button');if(b)window.qaCopyEvents.push({type,label:b.getAttribute('aria-label'),trusted:event.isTrusted})},true)}""")
                 disclosure.get_by_role('button',name=f'Copy destination address {copied}',exact=True).click()
-                page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
+                try:page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
+                except Exception:
+                    diagnostic=page.evaluate("""()=>({actual:window.qaCopied,secure:window.isSecureContext,events:window.qaCopyEvents,active:document.activeElement?.getAttribute('aria-label'),toast:document.querySelector('.toast')?.textContent,animations:document.getAnimations().filter(a=>a.playState==='running').map(a=>({target:a.effect?.target?.className,duration:a.effect?.getTiming().duration}))})""")
+                    print(json.dumps({'clipboardFailure':diagnostic,'expected':copied,'pageErrors':errors}),flush=True)
+                    raise
                 first_id=page.locator('.connection-card').first.get_attribute('data-connection-id')
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
                 page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
@@ -219,7 +226,7 @@ def main():
                         badge_cases+=1
                 # Remove text override before the shared page and dialog coverage.
                 page.evaluate("()=>document.documentElement.style.fontSize=''")
-                routes={'overview':'Synthetic QA','connections':'Active connections','traffic':'Traffic analytics','accounts':'Account status','subscriptions':'Subscription management','services':'Services','network':'Network quality','alerts':'Alerts','audit':'Audit log','setup':'Setup'}
+                routes={'overview':'Synthetic QA','connections':'Active connections','traffic':'Traffic analytics','accounts':'Account status','services':'Services','network':'Network quality','alerts':'Alerts','audit':'Audit center','setup':'Setup'}
                 for route,heading in routes.items():
                     open_page(page,route,heading)
                     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'),(engine,route)
@@ -230,7 +237,7 @@ def main():
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)
                 assert not errors and not server_errors,(errors,server_errors)
-                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':10,'pageErrors':errors}),flush=True)
+                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':len(routes),'pageErrors':errors}),flush=True)
                 context.close();browser.close()
 
 

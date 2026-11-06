@@ -267,6 +267,7 @@ export interface UiSettings {
   visiblePanels: PageId[];
   panelTitle: string;
   idleTimeoutMinutes: 2 | 5 | 10 | 15 | 20 | 30;
+  auditRetentionDays: 30 | 60 | 90 | 120 | 150 | 180 | 365;
 }
 
 export interface LoginAppearance {
@@ -371,7 +372,6 @@ export type PageId =
   | "accounts"
   | "connections"
   | "traffic"
-  | "subscriptions"
   | "network"
   | "services"
   | "alerts"

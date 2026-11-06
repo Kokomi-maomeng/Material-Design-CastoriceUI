@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RECORD_PREVIEW_LIMIT } from "./record-history";
 
 interface RecordPage<T> { items: T[]; total: number; page: number; totalPages: number }
 
@@ -39,5 +40,6 @@ export function useRecordHistory<T, R extends RecordPage<T>>(queryKey: string, l
       setPage(1);
     }
   };
-  return { result, items: (expanded ? result?.items : result?.items.slice(0, 30)) ?? [], expanded, toggleExpanded, page, setPage, loading, loadError, retry: () => { setLoading(true); setRetryKey((value) => value + 1); } };
+  const showExpanded = expanded && (result?.total ?? 0) >= RECORD_PREVIEW_LIMIT;
+  return { result, items: (showExpanded ? result?.items : result?.items.slice(0, RECORD_PREVIEW_LIMIT)) ?? [], expanded: showExpanded, toggleExpanded, page, setPage, loading, loadError, retry: () => { setLoading(true); setRetryKey((value) => value + 1); } };
 }

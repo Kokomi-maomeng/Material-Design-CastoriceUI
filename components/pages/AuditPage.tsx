@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRecordHistory } from "../../lib/useRecordHistory";
 import { fetchAudits } from "../../lib/api";
 import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
-import type { AuditEvent, AuditPageResponse } from "../../lib/types";
+import type { AuditEvent, AuditPageResponse, UiSettings } from "../../lib/types";
 import { AnimatedRecords, RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
 import { formatLocalDateTime, localTimeZone } from "../../lib/format";
 import { Card } from "../ui/Card";
@@ -42,18 +42,18 @@ function auditDetailEn(value: string) {
     .replace(/^已确认 (\d+) 条告警$/, "$1 alerts were acknowledged");
 }
 
-export function AuditPage() {
+export function AuditPage({ retentionDays = 180 }: { retentionDays?: UiSettings["auditRetentionDays"] } = {}) {
   const { language, t } = useI18n();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"全部" | AuditEvent["category"]>("全部");
   const [querySearch, setQuerySearch] = useState("");
   useEffect(() => { const timer = window.setTimeout(() => setQuerySearch(search.trim()), 250); return () => window.clearTimeout(timer); }, [search]);
   const load = useCallback((page: number, signal: AbortSignal) => fetchAudits({ page, pageSize: 50, search: querySearch, category: category === "全部" ? "" : category, signal }), [category, querySearch]);
-  const { result, items: events, expanded, toggleExpanded, setPage, loading, loadError, retry } = useRecordHistory<AuditEvent, AuditPageResponse>(JSON.stringify([category, querySearch]), load);
+  const { result, items: events, expanded, toggleExpanded, setPage, loading, loadError, retry } = useRecordHistory<AuditEvent, AuditPageResponse>(JSON.stringify([category, querySearch]), load, retentionDays);
   const total = result?.total ?? 0, totalPages = result?.totalPages ?? 1, currentPage = result?.page ?? 1;
 
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("操作审计", "Audit log")} description={t(`时间按本地时区 ${localTimeZone()} 显示。`, `Times are shown in your local time zone: ${localTimeZone()}.`)} />
+    <PageHeader eyebrow={t("安全与追溯", "Security and traceability")} title={t("审计中心", "Audit center")} description={t(`时间按本地时区 ${localTimeZone()} 显示。`, `Times are shown in your local time zone: ${localTimeZone()}.`)} />
     <Card variant="outlined" className="table-panel audit-panel">
       <div className="table-toolbar table-toolbar--wrap">
         <label className="search-field"><Icon name="search" size={20} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={t("搜索操作、账号或 IP", "Search action, account, or IP")} aria-label={t("搜索审计记录", "Search audit records")} /></label>
@@ -65,7 +65,7 @@ export function AuditPage() {
         {!loading && !loadError && events.length === 0 ? <tr><td colSpan={7}><span className="muted">{t("没有符合条件的审计记录。", "No audit records match these filters.")}</span></td></tr> : null}
       </tbody></table></div></AnimatedRecords>
       <RecordHistoryControls kind="audit" expanded={expanded} loading={loading} total={total} page={currentPage} totalPages={totalPages} onExpandedChange={toggleExpanded} />
-      {expanded && !loadError ? <RecordPagination loading={loading} page={currentPage} totalPages={totalPages} onPageChange={setPage} label={t("审计日志分页", "Audit log pagination")} /> : null}
+      {expanded && !loadError ? <RecordPagination loading={loading} page={currentPage} totalPages={totalPages} onPageChange={setPage} label={t("审计日志分页", "Audit center pagination")} /> : null}
     </Card>
   </div>;
 }

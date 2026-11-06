@@ -50,7 +50,7 @@ class BackendTests(unittest.TestCase):
         )
         self.assertEqual(
             ordered_visible_panels(None),
-            ["alerts", "accounts", "subscriptions", "services", "network", "connections", "traffic", "audit"],
+            ["alerts", "accounts", "services", "network", "connections", "traffic", "audit"],
         )
 
     def test_service_versions_ignore_terminal_control_sequences(self) -> None:
@@ -854,6 +854,16 @@ class BackendTests(unittest.TestCase):
                 self.assertEqual(settings["panelTitle"], "My VPS")
                 self.assertEqual(settings["idleTimeoutMinutes"], 10)
                 self.assertFalse(settings["showSetup"])
+                self.assertEqual(settings["auditRetentionDays"], 180)
+                for days in (30, 60, 90, 120, 150, 180, 365):
+                    status, settings = call("/api/v2/settings/ui", "PUT", {"auditRetentionDays": days}, guard)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(settings["auditRetentionDays"], days)
+                    self.assertEqual(storage.audit_retention(), days)
+                for invalid_days in (True, "30", 0, 29, 181, 366, 30.5):
+                    status, _ = call("/api/v2/settings/ui", "PUT", {"auditRetentionDays": invalid_days}, guard)
+                    self.assertEqual(status, 400)
+                    self.assertEqual(storage.audit_retention(), 365)
                 status, _ = call("/api/v2/settings/ui", "PUT", {"idleTimeoutMinutes": 3}, guard)
                 self.assertEqual(status, 400)
                 user_id, _ = storage.authenticate("operator", "Valid-Password-123") or (0, "")

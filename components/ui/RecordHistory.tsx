@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../../lib/i18n";
 import { Button } from "./Button";
+import { RECORD_PREVIEW_LIMIT } from "../../lib/record-history";
 import { Icon } from "./Icon";
 
 export function AnimatedRecords({ children, transitionKey, itemCount, ready = true }: { children: ReactNode; transitionKey: string; itemCount: number; ready?: boolean }) {
@@ -55,11 +56,12 @@ function pageItems(current: number, total: number): Array<number | string> {
 
 export function RecordHistoryControls({ expanded, loading, total, page, totalPages, onExpandedChange, kind }: {
   expanded: boolean; loading: boolean; total: number; page: number; totalPages: number;
-  onExpandedChange: (expanded: boolean) => void; kind: "audit" | "alerts";
+  onExpandedChange: (expanded: boolean) => void; kind: "audit" | "alerts" | "accounts";
 }) {
   const { t } = useI18n();
+  if (total < RECORD_PREVIEW_LIMIT) return <div className="audit-controls audit-controls--total" aria-live="polite"><span>{loading ? t("正在读取记录", "Loading records") : t(`总计 ${total} 条`, `${total} total records`)}</span></div>;
   return <div className="audit-controls">
-    <div><strong>{loading ? t("正在读取记录", "Loading records") : expanded ? t(`第 ${page}/${totalPages} 页`, `Page ${page} of ${totalPages}`) : t(`默认显示最近 ${Math.min(30, total)} 条`, `Showing the latest ${Math.min(30, total)} by default`)}</strong><span>{t(`总计 ${total} 条`, `${total} total records`)}</span></div>
+    <div><strong>{loading ? t("正在读取记录", "Loading records") : expanded ? t(`第 ${page}/${totalPages} 页`, `Page ${page} of ${totalPages}`) : t(`默认显示最近 ${RECORD_PREVIEW_LIMIT} 条`, `Showing the latest ${RECORD_PREVIEW_LIMIT} by default`)}</strong><span>{t(`总计 ${total} 条`, `${total} total records`)}</span></div>
     {!expanded ? <Button variant="outlined" icon="unfold_more" onClick={() => onExpandedChange(true)}>{kind === "audit" ? t("展开全部日志", "Show all logs") : t("展开全部记录", "Show all records")}</Button> : <Button variant="text" icon="unfold_less" onClick={() => onExpandedChange(false)}>{t("收起到最近 30 条", "Collapse to latest 30")}</Button>}
   </div>;
 }

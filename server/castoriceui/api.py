@@ -407,6 +407,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if not isinstance(saved, dict):
                     saved = {}
                 current = {"showSetup": True, "visiblePanels": list(VISIBLE_PANEL_ORDER), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 15, **saved}
+                current["auditRetentionDays"] = self.app.storage.audit_retention()
                 current["visiblePanels"] = ordered_visible_panels(current.get("visiblePanels"))
                 if current.get("idleTimeoutMinutes") not in {2, 5, 10, 15, 20, 30}:
                     current["idleTimeoutMinutes"] = 15
@@ -427,6 +428,12 @@ class ApiHandler(BaseHTTPRequestHandler):
                     if idle_timeout not in {2, 5, 10, 15, 20, 30}:
                         raise ValueError("idleTimeoutMinutes is not supported")
                     current["idleTimeoutMinutes"] = idle_timeout
+                if "auditRetentionDays" in payload:
+                    from .storage import AUDIT_RETENTION_DAYS
+                    days = payload["auditRetentionDays"]
+                    if type(days) is not int or days not in AUDIT_RETENTION_DAYS:
+                        raise ValueError("auditRetentionDays is not supported")
+                    current["auditRetentionDays"] = days
                 self.app.storage.set_setting("ui_settings", current)
                 self.app.storage.add_audit("更新面板设置", "配置", "界面偏好设置已更新", self.source_ip(), actor=str(session["username"]))
                 self.send_json(HTTPStatus.OK, current)

@@ -81,7 +81,7 @@ def verify_navigation_focus(page):
     for width,height in ((1536,960),(1024,720),(901,420)):
         page.set_viewport_size({'width':width,'height':height}); settled(page)
         buttons = page.locator('.navigation-rail nav button')
-        expect(buttons).to_have_count(10)
+        expect(buttons).to_have_count(9)
         buttons.first.press('Tab'); page.keyboard.press('Shift+Tab')
         for index in range(buttons.count()):
             # WebKit scrolls a newly focused item on a later rendering turn.

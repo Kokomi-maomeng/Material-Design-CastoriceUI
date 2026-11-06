@@ -18,5 +18,5 @@ export const emptyDashboard: DashboardPayload = {
   accounts: [], connections: [],
   traffic: { totalBytes: 0, protocolTotalBytes: 0, accountTotalBytes: 0, ranges: emptyRanges, hourly: [], daily: [], monthly: [], protocol: [], account: [] },
   subscriptions: [], networkTargets: [], services: [], alerts: [], integrations: [],
-  uiSettings: { showSetup: true, visiblePanels: [], panelTitle: "CastoriceUI", idleTimeoutMinutes: 15 },
+  uiSettings: { showSetup: true, visiblePanels: [], panelTitle: "CastoriceUI", idleTimeoutMinutes: 15, auditRetentionDays: 180 },
 };
