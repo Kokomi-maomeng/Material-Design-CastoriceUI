@@ -152,15 +152,18 @@ def main():
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
                 assert disclosure.locator('.connection-target').count()==20
+                # Finish the animated 10-to-20 row expansion and native scroll
+                # anchoring before targeting a button outside the current view.
+                settled(page)
                 copied=disclosure.locator('.connection-target code').first.text_content()
-                # Exercise the modern branch with a synthetic secure context:
-                # WebKit can classify self-signed test TLS as untrusted even
-                # when navigation ignores certificate errors. The denied,
-                # missing and insecure fallback paths are covered by v51.
-                page.evaluate("()=>{window.qaOriginalSecureContext=Object.getOwnPropertyDescriptor(window,'isSecureContext');Object.defineProperty(window,'isSecureContext',{configurable:true,value:true});window.qaCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}})}")
+                page.evaluate("""()=>{window.qaCopied='';window.qaCopyEvents=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}});
+                  for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,event=>{const b=event.target.closest?.('.copy-ip-button');if(b)window.qaCopyEvents.push({type,label:b.getAttribute('aria-label'),trusted:event.isTrusted})},true)}""")
                 disclosure.get_by_role('button',name=f'Copy destination address {copied}',exact=True).click()
-                page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
-                page.evaluate("()=>{if(window.qaOriginalSecureContext)Object.defineProperty(window,'isSecureContext',window.qaOriginalSecureContext);else delete window.isSecureContext;delete window.qaOriginalSecureContext}")
+                try:page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
+                except Exception:
+                    diagnostic=page.evaluate("""()=>({actual:window.qaCopied,secure:window.isSecureContext,events:window.qaCopyEvents,active:document.activeElement?.getAttribute('aria-label'),toast:document.querySelector('.toast')?.textContent,animations:document.getAnimations().filter(a=>a.playState==='running').map(a=>({target:a.effect?.target?.className,duration:a.effect?.getTiming().duration}))})""")
+                    print(json.dumps({'clipboardFailure':diagnostic,'expected':copied,'pageErrors':errors}),flush=True)
+                    raise
                 first_id=page.locator('.connection-card').first.get_attribute('data-connection-id')
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
                 page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
