@@ -28,6 +28,8 @@ def run(engine, timezone, browser):
     dashboard = empty_dashboard(context, page, BASE_URL)
     dashboard.update(mode="live", generatedAt=TIME)
     dashboard["uiSettings"]["visiblePanels"] = list(PAGES)
+    dashboard["accounts"] = [{"id": "qa-account", "name": "QA account", "email": "qa@example.com", "status": "registered", "configuredStatus": "active", "expiryStatus": "notConfigured", "coreEvidence": "unknown", "protocols": ["AnyTLS"], "usedBytes": 0, "usageSource": "unmapped", "quotaBytes": 0, "expiresAt": "", "onlineDevices": 0}]
+    dashboard["subscriptions"] = [{"id": "qa-subscription", "account": "qa-account", "protocols": ["AnyTLS"], "enabled": True}]
     history = [{"id": "same-condition", "episodeId": f"episode-{i}", "title": f"Synthetic alert {i}", "description": "QA condition", "source": "Synthetic QA", "severity": "warning", "acknowledged": False, "status": "resolved", "time": "now", "startedAt": TIME, "resolvedAt": TIME, "acknowledgedAt": None} for i in range(135)]
     audits = [{"id": f"audit-{i}", "time": TIME, "action": "登录成功", "category": "认证", "actor": "QA", "ip": "192.0.2.1", "result": "成功", "detail": "Synthetic audit"} for i in range(135)]
 
@@ -57,6 +59,8 @@ def run(engine, timezone, browser):
                 if path == "alerts/ack-all" or item["episodeId"] == path.split("/")[1]:
                     item.update(acknowledged=True, acknowledgedAt=TIME)
             data = {"ok": True}
+        elif path == "subscriptions/qa-subscription/url":
+            data = {"url": "https://publisher.example.com/synthetic.yaml"}
         elif path == "settings/background-options":
             data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover"}, "configured": {"type": "default", "value": ""}}
         else:
@@ -136,6 +140,18 @@ def run(engine, timezone, browser):
                 assert box
                 scrim.click(position={"x": box["width"]-20, "y": box["height"]-20})
             cases += 1
+
+        # Replace the retired page's dialog case with the account card at
+        # every width, retaining the original 75 cases per timezone.
+        open_page("accounts")
+        trigger = page.get_by_role("button", name="View QA account subscriptions", exact=True)
+        trigger.scroll_into_view_if_needed(); settled()
+        before = geometry(); trigger.click()
+        page.locator(".qr-surface svg").wait_for(state="visible"); settled()
+        stable(before)
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2")
+        close_dialog(); stable(before)
+        cases += 1
 
         open_page("setup")
         padding = page.locator(".setup-prerequisites .card-header").evaluate("e=>{let s=getComputedStyle(e);return [parseFloat(s.paddingTop),parseFloat(s.paddingBottom)]}")
