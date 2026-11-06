@@ -45,10 +45,12 @@ it("fetches only the selected account subscription and aborts a late response on
   english(<AccountsPage accounts={[account(1), account(2)]} subscriptions={[{ id: "first", account: "qa-1", protocols: ["AnyTLS"], enabled: true }, { id: "second", account: "QA 2", protocols: ["AnyTLS"], enabled: true }]} onConfigure={vi.fn()} />);
   expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "View QA 1 subscriptions" }));
-  expect(fetch).toHaveBeenCalledWith("first", expect.any(AbortSignal));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith("first", expect.any(AbortSignal)));
   const signal = fetch.mock.calls[0][1];
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
-  expect(signal?.aborted).toBe(true);
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  expect(document.querySelector(".md-dialog-layer.is-closing")).toBeTruthy();
+  await waitFor(() => expect(document.querySelector(".account-subscriptions")).toBeNull());
   complete({ url: "https://publisher.example.com/one.yaml" });
   fireEvent.click(screen.getByRole("button", { name: "View QA 2 subscriptions" }));
   await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("second", expect.any(AbortSignal)));
@@ -63,7 +65,7 @@ it("does not fetch disabled or unrelated subscriptions and supports retry", asyn
   const fetch = vi.spyOn(api, "fetchSubscriptionUrl").mockRejectedValueOnce(new Error("Synthetic")).mockResolvedValue({ url: "https://publisher.example.com/a.yaml" });
   const { rerender } = english(<AccountsPage accounts={[account(1)]} subscriptions={[{ id: "disabled", account: "qa-1", protocols: [], enabled: false }]} onConfigure={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "View QA 1 subscriptions" }));
-  expect(screen.getByText("This account or subscription record is disabled")).toBeTruthy();
+  expect(await screen.findByText("This account or subscription record is disabled")).toBeTruthy();
   expect(fetch).not.toHaveBeenCalled();
   rerender(<I18nProvider><AccountsPage accounts={[account(1)]} subscriptions={[{ id: "enabled", account: "qa-1", protocols: [], enabled: true }]} onConfigure={vi.fn()} /></I18nProvider>);
   await screen.findByRole("alert");

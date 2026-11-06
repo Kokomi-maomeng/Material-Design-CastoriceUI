@@ -10,8 +10,8 @@ import { Chip } from "../ui/Chip";
 import { Dialog } from "../ui/Dialog";
 import { MaterialSelect } from "../ui/MaterialSelect";
 
-export function AccountSubscriptions({ account, subscriptions, onClose, onToast }: {
-  account: Account; subscriptions: Subscription[]; onClose: () => void; onToast: (message: string) => void;
+export function AccountSubscriptions({ open, account, subscriptions, onClose, onToast }: {
+  open: boolean; account: Account; subscriptions: Subscription[]; onClose: () => void; onToast: (message: string) => void;
 }) {
   const { t } = useI18n();
   const linked = subscriptions.filter((item) => [account.id, account.name, account.email].filter(Boolean).includes(item.account));
@@ -29,13 +29,13 @@ export function AccountSubscriptions({ account, subscriptions, onClose, onToast 
   const manualUrl = links && manual?.key === requestKey ? manual.url : "";
   useEffect(() => {
     const controller = new AbortController();
-    if (enabled && id) {
+    if (open && enabled && id) {
       void (suppliedUrl ? Promise.resolve({ url: suppliedUrl }) : fetchSubscriptionUrl(id, controller.signal)).then(({ url }) => {
         if (!controller.signal.aborted) setResolved({ key: requestKey, links: subscriptionLinks(url, account.name) });
       }).catch(() => { if (!controller.signal.aborted) setFailedKey(requestKey); });
     }
     return () => controller.abort();
-  }, [enabled, id, suppliedUrl, account.name, requestKey]);
+  }, [open, enabled, id, suppliedUrl, account.name, requestKey]);
   const copy = async (kind: "url" | "clash" | "shadowrocket") => {
     if (!links || !enabled) return;
     const value = links[kind];
@@ -47,7 +47,7 @@ export function AccountSubscriptions({ account, subscriptions, onClose, onToast 
       onToast(t("复制失败，可在地址框中手动复制", "Copy failed. Copy manually from the address field."));
     }
   };
-  return <Dialog open onClose={onClose} title={t(`${account.name} 的账号订阅`, `${account.name} subscriptions`)} size="small" actions={<Button onClick={onClose}>{t("完成", "Done")}</Button>}>
+  return <Dialog open={open} onClose={onClose} title={t(`${account.name} 的账号订阅`, `${account.name} subscriptions`)} size="small" actions={<Button onClick={onClose}>{t("完成", "Done")}</Button>}>
     <div className="account-subscriptions">
       <div className="account-cell"><span className="avatar">{account.name.slice(0, 1).toUpperCase()}</span><div><small>{t("关联管理账号", "Linked managed account")}</small><strong>{account.name}</strong></div></div>
       {linked.length > 1 ? <MaterialSelect ariaLabel={t("选择订阅", "Select subscription")} value={subscription?.id ?? ""} options={linked.map((item, index) => ({ value: item.id, label: `${t("订阅", "Subscription")} ${index + 1} · ${item.protocols.join(" / ")}` }))} onChange={(value) => { setSelected(value); setManual(null); }} /> : null}

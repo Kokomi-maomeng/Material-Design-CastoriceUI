@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../lib/i18n";
 import { networkQuality } from "../lib/network-quality";
 import { chartTime } from "../lib/chart-time";
@@ -77,6 +77,6 @@ describe("v5.1 audit regressions", () => {
     expect(address.selectionStart).toBe(0);
     expect(address.selectionEnd).toBe(url.length);
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    expect(screen.queryByDisplayValue(url)).toBeNull();
+    await waitFor(() => expect(screen.queryByDisplayValue(url)).toBeNull());
   });
 });

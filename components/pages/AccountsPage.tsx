@@ -12,6 +12,7 @@ import { PageHeader } from "../ui/Page";
 import { AnimatedRecords, RecordHistoryControls, RecordPagination } from "../ui/RecordHistory";
 import { useLocalRecordHistory } from "../../lib/useLocalRecordHistory";
 import { AccountSubscriptions } from "./AccountSubscriptions";
+import { usePresence } from "../ui/usePresence";
 
 export function AccountsPage({ accounts, subscriptions = [], integration, onConfigure, onToast = () => undefined }: { accounts: Account[]; subscriptions?: Subscription[]; integration?: IntegrationStatus; onConfigure: () => void; onToast?: (message: string) => void }) {
   const { t } = useI18n();
@@ -25,6 +26,8 @@ export function AccountsPage({ accounts, subscriptions = [], integration, onConf
 
   const history = useLocalRecordHistory(filtered, `${filter}:${search}`);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [subscriptionOpen, setSubscriptionOpen] = useState(false);
+  const subscriptionPresent = usePresence(subscriptionOpen);
   const selectedAccount = accounts.find((account) => account.id === selectedId);
 
   return <div className="page-content page-enter">
@@ -39,7 +42,7 @@ export function AccountsPage({ accounts, subscriptions = [], integration, onConf
         <thead><tr><th>{t("管理账号", "Managed account")}</th><th>{t("状态", "Status")}</th><th>{t("协议", "Protocols")}</th><th>{t("映射协议累计流量", "Mapped protocol usage")}</th><th>{t("到期时间", "Expires")}</th></tr></thead>
         <tbody>{history.items.map((account) => {
           return <tr key={account.id}>
-            <td data-label={t("管理账号", "Managed account")}><button className="account-cell account-subscription-trigger" onClick={() => setSelectedId(account.id)} aria-label={t(`查看 ${account.name} 的订阅`, `View ${account.name} subscriptions`)} aria-haspopup="dialog"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><span><strong>{account.name}</strong><span>{account.email}</span></span><Icon name="chevron_right" size={20} /></button></td>
+            <td data-label={t("管理账号", "Managed account")}><button className="account-cell account-subscription-trigger" onClick={() => { setSelectedId(account.id); setSubscriptionOpen(true); }} aria-label={t(`查看 ${account.name} 的订阅`, `View ${account.name} subscriptions`)} aria-haspopup="dialog"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><span><strong>{account.name}</strong><span>{account.email}</span></span><Icon name="chevron_right" size={20} /></button></td>
             <td data-label={t("状态", "Status")}><StatusChips account={account} /></td>
             <td data-label={t("协议", "Protocols")}><div className="protocol-list">{account.protocols.map((protocol) => <Chip staticChip key={protocol}>{protocol}</Chip>)}</div></td>
             <td data-label={t("映射协议累计流量", "Mapped protocol usage")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span>{account.usageSource !== "protocolCounter" ? <small>{t("尚未映射协议身份", "No protocol identity mapping")}</small> : null}</div></div></td>
@@ -50,7 +53,7 @@ export function AccountsPage({ accounts, subscriptions = [], integration, onConf
       <RecordHistoryControls kind="accounts" expanded={history.expanded} loading={false} total={filtered.length} page={history.page} totalPages={history.totalPages} onExpandedChange={history.toggleExpanded} />
       {history.expanded ? <RecordPagination page={history.page} totalPages={history.totalPages} onPageChange={history.setPage} label={t("账号分页", "Account pagination")} /> : null}
     </Card>
-    {selectedAccount ? <AccountSubscriptions key={selectedAccount.id} account={selectedAccount} subscriptions={subscriptions} onClose={() => setSelectedId(null)} onToast={onToast} /> : null}
+    {subscriptionPresent && selectedAccount ? <AccountSubscriptions key={selectedAccount.id} open={subscriptionOpen} account={selectedAccount} subscriptions={subscriptions} onClose={() => setSubscriptionOpen(false)} onToast={onToast} /> : null}
   </div>;
 }
 

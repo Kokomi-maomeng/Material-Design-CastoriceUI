@@ -15,7 +15,7 @@ from qa_browser import open_page as open_ready_page, settled
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
 VIEWPORTS = ((2560, 1440), (1440, 1000), (768, 1024), (390, 844), (320, 700))
-PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "alerts", "audit", "setup")
+PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "account-subscriptions", "alerts", "audit", "setup")
 
 
 def check_typography(page, case):
@@ -147,6 +147,8 @@ def synthetic_dashboard(page) -> dict[str, object]:
         {"id": f"qa-{index}", "name": f"QA target {index}", "provider": "Synthetic", "address": f"192.0.2.{index}", "ipVersion": 4, "latency": 1 + index / 10, "jitter": 0.1, "loss": 0, "status": "healthy", "history": [1, 1.2, 1.1, 1.3, 1.0], "observedAt": datetime.now(timezone.utc).isoformat(), "probeHistory": [{"capturedAt": int(time.time()) - 4 + point, "latency": value, "loss": 0, "complete": True, "status": "healthy"} for point, value in enumerate([1, 1.2, 1.1, 1.3, 1.0])], "timeHistory": [{"capturedAt": int(time.time()) - (4 - point) * 60, "latency": value, "loss": 0, "complete": True, "status": "healthy"} for point, value in enumerate([1, 1.2, 1.1, 1.3, 1.0])]}
         for index in range(1, 6)
     ]
+    dashboard["accounts"] = [{"id": "matrix-account", "name": "QA account", "email": "qa@example.com", "status": "registered", "configuredStatus": "active", "expiryStatus": "notConfigured", "coreEvidence": "unknown", "protocols": ["AnyTLS"], "usedBytes": 0, "usageSource": "unmapped", "quotaBytes": 0, "expiresAt": "", "onlineDevices": 0}]
+    dashboard["subscriptions"] = [{"id": "matrix-subscription", "account": "matrix-account", "protocols": ["AnyTLS"], "enabled": True}]
     dashboard["uiSettings"].update(
         showSetup=True,
         visiblePanels=["alerts", "accounts", "services", "network", "connections", "traffic", "audit"],
@@ -170,9 +172,17 @@ def open_page(page, section: str) -> None:
         "audit": ("审计中心", "Audit center"),
         "setup": ("初始化向导", "Setup"),
     }
+    if page.locator(".account-subscriptions").count():
+        page.locator(".md-dialog__actions button").click()
+        page.locator(".account-subscriptions").wait_for(state="detached")
+    account_card = section == "account-subscriptions"
+    route = "accounts" if account_card else section
     language = page.locator("html").get_attribute("lang") or "en"
-    title = titles[section][0 if language.startswith("zh") else 1]
-    open_ready_page(page, section, title)
+    title = titles[route][0 if language.startswith("zh") else 1]
+    open_ready_page(page, route, title)
+    if account_card:
+        page.locator(".account-subscription-trigger").first.click()
+        page.locator(".qr-surface svg").wait_for(state="visible")
     page.evaluate("scrollTo(0, 0)")
     settled(page)
 
@@ -207,6 +217,8 @@ with sync_playwright() as playwright:
             data = {"files": [], "directory": "/var/lib/castoriceui/backgrounds", "selected": {"type": "default", "url": "", "fit": "cover"}, "configured": {"type": "default", "value": ""}}
         elif request_path == "alerts":
             data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1, "summary": {"pending": 0, "critical": 0, "warning": 0, "info": 0}}
+        elif request_path == "subscriptions/matrix-subscription/url":
+            data = {"url": "https://publisher.example.com/synthetic.yaml"}
         elif request_path == "audits":
             data = {
                 "items": [{
@@ -314,7 +326,7 @@ with sync_playwright() as playwright:
                             open_page(page, section)
                             page.evaluate("document.fonts.ready")
                             actual = page.evaluate("({lang:document.documentElement.lang,theme:document.documentElement.dataset.theme,motion:matchMedia('(prefers-reduced-motion: reduce)').matches,route:location.hash})")
-                            assert actual == {"lang": "zh-CN" if language == "zh" else "en", "theme": theme, "motion": motion == "reduce", "route": "#/" + section}, actual
+                            assert actual == {"lang": "zh-CN" if language == "zh" else "en", "theme": theme, "motion": motion == "reduce", "route": "#/" + ("accounts" if section == "account-subscriptions" else section)}, actual
                             heading = page.locator("#main-content h1").inner_text().strip()
                             assert heading, (engine, language, theme, motion, section, "missing heading")
                             results.append({"engine": engine, "language": language, "theme": theme, "motion": motion, "width": width, "height": height, "page": section, "heading": heading, "actual": actual})

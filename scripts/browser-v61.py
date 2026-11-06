@@ -90,7 +90,7 @@ def run(engine, browser, language):
     page.set_viewport_size({'width': 390, 'height': 844}); page.goto(BASE + '/#/accounts', wait_until='networkidle')
     assert state['urlReads'] == 0
     page.get_by_role('button', name='查看 QA 0 的订阅' if language == 'zh' else 'View QA 0 subscriptions', exact=True).click()
-    expect(page.locator('.qr-surface svg')).to_be_visible()
+    expect(page.locator('.qr-surface svg')).to_be_visible(); settled(page)
     if os.environ.get('CASTORICEUI_QA_SHOTS'):
         folder = Path(os.environ['CASTORICEUI_QA_SHOTS']); folder.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(folder / f'{engine}-{language}-account-card.png'))
@@ -111,7 +111,7 @@ def run(engine, browser, language):
     expect(group).to_contain_text('更换密码' if language == 'zh' else 'Change password')
     group.locator('summary').filter(has_text='日志审计时长' if language == 'zh' else 'Audit log retention').click(); settled(page)
     group.get_by_role('button', name='日志审计时长' if language == 'zh' else 'Audit log retention', exact=True).click()
-    expect(page.get_by_role('option')).to_have_count(7)
+    expect(page.get_by_role('option')).to_have_count(7); settled(page)
     if os.environ.get('CASTORICEUI_QA_SHOTS'):page.screenshot(path=str(folder / f'{engine}-{language}-security.png'))
     page.get_by_role('option', name='30天' if language == 'zh' else '30 days', exact=True).click()
     page.wait_for_function("()=>document.querySelector('.security-settings-group').textContent.includes('30')")

@@ -153,10 +153,14 @@ def main():
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
                 assert disclosure.locator('.connection-target').count()==20
                 copied=disclosure.locator('.connection-target code').first.text_content()
-                # Observe the actual clipboard write without opening OS permission prompts.
-                page.evaluate("()=>{window.qaCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}})}")
+                # Exercise the modern branch with a synthetic secure context:
+                # WebKit can classify self-signed test TLS as untrusted even
+                # when navigation ignores certificate errors. The denied,
+                # missing and insecure fallback paths are covered by v51.
+                page.evaluate("()=>{window.qaOriginalSecureContext=Object.getOwnPropertyDescriptor(window,'isSecureContext');Object.defineProperty(window,'isSecureContext',{configurable:true,value:true});window.qaCopied='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{window.qaCopied=value}}})}")
                 disclosure.get_by_role('button',name=f'Copy destination address {copied}',exact=True).click()
                 page.wait_for_function('(expected)=>window.qaCopied===expected',arg=copied)
+                page.evaluate("()=>{if(window.qaOriginalSecureContext)Object.defineProperty(window,'isSecureContext',window.qaOriginalSecureContext);else delete window.isSecureContext;delete window.qaOriginalSecureContext}")
                 first_id=page.locator('.connection-card').first.get_attribute('data-connection-id')
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
                 page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
