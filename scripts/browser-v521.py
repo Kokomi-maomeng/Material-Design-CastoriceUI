@@ -12,6 +12,7 @@ import tempfile
 import time
 import urllib.request
 from playwright.sync_api import sync_playwright
+from qa_browser import settled
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,7 +49,9 @@ def check_chart(page, case):
     assert abs(sizes['width']-sizes['viewWidth']) <= 2 and abs(sizes['height']-sizes['viewHeight']) <= 2, (case,sizes)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+2'), case
     svg=page.locator('.chart--traffic svg')
+    page.mouse.move(0, 0)
     svg.focus(); svg.press('End')
+    settled(page)
     assert page.locator('.chart-inspector').count()==1, case
     inspector=page.locator('.chart-tooltip.is-open').bounding_box()
     box=svg.bounding_box()
@@ -58,6 +61,10 @@ def check_chart(page, case):
     svg.press('Home')
     assert page.locator('.chart-inspector').count()==1
     if page.locator('.chart-point--primary').count() > 1:
+        page.wait_for_function("""high => {
+          const tooltip=document.querySelector('.chart-tooltip-position');
+          return tooltip && new DOMMatrix(tooltip.style.transform).m42 > high + 2;
+        }""", arg=high, timeout=3500)
         low = tooltip.evaluate("e => new DOMMatrix(e.style.transform).m42")
         assert low > high + 2, (case, "tooltip did not follow sample height", high, low)
     svg.hover(position={'x':box['width']*.7,'y':box['height']*.5})

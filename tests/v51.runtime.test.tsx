@@ -70,7 +70,9 @@ describe("v5.1 audit regressions", () => {
     render(<I18nProvider><AccountsPage accounts={[account]} onConfigure={vi.fn()} subscriptions={[{ id: "qa", account: "QA operator", protocols: ["AnyTLS"], enabled: true, url }]} onToast={vi.fn()} /></I18nProvider>);
     expect(screen.queryByDisplayValue(url)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View QA operator subscriptions" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Copy URL" }));
+    const copy = screen.getByRole<HTMLButtonElement>("button", { name: "Copy URL" });
+    await waitFor(() => expect(copy.disabled).toBe(false));
+    fireEvent.click(copy);
     const address = await screen.findByRole("textbox", { name: "Copy link manually" }) as HTMLTextAreaElement;
     expect(address.value).toBe(url);
     fireEvent.focus(address);
