@@ -70,17 +70,18 @@ def check_chart(page, case):
 
 def main():
     engines=sys.argv[1:] or ['chromium','firefox','webkit']
+    shared_origin=os.environ.get('CASTORICEUI_BROWSER_URL','').rstrip('/')
     with socket.socket() as available:
         available.bind(('127.0.0.1',0));port=available.getsockname()[1]
-    origin=f'https://127.0.0.1:{port}'
+    origin=shared_origin or f'https://127.0.0.1:{port}'
     with tempfile.TemporaryDirectory(prefix='castorice-chart-') as folder:
         with (Path(folder)/'vite.log').open('w') as output:
-            dev=subprocess.Popen([shutil.which('node'),str(ROOT/'node_modules/vite/bin/vite.js'),'--port',str(port),'--strictPort'],cwd=ROOT,stdout=output,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            dev=None if shared_origin else subprocess.Popen([shutil.which('node'),str(ROOT/'node_modules/vite/bin/vite.js'),'--port',str(port),'--strictPort'],cwd=ROOT,stdout=output,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             try:
                 for _ in range(100):
                     try: urllib.request.urlopen(origin,context=ssl._create_unverified_context(),timeout=1).close();break
                     except OSError:
-                        if dev.poll() is not None: raise RuntimeError('Chart test server exited')
+                        if dev and dev.poll() is not None: raise RuntimeError('Chart test server exited')
                         time.sleep(.1)
                 else: raise TimeoutError('Chart test server did not start')
                 cases=[]
@@ -129,9 +130,10 @@ def main():
                         finally: browser.close()
                 print(json.dumps({'chartCases':cases,'syntheticApiFixture':True,'pageErrors':0}))
             finally:
-                dev.terminate()
-                try:dev.wait(10)
-                except subprocess.TimeoutExpired:dev.kill();dev.wait()
+                if dev:
+                    dev.terminate()
+                    try:dev.wait(10)
+                    except subprocess.TimeoutExpired:dev.kill();dev.wait()
 
 
 if __name__=='__main__':main()
