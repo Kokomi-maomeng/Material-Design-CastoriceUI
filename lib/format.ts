@@ -42,15 +42,17 @@ export function formatTimeSpan(seconds: number): string {
   return `${seconds}s`;
 }
 
-export function formatDate(value: string): string {
+export function formatDate(value: string, language: "zh" | "en"): string {
+  const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value);
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat(
-    document.documentElement.lang.startsWith("zh") ? "zh-CN" : "en",
+    language === "zh" ? "zh-CN" : "en",
     {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
+      timeZone: calendarDate ? "UTC" : undefined,
     },
   ).format(date);
 }

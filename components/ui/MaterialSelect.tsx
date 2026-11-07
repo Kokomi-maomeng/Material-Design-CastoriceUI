@@ -49,9 +49,9 @@ export function MaterialSelect({
   const present = usePresence(open);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
+    const needle = query.trim().normalize("NFKC").toLowerCase();
     return needle
-      ? options.filter((option) => `${option.label} ${option.secondary ?? ""}`.toLocaleLowerCase().includes(needle))
+      ? options.filter((option) => `${option.label} ${option.secondary ?? ""}`.normalize("NFKC").toLowerCase().includes(needle))
       : options;
   }, [options, query]);
 
@@ -88,7 +88,7 @@ export function MaterialSelect({
       if (!buttonRef.current?.contains(target) && !popupRef.current?.contains(target)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.isComposing) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       setOpen(false);
@@ -124,6 +124,7 @@ export function MaterialSelect({
   }, [open, position.ready, searchable]);
 
     const navigateOptions = (event: ReactKeyboardEvent<HTMLElement>) => {
+            if (event.nativeEvent.isComposing) return;
             const buttons = Array.from(popupRef.current?.querySelectorAll<HTMLButtonElement>("[role='option']") ?? []);
             if (!buttons.length) return;
             const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -190,7 +191,7 @@ export function MaterialSelect({
             <label className="md-select-search">
               <Icon name="search" size={19} />
               <input onKeyDown={navigateOptions} ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索选项", "Search options")} aria-label={t("搜索选项", "Search options")} />
-              {query ? <button type="button" onClick={() => setQuery("")} aria-label={t("清空搜索", "Clear search")}><Icon name="close" size={18} /></button> : null}
+              {query ? <button type="button" onClick={() => { setQuery(""); searchRef.current?.focus(); }} aria-label={t("清空搜索", "Clear search")}><Icon name="close" size={18} /></button> : null}
             </label>
           ) : null}
           <div id={listboxId} className="md-select-list" role="listbox" onKeyDown={navigateOptions} tabIndex={-1} aria-label={ariaLabel}>

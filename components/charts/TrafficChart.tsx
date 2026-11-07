@@ -1,13 +1,14 @@
 "use client";
 
-import { Component, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { Component, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { TrafficPoint } from "../../lib/types";
 import { chartTime } from "../../lib/chart-time";
+import { smoothChartPath } from "../../lib/chart-path";
+import { ChartTooltip } from "./ChartTooltip";
 
 const INITIAL_SIZE = { width: 680, height: 270 };
 interface Point { x: number; y: number }
-function smoothPath(points: Point[]): string { if (!points.length) return ""; if (points.length === 1) return `M ${points[0].x},${points[0].y}`; return points.slice(1).reduce((path, current, index) => { const previous = points[index]; const mid = (previous.x + current.x) / 2; return `${path} C ${mid},${previous.y} ${mid},${current.y} ${current.x},${current.y}`; }, `M ${points[0].x},${points[0].y}`); }
 
 interface TrafficChartBoundaryState { failed: boolean }
 
@@ -50,8 +51,12 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
   const { language, t } = useI18n();
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
+  const [open, setOpen] = useState(false);
   const [viewSize, setViewSize] = useState(INITIAL_SIZE);
   const plotRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
+  const downloadGradient = useId();
+  const uploadGradient = useId();
   const hasData = data.length > 0;
   const keys = sampleKeys(data);
   const timeline = chartTime(data);
@@ -81,8 +86,9 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
   const max = Math.ceil(rawMax / 10) * 10;
   const point = (value: number, index: number): Point => ({ x: plot.x + timeline.ratios[index] * plot.width, y: plot.y + plot.height - (value / max) * plot.height });
   const downloadPoints = data.map((item, index) => point(item.download, index)); const uploadPoints = data.map((item, index) => point(item.upload, index));
-  const line = (items: Point[]) => timeline.groups.map((group) => smoothPath(group.map((index) => items[index]))).join(" ");
-  const area = (items: Point[]) => timeline.groups.filter((group) => group.length > 1).map((group) => `${smoothPath(group.map((index) => items[index]))} L ${items[group[group.length - 1]].x},${plot.y + plot.height} L ${items[group[0]].x},${plot.y + plot.height} Z`).join(" ");
+  const path = (items: Point[], group: number[]) => smoothChartPath(group.map((index) => [items[index].x, items[index].y]));
+  const line = (items: Point[]) => timeline.groups.map((group) => path(items, group)).join(" ");
+  const area = (items: Point[]) => timeline.groups.filter((group) => group.length > 1).map((group) => `${path(items, group)} L ${items[group[group.length - 1]].x},${plot.y + plot.height} L ${items[group[0]].x},${plot.y + plot.height} Z`).join(" ");
   const pick = (event: PointerEvent<SVGSVGElement>) => {
     const matrix = event.currentTarget.getScreenCTM();
     if (!matrix) return;
@@ -91,8 +97,10 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
     const index = timeline.nearest(ratio);
     setHoverRatio(Math.max(0, Math.min(1, ratio)));
     setActiveKey(keys[index] ?? null);
+    setOpen(true);
   };
   const moveSelection = (event: KeyboardEvent<SVGSVGElement>) => {
+    if (event.key === "Escape") { setOpen(false); return; }
     let next = active >= 0 ? active : data.length - 1;
     if (event.key === "ArrowLeft") next = Math.max(0, next - 1);
     else if (event.key === "ArrowRight") next = Math.min(data.length - 1, next + 1);
@@ -102,28 +110,44 @@ function TrafficChartPlot({ data }: { data: TrafficPoint[] }) {
     event.preventDefault();
     setHoverRatio(null);
     setActiveKey(keys[next] ?? null);
+    setOpen(true);
   };
   const selected = active >= 0 ? data[active] : null;
   const selectedX = active >= 0 ? downloadPoints[active]?.x ?? 0 : 0;
-  const tooltipX = Math.min(viewWidth - 170, Math.max(54, selectedX - 74));
+  const selectedY = selected ? Math.min(downloadPoints[active].y, uploadPoints[active].y) : 0;
   const timestamps = data.map((item) => item.capturedAt ? Date.parse(item.capturedAt) : Number.NaN).filter(Number.isFinite);
   const longRange = timestamps.length > 1 && timestamps[timestamps.length - 1] - timestamps[0] > 36 * 60 * 60 * 1000;
   const displayLabel = (item: TrafficPoint) => {
     if (!item.capturedAt || Number.isNaN(Date.parse(item.capturedAt))) return item.label;
     return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", longRange
-      ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }
-      : { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(item.capturedAt));
+      ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }
+      : { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(item.capturedAt));
   };
   const labelStep = Math.max(1, Math.ceil(data.length / Math.max(2, Math.floor(plot.width / 95))));
   const showAxisLabel = (index: number) => index === 0 || index === data.length - 1 || (index % labelStep === 0 && data.length - 1 - index >= labelStep * .75);
 
-  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><div ref={plotRef} className="traffic-chart-plot"><svg className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0} aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend; use the pointer or arrow keys to inspect values")} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => { setHoverRatio(null); setActiveKey(null); }} onFocus={() => setActiveKey((value) => value && keys.includes(value) ? value : keys[keys.length - 1] ?? null)} onBlur={() => { setHoverRatio(null); setActiveKey(null); }} onKeyDown={moveSelection}>
-    <defs><linearGradient id="nativeDownloadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-primary)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--chart-primary)" stopOpacity=".02" /></linearGradient><linearGradient id="nativeUploadGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-secondary)" stopOpacity=".22" /><stop offset="100%" stopColor="var(--chart-secondary)" stopOpacity=".01" /></linearGradient></defs>
+  return <div className="chart chart--traffic" role="region" aria-label={t("上传与下载流量趋势", "Upload and download traffic trend")}><div ref={plotRef} className="traffic-chart-plot"><svg className="native-chart native-chart--interactive" viewBox={`0 0 ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMinYMin meet" role="img" tabIndex={0}
+    aria-label={t("上传与下载流量趋势图，可移动鼠标或使用方向键查看数值", "Upload and download traffic trend. Use the pointer or arrow keys to inspect values")}
+    aria-describedby={selected && open ? tooltipId : undefined} onPointerMove={pick} onPointerDown={pick} onPointerLeave={(event) => { if (event.pointerType !== "touch") setOpen(false); }} onPointerCancel={() => setOpen(false)} onFocus={() => {
+      setActiveKey((value) => value && keys.includes(value) ? value : keys[keys.length - 1] ?? null);
+      setOpen(true);
+    }} onBlur={() => setOpen(false)} onKeyDown={moveSelection}>
+    <defs><linearGradient id={downloadGradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-primary)" stopOpacity=".32" /><stop offset="100%" stopColor="var(--chart-primary)" stopOpacity=".02" /></linearGradient><linearGradient id={uploadGradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--chart-secondary)" stopOpacity=".22" /><stop offset="100%" stopColor="var(--chart-secondary)" stopOpacity=".01" /></linearGradient></defs>
     {[0, .25, .5, .75, 1].map((ratio) => { const y = plot.y + plot.height - ratio * plot.height; return <g key={ratio}><line className="chart-grid-line" x1={plot.x} x2={plot.x + plot.width} y1={y} y2={y} /><text className="chart-axis-label" x={plot.x - 8} y={y + 4} textAnchor="end">{Math.round(max * ratio)} GB</text></g>; })}
     {data.map((item, index) => showAxisLabel(index) ? <text className="chart-axis-label" key={`${item.label}-${index}`} x={point(0, index).x} y={viewHeight - 8} textAnchor={index === 0 ? "start" : index === data.length - 1 ? "end" : "middle"}>{displayLabel(item)}</text> : null)}
-    <path d={area(downloadPoints)} fill="url(#nativeDownloadGradient)" /><path d={area(uploadPoints)} fill="url(#nativeUploadGradient)" /><path className="chart-line chart-line--primary" d={line(downloadPoints)} /><path className="chart-line chart-line--secondary" d={line(uploadPoints)} />
-    {data.map((item, index) => <g key={`${item.label}-${index}`}><circle className={`chart-point chart-point--primary ${active === index ? "is-active" : ""}`} cx={downloadPoints[index].x} cy={downloadPoints[index].y} r={active === index ? 5 : 3} /><circle className={`chart-point chart-point--secondary ${active === index ? "is-active" : ""}`} cx={uploadPoints[index].x} cy={uploadPoints[index].y} r={active === index ? 5 : 3} /></g>)}
-    {selected ? <g className="chart-inspector" pointerEvents="none"><line x1={selectedX} x2={selectedX} y1={plot.y} y2={plot.y + plot.height} /><rect x={tooltipX} y="22" width="148" height="62" rx="16" /><text x={tooltipX + 12} y="40" className="chart-tooltip-title">{displayLabel(selected)}</text><circle cx={tooltipX + 14} cy="55" r="4" className="chart-tooltip-dot chart-tooltip-dot--primary" /><text x={tooltipX + 24} y="59">{t("下载", "Download")} {selected.download.toFixed(2)} GB</text><circle cx={tooltipX + 14} cy="72" r="4" className="chart-tooltip-dot chart-tooltip-dot--secondary" /><text x={tooltipX + 24} y="76">{t("上传", "Upload")} {selected.upload.toFixed(2)} GB</text></g> : null}
+    <path d={area(downloadPoints)} fill={`url(#${downloadGradient})`} /><path d={area(uploadPoints)} fill={`url(#${uploadGradient})`} /><path className="chart-line chart-line--primary" d={line(downloadPoints)} /><path className="chart-line chart-line--secondary" d={line(uploadPoints)} />
+    {data.map((item, index) => <g key={`${item.label}-${index}`}><circle className="chart-point chart-point--primary" cx={downloadPoints[index].x} cy={downloadPoints[index].y} r="3" /><circle className="chart-point chart-point--secondary" cx={uploadPoints[index].x} cy={uploadPoints[index].y} r="3" /></g>)}
+    {selected ? <g className={`chart-inspector ${open ? "is-open" : ""}`} pointerEvents="none" style={{ transform: `translateX(${selectedX}px)` }}>
+      <line y1={plot.y} y2={plot.y + plot.height} />
+      <circle className="chart-inspector__point" cy={downloadPoints[active].y} r="4" fill="var(--chart-primary)" />
+      <circle className="chart-inspector__point" cy={uploadPoints[active].y} r="4" fill="var(--chart-secondary)" />
+    </g> : null}
     <rect className="chart-hit-area" x={plot.x} y={plot.y} width={plot.width} height={plot.height} />
-  </svg></div><small>{t("每点为该采样区间流量；缺测处断开，不代表中间为零。", "Each point is an interval total; gaps indicate missing samples, not zero usage.")}</small></div>;
+  </svg>
+  {selected ? <ChartTooltip id={tooltipId} open={open} onOpenChange={setOpen} x={selectedX} y={selectedY} width={viewWidth} height={plot.y + plot.height} time={displayLabel(selected)} dateTime={selected.capturedAt}
+    readings={[
+      { label: t("下载", "Download"), value: `${selected.download.toFixed(2)} GB`, color: "var(--chart-primary)" },
+      { label: t("上传", "Upload"), value: `${selected.upload.toFixed(2)} GB`, color: "var(--chart-secondary)" },
+    ]} /> : null}
+  </div><small>{t("每点为该区间的流量总量，曲线断开处为缺测。", "Each point is an interval total. Breaks indicate missing samples.")}</small></div>;
 }

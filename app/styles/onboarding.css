@@ -77,12 +77,6 @@
   .setup-completed button .md-chip { display: none; }
 }
 
-.native-donut { width: 100%; height: 100%; transform: rotate(-90deg); }
-.donut-track, .donut-segment { fill: none; stroke-width: 28; }
-.donut-track { stroke: var(--surface-container-highest); }
-.donut-segment { transition: opacity .16s; }
-.donut-segment:hover { opacity: .76; }
-
 .md-dialog-layer { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; }
 .md-dialog-layer.is-open { animation: md-fade-in var(--motion-enter-duration) var(--motion-standard) both; }
 .md-dialog-layer.is-open .md-dialog { animation: md-dialog-in var(--motion-enter-duration) var(--motion-standard) both; }

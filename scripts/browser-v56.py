@@ -121,7 +121,7 @@ def main():
                     dashboard.runtime_cache['integrations'] = dashboard.runtime_integrations(hy2, sb_data, [], dashboard.system_cache, {'configured': False, 'ready': False, 'count': 0})
                     refresh()
                     page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
-                    open_page(page, 'connections', 'Active connections')
+                    open_page(page, 'traffic/connections', 'Traffic analytics')
                     response = context.request.get(origin + '/api/v2/dashboard').json()
                     state = next(i for i in response['integrations'] if i['id'] == 'connections')
                     assert state['status'] == expected

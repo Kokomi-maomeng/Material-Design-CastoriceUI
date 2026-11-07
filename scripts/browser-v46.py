@@ -14,7 +14,7 @@ from qa_browser import settled as settle_view, open_page as open_ready_page
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
-PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "alerts", "audit", "setup")
+PAGES = ("overview", "traffic", "traffic/connections", "accounts", "network", "services", "alerts", "audit", "setup")
 TIME = "2026-01-01T00:00:00+00:00"
 
 
@@ -75,7 +75,7 @@ def run(engine, timezone, browser):
         settle_view(page)
 
     def open_page(section):
-        titles = {"overview": dashboard["overview"]["nodeName"], "traffic": "Traffic analytics", "connections": "Active connections", "accounts": "Account status", "network": "Network quality", "services": "Services", "alerts": "Alerts", "audit": "Audit center", "setup": "Setup"}
+        titles = {"overview": dashboard["overview"]["nodeName"], "traffic": "Traffic analytics", "traffic/connections": "Traffic analytics", "accounts": "Account management", "network": "Network quality", "services": "Services", "alerts": "Alerts", "audit": "Audit center", "setup": "Setup"}
         open_ready_page(page, section, titles[section])
 
     def geometry():

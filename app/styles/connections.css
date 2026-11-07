@@ -1,3 +1,6 @@
+.active-connections { min-width: 0; display: grid; gap: 14px; }
+.active-connections > h2 { margin: 0; font-size: 1.375rem; scroll-margin-top: calc(var(--topbar-height) + 16px); }
+.active-connections > .motion-collapse:not(.is-expanded) { margin-top: -14px; }
 .connection-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 28px; padding: 20px; background: var(--surface-container); border-radius: var(--radius-lg); }
 .connection-speeds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; min-width: 0; }
 .connection-speeds > div { min-width: 0; display: flex; flex-direction: column; gap: 8px; }

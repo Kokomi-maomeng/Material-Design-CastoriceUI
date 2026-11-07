@@ -323,12 +323,14 @@ export interface AlertItem {
 export interface AuditEvent {
   id: string;
   action: string;
+  actionEn?: string;
   category: "认证" | "账号" | "配置" | "系统";
   actor: string;
   ip: string;
   time: string;
   result: "成功" | "失败";
   detail: string;
+  detailEn?: string;
 }
 
 export interface AuditPageResponse {
@@ -370,7 +372,6 @@ export type PageId =
   | "overview"
   | "setup"
   | "accounts"
-  | "connections"
   | "traffic"
   | "network"
   | "services"

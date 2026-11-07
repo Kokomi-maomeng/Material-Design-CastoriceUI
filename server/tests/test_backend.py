@@ -45,12 +45,12 @@ class BackendTests(unittest.TestCase):
 
     def test_visible_panels_use_canonical_order_for_saved_preferences(self) -> None:
         self.assertEqual(
-            ordered_visible_panels(["traffic", "alerts", "audit", "accounts", "traffic", "services"]),
+            ordered_visible_panels(["traffic", "alerts", "audit", "accounts", "traffic", "services", "connections"]),
             ["alerts", "accounts", "services", "traffic", "audit"],
         )
         self.assertEqual(
             ordered_visible_panels(None),
-            ["alerts", "accounts", "services", "network", "connections", "traffic", "audit"],
+            ["alerts", "accounts", "services", "network", "traffic", "audit"],
         )
 
     def test_service_versions_ignore_terminal_control_sequences(self) -> None:

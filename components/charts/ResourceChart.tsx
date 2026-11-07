@@ -34,7 +34,7 @@ export function ResourceChart({ data }: { data: ResourceSample[] }) {
   const x = (index: number) => PLOT.x + timeline.ratios[index] * PLOT.width;
   const y = (value: number) => PLOT.y + PLOT.height * (1 - Math.max(0, Math.min(100, value)) / 100);
   const path = (field: "cpuPercent" | "memoryPercent", group: number[]) => group.map((index, offset) => `${offset ? "L" : "M"}${x(index).toFixed(1)},${y(data[index][field]).toFixed(1)}`).join(" ");
-  const label = (sample: ResourceSample) => new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(sample.capturedAt));
+  const label = (sample: ResourceSample) => new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(sample.capturedAt));
   const pick = (event: PointerEvent<SVGSVGElement>) => {
     const matrix = event.currentTarget.getScreenCTM();
     if (!matrix) return;

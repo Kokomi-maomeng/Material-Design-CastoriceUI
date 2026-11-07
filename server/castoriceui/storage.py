@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .alert_policy import present, sql_level
-from .migrations import retire_external_monitoring, retire_subscription_panel
+from .audit_labels import audit_matches, normalize_audit_search
+from .migrations import retire_external_monitoring, retire_navigation_panels
 from .auth import dummy_password_check, hash_password, token_hash, validate_password, validate_username, verify_password
 
 
@@ -152,7 +153,7 @@ class Storage:
             if "coverage_state" not in delta_columns:
                 connection.execute("ALTER TABLE traffic_deltas ADD COLUMN coverage_state TEXT NOT NULL DEFAULT 'source_start'")
             retire_external_monitoring(connection)
-            retire_subscription_panel(connection)
+            retire_navigation_panels(connection)
             self._initialize_traffic_ledger(connection)
             self._prune_monitoring(connection, int(time.time()))
             self._prune_audits(connection)
@@ -517,11 +518,12 @@ class Storage:
             clauses.append("category = ?")
             parameters.append(category)
         if search:
-            clauses.append("(action LIKE ? OR actor LIKE ? OR source_ip LIKE ? OR detail LIKE ?)")
-            pattern = f"%{search}%"
-            parameters.extend([pattern, pattern, pattern, pattern])
+            clauses.append("audit_matches(?, action, actor, source_ip, detail)")
+            parameters.append(normalize_audit_search(search))
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.lock, self.connect() as connection:
+            if search:
+                connection.create_function("audit_matches", 5, audit_matches, deterministic=True)
             self._prune_audits(connection)
             total = int(connection.execute(f"SELECT COUNT(*) FROM audits{where}", parameters).fetchone()[0])
             total_pages = max(1, (total + page_size - 1) // page_size)

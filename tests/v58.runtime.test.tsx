@@ -2,13 +2,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as api from "../lib/api";
 import * as clipboard from "../lib/clipboard";
-import { ConnectionsPage } from "../components/pages/ConnectionsPage";
+import { ActiveConnections } from "../components/traffic/ActiveConnections";
 import { connectionDestination } from "../lib/connection-view";
 import { I18nProvider } from "../lib/i18n";
 import type { Connection } from "../lib/types";
 
 const connection: Connection = { id: "qa", protocol: "Trojan", account: "", sourceIp: "2001:db8::1", ipVersion: 6, connections: 1, connectedAt: null, uploadBps: 100, downloadBps: 200, details: [{ id: "flow", destination: null, connectedAt: null, uploadBps: 100, downloadBps: 200 }] };
-const view = (connections = [connection]) => <I18nProvider><ConnectionsPage connections={connections} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} /></I18nProvider>;
+const view = (connections = [connection]) => <I18nProvider><ActiveConnections connections={connections} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} /></I18nProvider>;
 beforeEach(() => { localStorage.clear(); localStorage.setItem("castorice-language", "en"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 

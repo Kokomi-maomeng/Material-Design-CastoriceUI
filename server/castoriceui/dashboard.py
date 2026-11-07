@@ -35,11 +35,12 @@ from .collectors import (
 from .config import AppConfig, DEFAULT_INTEGRATIONS, normalize_alert_thresholds
 from .validation import integer, number, boolean
 from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
+from .audit_labels import audit_action_en, audit_detail_en
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
 
 
-VISIBLE_PANEL_ORDER = ("alerts", "accounts", "services", "network", "connections", "traffic", "audit")
+VISIBLE_PANEL_ORDER = ("alerts", "accounts", "services", "network", "traffic", "audit")
 INTEGRATION_FIELD_LIMITS = {
     "endpoint": 2048,
     "identityMappings": 8192,
@@ -1155,12 +1156,14 @@ class DashboardService:
             {
                 "id": f"audit-{row['id']}",
                 "action": row["action"],
+                "actionEn": audit_action_en(row["action"]),
                 "category": row["category"],
                 "actor": row["actor"],
                 "ip": row["source_ip"],
                 "time": row["created_at"],
                 "result": row["result"],
                 "detail": row["detail"],
+                "detailEn": audit_detail_en(row["detail"]),
             }
             for row in result["items"]
         ]

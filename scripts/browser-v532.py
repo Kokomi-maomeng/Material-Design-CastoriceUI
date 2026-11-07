@@ -35,7 +35,7 @@ def run(engine, browser):
         dashboard = empty_dashboard(context, page, BASE)
         dashboard.update(mode='live', generatedAt='2026-01-01T00:00:00Z')
         dashboard['overview']['nodeName'] = 'Motion QA'
-        dashboard['uiSettings']['visiblePanels'] = ['alerts','accounts','services','network','connections','traffic','audit']
+        dashboard['uiSettings']['visiblePanels'] = ['alerts','accounts','services','network','traffic','audit']
         state = {'authenticated': True, 'backgrounds': 0, 'bootstraps': 0, 'logoutFailure': False, 'settingsWrites': 0}
         appearance = {'type':'url','url':'/api/v2/auth/background','fit':'cover','cacheSeconds':2,'glass':'clear','glassEnabled':False,'revision':'motion-v532'}
 
@@ -115,11 +115,16 @@ def run(engine, browser):
         reset.click(); assert schedule.get_attribute('aria-hidden') == 'true'; settled(page)
         page.get_by_role('button', name='Cancel', exact=True).click(); page.locator('.md-dialog-layer').wait_for(state='detached')
         # Every route keeps the existing entrance animation and its exact heading.
-        routes = [('overview','Motion QA'),('accounts','Account status'),('connections','Active connections'),('traffic','Traffic analytics'),('network','Network quality'),('services','Services'),('alerts','Alerts'),('setup','Setup'),('audit','Audit center')]
+        routes = [('overview','Motion QA'),('accounts','Account management'),('traffic/connections','Traffic analytics'),('traffic','Traffic analytics'),('network','Network quality'),('services','Services'),('alerts','Alerts'),('setup','Setup'),('audit','Audit center')]
         for route, heading in routes:
             if width <= 900: page.get_by_role('button', name='Open navigation', exact=True).click()
-            nav = page.locator('.navigation-rail nav button').filter(has_text={'accounts':'Account status','connections':'Connections','traffic':'Traffic','network':'Network','services':'Services','alerts':'Alerts','audit':'Audit','setup':'Setup','overview':'Overview'}[route])
-            nav.click(); page.get_by_role('heading', name=heading, exact=True).wait_for(); settled(page)
+            nav = page.locator('.navigation-rail nav button').filter(has_text={'accounts':'Account management','traffic/connections':'Overview','traffic':'Traffic analytics','network':'Network','services':'Services','alerts':'Alerts','audit':'Audit','setup':'Setup','overview':'Overview'}[route])
+            nav.click()
+            if route == 'traffic/connections':
+                page.get_by_role('link', name='View connections', exact=True).press('Enter')
+                page.get_by_role('heading', level=2, name='Active connections', exact=True).wait_for()
+                assert page.evaluate("location.hash") == "#/traffic/connections"
+            page.get_by_role('heading', level=1, name=heading, exact=True).wait_for(); settled(page)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'), (route, width, 'document overflow')
             assert page.locator('.page-content').evaluate('e=>getComputedStyle(e).animationName') == 'page-enter'
             if route in ('accounts','traffic'):

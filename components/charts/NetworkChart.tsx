@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useI18n } from "../../lib/i18n";
-import { networkTimeLabel, smoothNetworkPath } from "../../lib/network-chart";
+import { networkTimeLabel } from "../../lib/network-chart";
+import { smoothChartPath } from "../../lib/chart-path";
 import type { NetworkHistorySample } from "../../lib/types";
-import { usePresence } from "../ui/usePresence";
+import { ChartTooltip } from "./ChartTooltip";
 
 export function NetworkChart({ samples, label, step = 1, seconds = false, start: requestedStart, end: requestedEnd, state }: {
   samples: NetworkHistorySample[];
@@ -15,7 +16,6 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
 }) {
   const { language, t } = useI18n();
   const plotRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
   const gradient = useId();
   const tooltipId = useId();
   const [width, setWidth] = useState(360);
@@ -24,7 +24,6 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
   const [paused, setPaused] = useState(false);
   const [activeAt, setActiveAt] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
-  const present = usePresence(open, 180);
   useEffect(() => {
     const element = plotRef.current;
     if (!element) return;
@@ -105,13 +104,14 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
     event.preventDefault();
     select(event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1 : index + (event.key === "ArrowLeft" ? -1 : 1));
   };
-  const tooltipX = selected ? Math.max(4, Math.min(width - 108, x(selected.capturedAt) - 50)) : 0;
-  const tooltipY = selected && selected.latency !== null ? Math.max(4, Math.min(112, y(selected.latency, "latency") - 76)) : 22;
+  const selectedLatency = selected?.complete ? selected.latency : null;
+  const selectedLoss = selected?.complete ? selected.loss : null;
+  const selectedY = Math.min(selectedLatency === null ? plot.bottom : y(selectedLatency, "latency"), selectedLoss === null ? plot.bottom : y(selectedLoss, "loss"));
   const valid = visible.some((sample) => sample.complete && (sample.latency !== null || sample.loss !== null));
   return <div className="network-chart">
     <div className="network-chart__plot" ref={plotRef}>
-      <svg ref={svgRef} viewBox={`0 0 ${width} 220`} preserveAspectRatio="xMinYMin meet" className="network-trend-chart" role="img" aria-label={label} aria-describedby={selected && open ? tooltipId : undefined} tabIndex={0}
-        onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setOpen(false)} onFocus={() => select(visible.length - 1)} onBlur={() => setOpen(false)} onKeyDown={keyboard}>
+      <svg viewBox={`0 0 ${width} 220`} preserveAspectRatio="xMinYMin meet" className="network-trend-chart" role="img" aria-label={label} aria-describedby={selected && open ? tooltipId : undefined} tabIndex={0}
+        onPointerMove={pick} onPointerDown={pick} onPointerLeave={(event) => { if (event.pointerType !== "touch") setOpen(false); }} onPointerCancel={() => setOpen(false)} onFocus={() => { if (!open) select(visible.length - 1); }} onBlur={() => setOpen(false)} onKeyDown={keyboard}>
         <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--primary)" stopOpacity=".14" /><stop offset="100%" stopColor="var(--primary)" stopOpacity="0" /></linearGradient></defs>
         {[plot.top, plot.bottom].map((row) => <line key={row} className="chart-grid-line" x1={plot.left} x2={plot.right} y1={row} y2={row} />)}
         <text x={plot.left - 7} y={plot.top + 4} textAnchor="end" className="chart-axis-label">{maximum === null ? "—" : maximum.toFixed(1)} ms</text>
@@ -121,28 +121,26 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
         <text x={plot.right + 6} y={plot.bottom + 4} className="chart-axis-label">0%</text>
         {visible.filter((sample) => !sample.complete || sample.hasGaps).map((sample) => <line key={sample.capturedAt} data-gap="true" data-partial={sample.complete} x1={x(sample.capturedAt)} x2={x(sample.capturedAt)} y1={sample.complete ? plot.bottom - 4 : plot.top} y2={plot.bottom} stroke={sample.complete ? "var(--warning)" : "var(--error)"} strokeOpacity={sample.complete ? ".6" : ".25"} strokeDasharray={sample.complete ? undefined : "2 4"}><title>{sample.complete ? t("部分采样缺失", "Partial sample coverage") : t("未采样", "Missing sample")}</title></line>)}
         {(["latency", "loss"] as const).flatMap((metric) => segments(metric).map((segment, index) => <g key={`${metric}-${index}`}>
-          {metric === "latency" && segment.length > 1 ? <path d={`${smoothNetworkPath(segment)} L ${segment.at(-1)![0]},${plot.bottom} L ${segment[0][0]},${plot.bottom} Z`} fill={`url(#${gradient})`} /> : null}
-          {segment.length > 1 ? <path data-metric={metric} d={smoothNetworkPath(segment)} fill="none" stroke={metric === "latency" ? "var(--primary)" : "var(--warning)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          {metric === "latency" && segment.length > 1 ? <path d={`${smoothChartPath(segment)} L ${segment.at(-1)![0]},${plot.bottom} L ${segment[0][0]},${plot.bottom} Z`} fill={`url(#${gradient})`} /> : null}
+          {segment.length > 1 ? <path data-metric={metric} d={smoothChartPath(segment)} fill="none" stroke={metric === "latency" ? "var(--primary)" : "var(--warning)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             : <circle data-metric={metric} cx={segment[0][0]} cy={segment[0][1]} r="2.5" fill={metric === "latency" ? "var(--primary)" : "var(--warning)"} />}
         </g>))}
-        {selected && present ? <g className={`network-chart__cursor ${open ? "is-open" : ""}`} aria-hidden="true" style={{ transform: `translateX(${x(selected.capturedAt)}px)` }}>
+        {selected ? <g className={`chart-inspector ${open ? "is-open" : ""}`} aria-hidden="true" style={{ transform: `translateX(${x(selected.capturedAt)}px)` }}>
           <line x1="0" x2="0" y1={plot.top} y2={plot.bottom} />
-          {selected.complete && selected.latency !== null ? <circle className="network-chart__point" cy={y(selected.latency, "latency")} r="4" fill="var(--primary)" /> : null}
-          {selected.complete && selected.loss !== null ? <circle className="network-chart__point" cy={y(selected.loss, "loss")} r="3.5" fill="var(--warning)" /> : null}
+          {selectedLatency !== null ? <circle className="chart-inspector__point" cy={y(selectedLatency, "latency")} r="4" fill="var(--primary)" /> : null}
+          {selectedLoss !== null ? <circle className="chart-inspector__point" cy={y(selectedLoss, "loss")} r="4" fill="var(--warning)" /> : null}
         </g> : null}
         {[start, (start + end) / 2, end].map((at, index) => <text key={index} x={index === 0 ? plot.left : index === 2 ? plot.right : (plot.left + plot.right) / 2} y="210" textAnchor={index === 0 ? "start" : index === 2 ? "end" : "middle"} className="chart-axis-label">{networkTimeLabel(at, seconds, language)}</text>)}
         <rect className="sparkline-hit-area" x={plot.left} y={plot.top} width={plot.right - plot.left} height={plot.bottom - plot.top} />
       </svg>
       {!valid ? <div className="network-chart__empty" role={state === "error" ? "alert" : "status"}>{state === "loading" ? t("读取中", "Loading") : state === "error" ? t("读取失败", "Unable to load history") : "—"}</div> : null}
-      {selected && present ? <div className="network-chart__tooltip-position" style={{ transform: `translate3d(${tooltipX}px, ${tooltipY}px, 0)` }}>
-        <div id={tooltipId} className={`network-chart__tooltip ${open ? "is-open" : "is-leaving"}`} role="tooltip" aria-hidden={!open}>
-          <div className="network-chart__tooltip-values" key={selected.capturedAt}>
-          <time dateTime={new Date(selected.capturedAt * 1000).toISOString()}>{networkTimeLabel(selected.capturedAt, seconds, language)}</time>
-          <b>{selected.complete && selected.latency !== null ? `${selected.latency.toFixed(1)} ms` : "— ms"}</b>
-          <span>{selected.complete && selected.loss !== null ? `${Number(selected.loss.toFixed(1))}%` : "—%"}</span>
-          </div>
-        </div>
-      </div> : null}
+      {selected ? <ChartTooltip id={tooltipId} open={open} onOpenChange={setOpen} x={x(selected.capturedAt)} y={selectedY} width={width} height={plot.bottom}
+        time={new Date(selected.capturedAt * 1000).toLocaleTimeString(language === "zh" ? "zh-CN" : "en-GB", { hour: "2-digit", minute: "2-digit", second: seconds ? "2-digit" : undefined, hourCycle: "h23" })}
+        dateTime={new Date(selected.capturedAt * 1000).toISOString()}
+        readings={[
+          { label: t("延迟", "Latency"), value: selectedLatency === null ? "— ms" : `${selectedLatency.toFixed(1)} ms`, color: "var(--primary)" },
+          { label: t("丢包", "Loss"), value: selectedLoss === null ? "—%" : `${Number(selectedLoss.toFixed(1))}%`, color: "var(--warning)" },
+        ]} /> : null}
     </div>
     {valid && (state === "error" || seconds && points.length > 0 && paused) ? <span className="network-chart__stale" role="status">{t("更新暂停 · 保留上次采样", "Updates paused · last samples retained")}</span> : null}
     <div className="network-chart__legend"><span>{t("延迟 ms · 区间放大", "Latency ms · expanded range")}</span><span>{t("丢包 %", "Loss %")}</span></div>

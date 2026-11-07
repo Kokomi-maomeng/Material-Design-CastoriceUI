@@ -23,7 +23,7 @@ def synthetic_chart_dashboard_from_empty(data):
     data['overview'].update(nodeName='QA node',cpuPercent=9,cpuCores=2,memoryPercent=42,memoryUsedBytes=420_000_000,memoryTotalBytes=1_000_000_000,diskPercent=25,diskUsedBytes=5_000_000_000,diskTotalBytes=20_000_000_000,trafficUsedBytes=100_000_000_000,trafficLimitBytes=1_000_000_000_000,interface='eth0',databaseWritable=True)
     data['traffic'].update(totalBytes=100_000_000_000,ranges={key:points for key in ['1h','6h','24h','3day','7day']},hourly=points)
     data['networkTargets']=[{'id':'qa-target','name':'QA target','provider':'Synthetic','address':'192.0.2.1','ipVersion':4,'latency':20,'jitter':.1,'loss':0,'status':'healthy','history':[20,21,19]}]
-    data['uiSettings']['visiblePanels']=['alerts','accounts','services','network','connections','traffic','audit']
+    data['uiSettings']['visiblePanels']=['alerts','accounts','services','network','traffic','audit']
     return data
 
 
@@ -50,11 +50,16 @@ def check_chart(page, case):
     svg=page.locator('.chart--traffic svg')
     svg.focus(); svg.press('End')
     assert page.locator('.chart-inspector').count()==1, case
-    inspector=page.locator('.chart-inspector rect').bounding_box()
+    inspector=page.locator('.chart-tooltip.is-open').bounding_box()
     box=svg.bounding_box()
     assert inspector['x'] >= box['x']-1 and inspector['x']+inspector['width'] <= box['x']+box['width']+1, (case,'tooltip clipped')
+    tooltip = page.locator('.chart-tooltip-position')
+    high = tooltip.evaluate("e => new DOMMatrix(e.style.transform).m42")
     svg.press('Home')
     assert page.locator('.chart-inspector').count()==1
+    if page.locator('.chart-point--primary').count() > 1:
+        low = tooltip.evaluate("e => new DOMMatrix(e.style.transform).m42")
+        assert low > high + 2, (case, "tooltip did not follow sample height", high, low)
     svg.hover(position={'x':box['width']*.7,'y':box['height']*.5})
     assert page.locator('.chart-inspector').count()==1
     page.wait_for_timeout(180)

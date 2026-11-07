@@ -45,7 +45,7 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
         invalid_credentials: t("用户名或密码不正确。", "The username or password is incorrect."),
         invalid_bootstrap_token: t("一次性引导码无效。", "The one-time bootstrap token is invalid."),
         bootstrap_unavailable: t("服务器尚未生成一次性引导码。", "The server has not generated a bootstrap token."),
-        too_many_attempts: t("尝试次数过多，请十分钟后再试。", "Too many attempts. Try again in ten minutes."),
+        too_many_attempts: t("尝试次数过多，请在 10min 后再试。", "Too many attempts. Try again in 10min."),
         invalid_username: t("用户名需为 3–64 位，并仅包含字母、数字、点、连字符或下划线。", "Use 3–64 letters, numbers, dots, hyphens, and underscores for the username."),
         weak_password: t("密码需为 12–512 位，并包含大小写字母、数字、符号中的至少三类。", "Use 12–512 characters and at least three of uppercase, lowercase, numbers, and symbols."),
         request_timeout: t("登录请求超时；服务器未确认操作，请重试。", "The sign-in request timed out and was not confirmed. Try again."),
@@ -63,7 +63,7 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
     {custom ? <div className="auth-background-placeholder" aria-hidden="true" /> : null}
     <section ref={card} className="auth-card" data-glass={glass} data-glass-tone={glassTone} aria-labelledby="auth-title">
       {glass !== "solid" ? <LiquidGlass background={background} fit={bootstrap.appearance.fit} preset={glass} onTone={setGlassTone} onReady={setOpticalBackground} /> : null}
-      <div className="auth-brand"><span className="brand-mark"><Icon name="ac_unit" size={28} filled /></span><div><strong>CastoriceUI</strong><span>Material Design VPS Console</span></div></div>
+      <div className="auth-brand"><span className="brand-mark"><Icon name="ac_unit" size={28} filled /></span><div><strong>CastoriceUI</strong><span>{t("VPS 控制台", "VPS Console")}</span></div></div>
       <div className="auth-heading"><span className="auth-heading__icon"><Icon name={initialize ? "rocket_launch" : "shield_person"} filled /></span><div><p>{initialize ? t("安全初始化", "Secure setup") : t("管理员登录", "Administrator sign in")}</p><h1 id="auth-title">{initialize ? t("创建第一个管理员", "Create the first administrator") : t("欢迎回来", "Welcome back")}</h1>{initialize ? <span>{t("验证服务器的一次性引导码后创建本地账号。", "Verify the server's one-time bootstrap token to create a local account.")}</span> : null}</div></div>
       {initialize && !bootstrap.bootstrapAvailable ? <div className="auth-warning" role="alert"><Icon name="warning" /><span>{t("服务器缺少一次性引导码。请先在服务器执行部署文档中的生成命令。", "The server is missing a bootstrap token. Run the generation command in the deployment guide first.")}</span></div> : null}
       <form onSubmit={(event) => void submit(event)}>

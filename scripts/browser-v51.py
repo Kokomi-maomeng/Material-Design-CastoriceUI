@@ -91,7 +91,7 @@ def main():
                                         page.locator('#main-content').wait_for()
                                         settled(page)
                                         overview_title = page.locator('#main-content h1').inner_text().strip()
-                                        open_page(page, 'accounts', 'Account status')
+                                        open_page(page, 'accounts', 'Account management')
                                         page.get_by_role('button', name='View Synthetic QA subscriptions', exact=True).click()
                                         page.get_by_role('button', name='Copy URL', exact=True).click()
                                         address = page.get_by_role('textbox', name='Copy link manually', exact=True)

@@ -84,16 +84,16 @@ def main():
                 page.goto(origin,wait_until='networkidle')
                 page.get_by_label('Username',exact=True).fill('qa-browser');page.get_by_label('Password',exact=True).fill('Synthetic-Password-123!')
                 page.get_by_role('button',name='Sign in',exact=True).click();page.locator('#main-content').wait_for()
-                open_page(page,'connections','Active connections')
+                open_page(page,'traffic/connections','Traffic analytics')
                 assert not requests and page.locator('.connection-disclosure').count()==0
                 def geometry():
                     # Inline boxes have clientWidth=0 in Firefox despite painted
                     # text fitting their parent. Measure every real client box,
                     # including inline-flex chips/rates, and retain diagnostics.
-                    return page.evaluate('''()=>{const cards=[...document.querySelectorAll('.connection-card')];const over=[...document.querySelectorAll('.connections-page *')].filter(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return r.width&&r.height&&e.clientWidth>0&&s.display!=='none'&&e.scrollWidth>e.clientWidth+2&&!e.closest('details:not([open])')}).map(e=>({tag:e.tagName,className:String(e.className),clientWidth:e.clientWidth,scrollWidth:e.scrollWidth,display:getComputedStyle(e).display,text:e.textContent.slice(0,80)}));return {width:innerWidth,doc:document.documentElement.scrollWidth,over,gap:cards.length>1?cards[1].getBoundingClientRect().top-cards[0].getBoundingClientRect().bottom:0}}''')
+                    return page.evaluate('''()=>{const cards=[...document.querySelectorAll('.connection-card')];const over=[...document.querySelectorAll('.active-connections *')].filter(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return r.width&&r.height&&e.clientWidth>0&&s.display!=='none'&&e.scrollWidth>e.clientWidth+2&&!e.closest('details:not([open])')}).map(e=>({tag:e.tagName,className:String(e.className),clientWidth:e.clientWidth,scrollWidth:e.scrollWidth,display:getComputedStyle(e).display,text:e.textContent.slice(0,80)}));return {width:innerWidth,doc:document.documentElement.scrollWidth,over,gap:cards.length>1?cards[1].getBoundingClientRect().top-cards[0].getBoundingClientRect().bottom:0}}''')
                 # Hidden 0/1/50/100 streams must not create spacing or focus targets.
                 for count in (0,1,50,100):
-                    refresh(count);page.reload(wait_until='networkidle');open_page(page,'connections','Active connections')
+                    refresh(count);page.reload(wait_until='networkidle');open_page(page,'traffic/connections','Traffic analytics')
                     assert page.locator('.connection-disclosure').count()==0
                     value=geometry();assert value['doc']<=value['width']+1 and not value['over'],value
                     if count:assert abs(value['gap']-12)<1,value
@@ -196,7 +196,7 @@ def main():
                     for theme in ('light','dark'):
                         refresh()
                         page.evaluate('v=>{localStorage.setItem("castorice-language",v[0]);localStorage.setItem("castorice-theme-mode",v[1])}',[language,theme])
-                        page.reload(wait_until='networkidle');open_page(page,'connections','Active connections' if language=='en' else '在线连接')
+                        page.reload(wait_until='networkidle');open_page(page,'traffic/connections','Traffic analytics' if language=='en' else '流量分析')
                         for motion in ('reduce','no-preference'):
                             page.emulate_media(reduced_motion=motion)
                             for width in WIDTHS:
@@ -213,7 +213,7 @@ def main():
                     events=[{'id':f'badge-{severity}-{i}','severity':severity,'title':'Synthetic badge','description':'QA','source':'QA','time':stamp,'acknowledged':False} for severity,count in (('critical',critical),('warning',warning),('info',info)) for i in range(count)]
                     storage.reconcile_alerts(events)
                     for scale in (1,1.25,1.5,2):
-                        page.reload(wait_until='networkidle');open_page(page,'connections','Active connections');page.set_viewport_size({'width':390,'height':844})
+                        page.reload(wait_until='networkidle');open_page(page,'traffic/connections','Traffic analytics');page.set_viewport_size({'width':390,'height':844})
                         page.evaluate('value=>document.documentElement.style.fontSize=value+"px"',16*scale);settled(page)
                         badge=page.locator('.notification-badge')
                         if not expected:assert badge.count()==0
@@ -226,13 +226,16 @@ def main():
                         badge_cases+=1
                 # Remove text override before the shared page and dialog coverage.
                 page.evaluate("()=>document.documentElement.style.fontSize=''")
-                routes={'overview':'Synthetic QA','connections':'Active connections','traffic':'Traffic analytics','accounts':'Account status','services':'Services','network':'Network quality','alerts':'Alerts','audit':'Audit center','setup':'Setup'}
+                routes={'overview':'Synthetic QA','traffic/connections':'Traffic analytics','traffic':'Traffic analytics','accounts':'Account management','services':'Services','network':'Network quality','alerts':'Alerts','audit':'Audit center','setup':'Setup'}
                 for route,heading in routes.items():
                     open_page(page,route,heading)
                     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'),(engine,route)
-                open_page(page,'connections','Active connections')
+                open_page(page,'traffic/connections','Traffic analytics')
+                page.evaluate("location.hash='/connections'")
+                page.wait_for_function("location.hash === '#/traffic/connections'")
+                assert page.locator(".active-connections > h2").inner_text() == "Active connections"
                 page.get_by_role('switch',name='Show live connections',exact=True).click();page.locator('.connection-disclosure').first.wait_for()
-                open_page(page,'overview','Synthetic QA');open_page(page,'connections','Active connections')
+                open_page(page,'overview','Synthetic QA');open_page(page,'traffic/connections','Traffic analytics')
                 assert page.locator('.connection-disclosure').count()==0
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)

@@ -4,6 +4,23 @@
   outline-offset: -3px;
   scroll-margin: 6px;
 }
+
+:root :is(.field, .connection-search, .network-alert-editor, .network-editor-dialog, .md-pagination) :is(input, textarea):focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* Composite fields have a single ring on the visible field, including its adornments. */
+:is(.search-field, .auth-input, .md-select-search, .quota-input-stable):has(input:focus) {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+:root :is(.search-field, .auth-input, .md-select-search, .quota-input-stable) input:focus {
+  outline: none;
+}
+
 @media (forced-colors: active) {
-  :root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible { outline-color: Highlight; }
+  :root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible,
+  :root :is(.field, .connection-search, .network-alert-editor, .network-editor-dialog, .md-pagination) :is(input, textarea):focus,
+  :is(.search-field, .auth-input, .md-select-search, .quota-input-stable):has(input:focus) { outline-color: Highlight; }
 }
