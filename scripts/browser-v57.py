@@ -151,7 +151,7 @@ def main():
                 disclosure.get_by_role('searchbox').wait_for(state='visible')
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
-                assert disclosure.locator('.connection-target').count()==20
+                expect(disclosure.locator('.connection-target')).to_have_count(20)
                 # Finish the animated 10-to-20 row expansion and native scroll
                 # anchoring before targeting a button outside the current view.
                 settled(page)
