@@ -115,7 +115,8 @@ def main():
                                 for width,height in [(1536,639),(390,844),(2560,1440),(320,700),(1440,1000)]:
                                     page.set_viewport_size({'width':width,'height':height})
                                     for section in ['overview','traffic']:
-                                        page.goto(origin+'/#/'+section,wait_until='networkidle')
+                                        page.goto(origin+'/#/'+section,wait_until='domcontentloaded')
+                                        page.locator('.traffic-hero' if section == 'overview' else '.traffic-analysis').wait_for()
                                         geometry=[]
                                         for label in ['24h','1h','6h','3d','7d']:
                                             page.locator('.traffic-range-control').get_by_role('button',name=label,exact=True).click()
@@ -129,7 +130,8 @@ def main():
                                 # Initial empty data and one-point data must mount and resize correctly.
                                 for count in [0,1,24]:
                                     data['traffic']['ranges']={key:points[:count] for key,points in original_ranges.items()}
-                                    page.goto(origin+'/#/overview',wait_until='networkidle')
+                                    page.goto(origin+f'/?qa_chart_count={count}#/overview',wait_until='domcontentloaded')
+                                    page.locator('.traffic-hero').wait_for()
                                     if count: check_chart(page,{'engine':engine,'count':count})
                                     else: page.locator('.chart-empty').wait_for()
                                 assert not errors, errors

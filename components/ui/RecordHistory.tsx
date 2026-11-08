@@ -12,22 +12,24 @@ export function AnimatedRecords({ children, transitionKey, itemCount, ready = tr
     const element = container.current, inner = content.current;
     if (!element || !inner || typeof ResizeObserver === "undefined") return;
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const cancel = () => {
-      for (const node of [element, inner, ...inner.querySelectorAll("[data-live-record]")]) {
-        node.getAnimations?.().forEach((animation) => animation.cancel());
-      }
-    };
+    const running = () => [element, inner, ...inner.querySelectorAll("[data-live-record]")].flatMap((node) => node.getAnimations?.() ?? []);
+    const cancel = () => running().forEach((animation) => animation.cancel());
     const reduce = () => { if (media.matches) cancel(); };
     media.addEventListener?.("change", reduce);
     // Responsive reflow is a new baseline, not a record expansion. Keeping the
     // old desktop height would briefly shrink a mobile list and clamp scroll.
+    let frame = 0;
     const observer = new ResizeObserver(() => {
       const rect = inner.getBoundingClientRect();
-      if (rect.width !== previous.current.width) cancel();
+      if (rect.width !== previous.current.width) {
+        const animations = running();
+        window.cancelAnimationFrame(frame);
+        frame = window.requestAnimationFrame(() => animations.forEach((animation) => animation.cancel()));
+      }
       previous.current = { ...previous.current, height: rect.height, width: rect.width };
     });
     observer.observe(inner);
-    return () => { observer.disconnect(); media.removeEventListener?.("change", reduce); cancel(); };
+    return () => { observer.disconnect(); window.cancelAnimationFrame(frame); media.removeEventListener?.("change", reduce); cancel(); };
   }, []);
   useLayoutEffect(() => {
     const element = container.current, inner = content.current;

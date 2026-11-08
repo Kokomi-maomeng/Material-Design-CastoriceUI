@@ -30,9 +30,14 @@ export function NetworkChart({ samples, label, step = 1, seconds = false, start:
     const resize = () => { const measured = element.getBoundingClientRect().width; if (measured > 0) setWidth(Math.round(measured)); };
     resize();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(resize);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      // Keep SVG updates outside the browser's resize notification pass.
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(resize);
+    });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); window.cancelAnimationFrame(frame); };
   }, []);
   useEffect(() => {
     if (!seconds) return;
