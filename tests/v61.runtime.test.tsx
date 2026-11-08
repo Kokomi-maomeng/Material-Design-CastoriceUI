@@ -25,7 +25,7 @@ it.each([0, 1, 29, 30, 31])("uses identical threshold controls for %i records of
   }
 });
 
-it("paginates accounts, collapses to the first 30 and resets after filtering", () => {
+it("paginates accounts, collapses to the first 30 and resets after filtering", async () => {
   english(<AccountsPage accounts={Array.from({ length: 121 }, (_, index) => account(index))} unattributedBytes={12.5e9} onConfigure={vi.fn()} />);
   const pinned = document.querySelector(".accounts-table tbody tr:first-child")!;
   expect(pinned.textContent).toContain("Unattributed12.5 GB");
@@ -39,18 +39,20 @@ it("paginates accounts, collapses to the first 30 and resets after filtering", (
   fireEvent.click(screen.getByRole("button", { name: "Collapse to latest 30" }));
   expect(screen.getByText("QA 0")).toBeTruthy();
   expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(31);
-  fireEvent.change(screen.getByRole("textbox", { name: "Search accounts" }), { target: { value: "　ＱＡ １２０ " } });
+  fireEvent.click(screen.getByRole("button", { name: "Search and sort accounts" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "Search accounts" }), { target: { value: "　ＱＡ １２０ " } });
   expect(screen.getByText("1 total records")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Show all records" })).toBeNull();
   expect(document.querySelector(".accounts-table tbody tr:first-child")).toBe(pinned);
 });
 
-it("keeps expansion while filter round trips return to page one", () => {
+it("keeps expansion while filter round trips return to page one", async () => {
   english(<AccountsPage accounts={Array.from({ length: 121 }, (_, index) => account(index))} onConfigure={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Show all records" }));
   fireEvent.click(screen.getByRole("button", { name: "Next page" }));
   expect(screen.getByText("QA 50")).toBeTruthy();
-  const search = screen.getByRole("textbox", { name: "Search accounts" });
+  fireEvent.click(screen.getByRole("button", { name: "Search and sort accounts" }));
+  const search = await screen.findByRole("textbox", { name: "Search accounts" });
   fireEvent.change(search, { target: { value: "QA 120" } });
   expect(screen.getByText("1 total records")).toBeTruthy();
   fireEvent.change(search, { target: { value: "" } });

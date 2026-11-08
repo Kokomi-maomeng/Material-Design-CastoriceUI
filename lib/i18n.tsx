@@ -1,7 +1,30 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-export type LanguagePreference = "system" | "zh" | "en";
-export type ResolvedLanguage = "zh" | "en";
+const LANGUAGES = {
+  zh: { name: "中文", tag: "zh-CN", label: "语言", system: "跟随系统" },
+  en: { name: "English", tag: "en", label: "Language", system: "Follow system" },
+} as const;
+
+export type ResolvedLanguage = keyof typeof LANGUAGES;
+export type LanguagePreference = "system" | ResolvedLanguage;
+
+function isLanguage(value: string | null): value is ResolvedLanguage {
+  return value !== null && Object.hasOwn(LANGUAGES, value);
+}
+
+export function isLanguagePreference(value: string | null): value is LanguagePreference {
+  return value === "system" || isLanguage(value);
+}
+
+export function languageSelect(language: ResolvedLanguage) {
+  return {
+    label: LANGUAGES[language].label,
+    options: [
+      { value: "system", label: LANGUAGES[language].system },
+      ...Object.entries(LANGUAGES).map(([value, { name }]) => ({ value, label: name })),
+    ],
+  };
+}
 
 interface I18nValue {
   preference: LanguagePreference;
@@ -18,16 +41,19 @@ export function withoutTerminalPeriod(value: string): string {
 
 function browserLanguage(): ResolvedLanguage {
   const languages = typeof navigator === "undefined" ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];
-  const first = String(languages[0] ?? "").toLowerCase();
-  if (first.startsWith("zh")) return "zh";
-  if (first.startsWith("en")) return "en";
+  for (const locale of languages) {
+    const tag = locale.toLowerCase();
+    if (isLanguage(tag)) return tag;
+    const base = tag.split("-")[0];
+    if (isLanguage(base)) return base;
+  }
   return "en";
 }
 
 function initialPreference(): LanguagePreference {
   try {
     const value = window.localStorage.getItem(STORAGE_KEY);
-    return value === "zh" || value === "en" || value === "system" ? value : "system";
+    return isLanguagePreference(value) ? value : "system";
   } catch {
     return "system";
   }
@@ -54,7 +80,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ preference, language, setPreference, t }), [language, preference, setPreference, t]);
 
   useEffect(() => {
-    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    document.documentElement.lang = LANGUAGES[language].tag;
   }, [language]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

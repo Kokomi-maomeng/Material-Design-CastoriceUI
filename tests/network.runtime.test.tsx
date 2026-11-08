@@ -98,7 +98,7 @@ it("shows configured TCP and DNS rows, retains zero RTT and leaves failed measur
   expect(rows[2].textContent).not.toContain("2000");
 });
 
-it("shows only the first ten actual network alerts with their count beside the title", () => {
+it("shows five network alerts and links to the remaining records", () => {
   const onOpen = vi.fn();
   const alert: AlertItem = { id: "network-qa", episodeId: "episode", title: "Network delay", description: "RTT 190 ms", severity: "warning", time: "now", acknowledged: false, startedAt: "2026-10-30T00:00:00Z", source: "Test" };
   const alerts = Array.from({ length: 14 }, (_, i) => ({ ...alert, episodeId: `episode-${i}`, title: `Network delay ${i}` }));
@@ -106,11 +106,11 @@ it("shows only the first ten actual network alerts with their count beside the t
   const global = container.querySelector(".network-alerts-card")!;
   expect(global.textContent).not.toContain("≥ 150 ms");
   expect(global.textContent).not.toContain("≥ 5%");
-  expect(global.querySelectorAll('[role="listitem"]')).toHaveLength(10);
+  expect(global.querySelectorAll('[role="listitem"]')).toHaveLength(5);
   expect(global.querySelector('.network-alerts-card__heading')?.textContent).toContain('14 reminders');
-  expect(global.textContent).not.toContain('Network delay 10');
-  expect(global.textContent).toContain("Network delay");
-  fireEvent.click(screen.getByRole("button", { name: "Alert center" }));
+  expect(global.textContent).not.toContain("Network delay 5");
+  expect(global.textContent).toContain("Network delay 4");
+  fireEvent.click(screen.getByRole("button", { name: "See more records in the alert center" }));
   expect(onOpen).toHaveBeenCalledOnce();
 });
 

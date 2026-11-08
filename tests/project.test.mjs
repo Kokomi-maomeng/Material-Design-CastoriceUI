@@ -65,9 +65,12 @@ test("first run is protected by a one-time token and requires basics before over
 
 test("Chinese, English, and system language modes are available across UI modules", async () => {
   const [i18n, settings, integrations] = await Promise.all([read("lib/i18n.tsx"), read("components/settings/SettingsDialog.tsx"), read("lib/integrations.ts")]);
-  assert.match(i18n, /"system" \| "zh" \| "en"/);
+  assert.match(i18n, /type LanguagePreference = "system" \| ResolvedLanguage/);
+  assert.match(i18n, /zh: \{ name: "中文"/);
+  assert.match(i18n, /en: \{ name: "English"/);
   assert.match(i18n, /return "en"/);
-  assert.match(settings, /Follow system/);
+  assert.match(i18n, /system: "Follow system"/);
+  assert.match(settings, /languageSelect\(language\)/);
   assert.match(integrations, /LocalizedText/);
   const componentFiles = (await readdir(new URL("components/", root), { recursive: true })).filter((name) => /\.(?:ts|tsx)$/.test(name));
   for (const name of componentFiles) {
@@ -311,7 +314,7 @@ test("v3.1 scopes alert acknowledgement and audit history on the server", async 
     read("components/CastoriceApp.tsx"), read("lib/api.ts"), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/storage.py"), read("package.json"), read("scripts/package-release.mjs"),
   ]);
-  assert.match(app, /await acknowledgeAlert\(id\)/);
+  assert.match(app, /await acknowledgeAlert\(change\.episodeId\)/);
   assert.match(await read("components/pages/AlertsPage.tsx"), /Unable to acknowledge the alert/);
   assert.match(client, /\/api\/v2\/audits\?/);
   assert.doesNotMatch(dashboard, /"auditEvents"/);
@@ -387,7 +390,7 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.doesNotMatch(settings, /显示在左上角品牌位置|Shown in the upper-left brand area|前后端都会执行该空闲时限|Both client and server enforce this inactivity limit|验证旧密码后更新当前管理员密码|Verify the current password before updating the administrator password/);
   assert.match(settings, /页面自定义/);
   assert.ok(settings.indexOf("显示初始化向导页面") < settings.indexOf("面板自定义"));
-  for (const label of ["语言", "节点显示名称", "面板标题", "在线超时时长", "显示模式"]) assert.match(settings, new RegExp(`settings-disclosure[^]*${label}`));
+  for (const label of ["languageLabel", "节点显示名称", "面板标题", "在线超时时长", "显示模式"]) assert.match(settings, new RegExp(`settings-disclosure[^]*${label}`));
   assert.doesNotMatch(collector, /match else "eth0"/);
   assert.match(storage, /def is_writable/);
   assert.match(dashboard, /network_ready = bool\(network and any/);

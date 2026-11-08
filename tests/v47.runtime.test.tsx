@@ -24,7 +24,7 @@ it("separates active and recovered pending records without acknowledging them", 
   const recovered = { ...active, id: "qa2", episodeId: "qa2", title: "Recovered fault", status: "resolved" as const, resolvedAt: "2026-01-01T00:01:00Z" };
   const fetch = vi.spyOn(api, "fetchAlerts").mockImplementation(async (options) => ({ items: options.status === "active" ? [active] : options.status === "recovered" ? [recovered] : [active, recovered], total: options.filter === "pending" ? 2 : 1, page: 1, pageSize: 50, totalPages: 1, summary: { active: 1, recoveredPending: 1, pending: 2, critical: 2, warning: 0, info: 0 } }));
   const acknowledge = vi.fn();
-  english(<AlertsPage alerts={[]} onAcknowledge={acknowledge} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  english(<AlertsPage onAcknowledge={acknowledge} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   await screen.findByText("Recovered fault");
   fireEvent.click(screen.getByRole("button", { name: "Filter" }));
   fireEvent.click(await screen.findByRole("button", { name: "Active" }));

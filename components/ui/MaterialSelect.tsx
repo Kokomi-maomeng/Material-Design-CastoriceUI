@@ -18,6 +18,7 @@ export function MaterialSelect({
   onChange,
   ariaLabel,
   placeholder,
+  triggerLabel,
   searchable = false,
   disabled = false,
   popupClassName = "",
@@ -30,6 +31,7 @@ export function MaterialSelect({
   onChange: (value: string) => void;
   ariaLabel: string;
   placeholder?: string;
+  triggerLabel?: string;
   searchable?: boolean;
   disabled?: boolean;
   popupClassName?: string;
@@ -174,7 +176,7 @@ export function MaterialSelect({
           });
         }}
       >
-        <span className={!selected ? "is-placeholder" : undefined}>{selected?.label ?? placeholder ?? t("请选择", "Select")}</span>
+        <span className={!selected ? "is-placeholder" : undefined}>{triggerLabel ?? selected?.label ?? placeholder ?? t("请选择", "Select")}</span>
         <Icon name="arrow_drop_down" />
       </button>
       {present ? createPortal(

@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
 from qa_browser import settled
-from qa_login import verify_arrival, verify_light, verify_navigation_focus
+from qa_login import verify_arrival, verify_language_control, verify_light, verify_navigation_focus
 
 sys.path.insert(0, str(Path(__file__).parent))
 from importlib.util import spec_from_file_location, module_from_spec
@@ -75,6 +75,7 @@ def run(engine, context):
     page.goto(BASE, wait_until='networkidle')
     page.get_by_role('heading', name='Welcome back', exact=True).wait_for(timeout=20000)
     expect(page.locator('.auth-card')).to_have_attribute('data-glass', 'solid'); assert state['requests'] == 0
+    language_control = verify_language_control(page)
     appearance.update(type='url', url='/api/v2/auth/background', glassEnabled=False, revision='v53-images')
     page.reload(wait_until='networkidle'); page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     expect(page.locator('.auth-card')).to_have_attribute('data-glass', 'solid')
@@ -242,7 +243,7 @@ def run(engine, context):
     phase = 'shared-controls'
     controls = verify_controls(page, state, appearance, configured_url='https://images.example.com/random')
     assert not errors, errors
-    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'photoArrival': arrival, 'glassLighting': lighting, 'navigationFocus': navigation_focus, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
+    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'photoArrival': arrival, 'glassLighting': lighting, 'languageControl': language_control, 'navigationFocus': navigation_focus, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ import type { AlertItem } from "../lib/types";
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
 const english = (node: React.ReactNode) => { localStorage.setItem("castorice-language", "en"); return render(<I18nProvider>{node}</I18nProvider>); };
 const item: AlertItem = { id: "qa", episodeId: "qa", title: "Synthetic alert", description: "Synthetic", severity: "info", source: "Monitor evidence", time: "now", startedAt: "2026-10-15T00:00:00Z", acknowledged: false };
-const props = () => ({ alerts: [], onAcknowledge: vi.fn(), onAcknowledgeAll: vi.fn(), onToast: vi.fn(), onConfigure: vi.fn() });
+const props = () => ({ onAcknowledge: vi.fn(), onAcknowledgeAll: vi.fn(), onToast: vi.fn(), onConfigure: vi.fn() });
 const page = (number = 1) => ({ items: Array.from({ length: 50 }, (_, i) => ({ ...item, episodeId: `${number}-${i}`, title: `Alert ${number}-${i}` })), total: 120, page: number, pageSize: 50, totalPages: 3, summary: { pending: 120, critical: 10, warning: 20, info: 90 }, logLocation: { database: "/var/lib/castoriceui/state.db", journal: "journalctl -u castoriceui-backend" } });
 
 it("shows meaningful times inline without record disclosures or generic source and occurrence fields", async () => {

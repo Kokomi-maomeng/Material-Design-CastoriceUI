@@ -42,6 +42,58 @@ def verify_arrival(page, state, appearance, deliver, shots=None, engine='browser
     return {'pendingGlass': True, 'failedImageKeepsForm': True, 'draftPreserved': True, 'revealFrames': len(values), 'stableCardGeometry': True}
 
 
+def verify_language_control(page):
+    state = page.evaluate("""()=>{
+      const root=document.documentElement, auth=document.querySelector('.auth-page'), card=document.querySelector('.auth-card');
+      const saved=[root.dataset.theme, auth.getAttribute('style'), auth.dataset.backgroundState, card.dataset.glass, card.dataset.glassTone];
+      auth.style.backgroundImage='linear-gradient(white, white)';auth.dataset.backgroundState='ready';
+      card.dataset.glass='clear';card.dataset.glassTone='light';
+      Object.defineProperty(navigator,'languages',{value:['en-US'],configurable:true});
+      dispatchEvent(new Event('languagechange'));
+      return saved;
+    }""")
+    button = page.get_by_role('button', name='Language', exact=True)
+    button.click()
+    page.get_by_role('option', name='Follow system', exact=True).click()
+    contrast = """(e, foregroundOnMenu)=>{
+      const fg=getComputedStyle(e).color;
+      let bg=getComputedStyle(e).backgroundColor;
+      if(foregroundOnMenu && bg==='rgba(0, 0, 0, 0)')bg=getComputedStyle(e.closest('.md-select-menu')).backgroundColor;
+      const luminance=color=>color.match(/[0-9.]+/g).slice(0,3).map(Number).map(v=>v/255)
+        .map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+      const levels=[luminance(fg),luminance(bg)].sort((a,b)=>a-b);
+      return (levels[1]+.05)/(levels[0]+.05);
+    }"""
+    for theme in ('light', 'dark'):
+        page.evaluate('theme=>document.documentElement.dataset.theme=theme', theme)
+        expect(button.locator('span').first).to_have_text('Language')
+        button.hover(); settled(page)
+        assert button.evaluate(contrast, False) >= 4.5
+        button.click()
+        menu = page.get_by_role('listbox', name='Language', exact=True)
+        english = menu.get_by_role('option', name='English', exact=True)
+        english.hover(); settled(page)
+        assert button.evaluate(contrast, False) >= 4.5
+        assert all(option.evaluate(contrast, True) >= 4.5 for option in menu.get_by_role('option').all())
+        page.keyboard.press('Escape')
+    page.evaluate("""()=>{
+      Object.defineProperty(navigator,'languages',{value:['zh-Hans-CN'],configurable:true});
+      dispatchEvent(new Event('languagechange'));
+    }""")
+    chinese = page.get_by_role('button', name='语言', exact=True)
+    expect(chinese.locator('span').first).to_have_text('语言')
+    chinese.click(); page.get_by_role('option', name='English', exact=True).click()
+    page.evaluate("""([theme,style,background,glass,tone])=>{
+      const auth=document.querySelector('.auth-page'), card=document.querySelector('.auth-card');
+      document.documentElement.dataset.theme=theme;
+      if(style===null)auth.removeAttribute('style');else auth.setAttribute('style',style);
+      auth.dataset.backgroundState=background;card.dataset.glass=glass;card.dataset.glassTone=tone;
+      delete navigator.languages;dispatchEvent(new Event('languagechange'));
+    }""", state)
+    settled(page)
+    return True
+
+
 def verify_light(page):
     page.set_viewport_size({'width': 1536, 'height': 960}); settled(page)
     card = page.locator('.auth-card'); box = card.bounding_box()

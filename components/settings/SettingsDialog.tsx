@@ -3,7 +3,7 @@ import { ApiError, changePassword, fetchBackgroundOptions, updateLoginBackground
 import { formatDecimalBytes, formatTimeSpan } from "../../lib/format";
 import { BACKGROUND_TIMES, GLASS_PRESETS } from "../../lib/login-background";
 import { validBackgroundUrl } from "../../lib/background-url";
-import { useI18n, type LanguagePreference } from "../../lib/i18n";
+import { isLanguagePreference, languageSelect, useI18n } from "../../lib/i18n";
 import { navigation, PANEL_IDS } from "../../lib/navigation";
 import { PROJECT_AUTHOR, PROJECT_NAME, PROJECT_URL, PROJECT_VERSION } from "../../lib/project";
 import { THEME_MODES, type ThemeColor, type ThemeMode } from "../../lib/theme";
@@ -48,7 +48,8 @@ export function SettingsDialog({
   onToast: (message: string) => void;
   onAppearance?: (appearance: LoginAppearance) => void;
 }) {
-  const { preference, setPreference, t } = useI18n();
+  const { language, preference, setPreference, t } = useI18n();
+  const { label: languageLabel, options: languageOptions } = languageSelect(language);
   const [draftNodeName, setDraftNodeName] = useState(nodeName);
   const [draftPanelTitle, setDraftPanelTitle] = useState(uiSettings.panelTitle);
   const [saving, setSaving] = useState(false);
@@ -190,9 +191,9 @@ export function SettingsDialog({
       <section className="theme-section general-settings-group">
         <h3><Icon name="tune" /><span>{t("常规", "General")}</span></h3>
         <AnimatedDetails className="settings-disclosure general-setting-item">
-          <summary><span><Icon name="translate" /><span><strong>{t("语言", "Language")}</strong><small>{preference === "system" ? t("跟随系统", "Follow system") : preference === "zh" ? "中文" : "English"}</small></span></span><Icon name="expand_more" /></summary>
+          <summary><span><Icon name="translate" /><span><strong>{languageLabel}</strong><small>{languageOptions.find(({ value }) => value === preference)?.label}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
-            <div className="field"><span>{t("语言", "Language")}</span><MaterialSelect ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "Follow system") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as LanguagePreference)} /></div>
+            <div className="field"><span>{languageLabel}</span><MaterialSelect ariaLabel={languageLabel} value={preference} options={languageOptions} onChange={(value) => { if (isLanguagePreference(value)) setPreference(value); }} /></div>
           </div>
         </AnimatedDetails>
         <AnimatedDetails className="settings-disclosure general-setting-item">

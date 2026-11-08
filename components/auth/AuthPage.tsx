@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { BootstrapState, SessionState } from "../../lib/types";
 import { initializeAdministrator, login } from "../../lib/api";
-import { useI18n } from "../../lib/i18n";
+import { isLanguagePreference, languageSelect, useI18n } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
@@ -10,7 +10,8 @@ import { LiquidGlass } from "./LiquidGlass";
 import { useGlassLight } from "./useGlassLight";
 
 export function AuthPage({ bootstrap, onAuthenticated, background: documentBackground }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void; background?: string }) {
-  const { preference, setPreference, t } = useI18n();
+  const { language, preference, setPreference, t } = useI18n();
+  const { label: languageLabel, options: languageOptions } = languageSelect(language);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [bootstrapToken, setBootstrapToken] = useState("");
@@ -73,7 +74,7 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
         {error ? <div className="auth-error" role="alert"><Icon name="error" size={20} /><span>{error}</span></div> : null}
         <Button type="submit" icon={initialize ? "arrow_forward" : "login"} disabled={busy || (initialize && !bootstrap.bootstrapAvailable)}>{busy ? t("正在验证…", "Verifying…") : initialize ? t("创建并继续", "Create and continue") : t("登录", "Sign in")}</Button>
       </form>
-      <div className="auth-footer auth-footer--language"><div className="auth-language-select"><span className="sr-only">{t("语言", "Language")}</span><MaterialSelect popupClassName="md-select-menu--auth" ariaLabel={t("语言", "Language")} value={preference} options={[{ value: "system", label: t("跟随系统", "System") }, { value: "zh", label: "中文" }, { value: "en", label: "English" }]} onChange={(value) => setPreference(value as "system" | "zh" | "en")} /></div></div>
+      <div className="auth-footer auth-footer--language"><div className="auth-language-select"><MaterialSelect ariaLabel={languageLabel} triggerLabel={preference === "system" ? languageLabel : undefined} value={preference} options={languageOptions} onChange={(value) => { if (isLanguagePreference(value)) setPreference(value); }} /></div></div>
     </section>
   </main>;
 }
