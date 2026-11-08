@@ -1,15 +1,9 @@
-export type Protocol =
-  | "Hysteria2"
-  | "AnyTLS"
-  | "VLESS"
-  | "VLESS · XTLS Vision"
-  | "VLESS · Reality"
-  | "VLESS · XTLS Vision · Reality"
-  | "SOCKS5"
-  | "Shadowsocks"
-  | "VMess"
-  | "Trojan"
-  | "TUIC";
+export const PROTOCOL_NAMES = [
+  "Hysteria2", "AnyTLS", "VLESS", "VLESS · XTLS Vision", "VLESS · Reality",
+  "VLESS · XTLS Vision · Reality", "SOCKS5", "Shadowsocks", "VMess", "Trojan", "TUIC",
+] as const;
+
+export type Protocol = typeof PROTOCOL_NAMES[number];
 
 export type AccountStatus = "registered" | "disabled" | "expiring" | "expired" | "unknown";
 

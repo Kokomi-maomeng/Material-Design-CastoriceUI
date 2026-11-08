@@ -15,13 +15,13 @@ import {
   configureIntegration,
   fetchBootstrap,
   fetchDashboard,
-  fetchAlerts,
   fetchSession,
   logout,
   reportActivity,
   updateTrafficLimit,
   updateUiSettings,
 } from "../lib/api";
+import { acknowledgedItems, acknowledgedSummary, type AlertAcknowledgement } from "../lib/alert-acknowledgement";
 import { emptyDashboard } from "../lib/empty-dashboard";
 import { pendingCriticalAlerts } from "../lib/login-background";
 import { alertBadge } from "../lib/alert-badge";
@@ -30,7 +30,6 @@ import { navigation, PANEL_IDS, type PageRoute } from "../lib/navigation";
 import { readBooleanPreference, readPreference, writePreference } from "../lib/preferences";
 import { THEME_COLORS, THEME_MODES, type ThemeColor, type ThemeMode } from "../lib/theme";
 import type {
-  AlertItem,
   BootstrapState,
   DashboardPayload,
   IntegrationId,
@@ -122,6 +121,7 @@ export function CastoriceApp() {
   const [networkEditorOpen, setNetworkEditorOpen] = useState(false);
   const networkConfigurationGeneration = useRef(0);
   const alertAcknowledgementGeneration = useRef(0);
+  const alertWriteInFlight = useRef(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
@@ -133,7 +133,7 @@ export function CastoriceApp() {
     readPreference("castorice-theme-color", THEME_COLORS, "violet"),
   );
   const [dashboard, setDashboard] = useState<DashboardPayload>(emptyDashboard);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const alerts = dashboard.alerts;
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [connections, setConnections] = useState(emptyDashboard.connections);
@@ -234,8 +234,8 @@ export function CastoriceApp() {
     }
     setSigningOut(false);
     setSession(null);
+    alertAcknowledgementGeneration.current += 1;
     setDashboard(emptyDashboard);
-    setAlerts([]);
     setConnections([]);
     setNetworkEditorOpen(false);
     setSettingsOpen(false);
@@ -251,13 +251,13 @@ export function CastoriceApp() {
     const alertGeneration = alertAcknowledgementGeneration.current;
     try {
       const payload = await fetchDashboard();
+      const currentAlerts = !alertWriteInFlight.current && alertGeneration === alertAcknowledgementGeneration.current;
       setDashboard((current) => ({ ...payload,
         networkTargets: networkGeneration === networkConfigurationGeneration.current ? payload.networkTargets : current.networkTargets,
-        alerts: alertGeneration === alertAcknowledgementGeneration.current ? payload.alerts : current.alerts,
-        alertSummary: alertGeneration === alertAcknowledgementGeneration.current ? payload.alertSummary : current.alertSummary,
-        networkAlerts: alertGeneration === alertAcknowledgementGeneration.current ? payload.networkAlerts : current.networkAlerts,
+        alerts: currentAlerts ? payload.alerts : current.alerts,
+        alertSummary: currentAlerts ? payload.alertSummary : current.alertSummary,
+        networkAlerts: currentAlerts ? payload.networkAlerts : current.networkAlerts,
       }));
-      if (alertGeneration === alertAcknowledgementGeneration.current) setAlerts(payload.alerts);
       setConnections(payload.connections);
       hasLiveData.current = true;
     } catch (error) {
@@ -425,13 +425,31 @@ export function CastoriceApp() {
     }));
     await loadDashboard();
   }, [loadDashboard]);
-  const confirmAlerts = async (id?: string) => {
-    if (id) await acknowledgeAlert(id); else await acknowledgeAllAlerts();
-    alertAcknowledgementGeneration.current += 1;
-    const [pending, refreshed] = await Promise.all([fetchAlerts({ page: 1, pageSize: 50, filter: "pending" }), fetchDashboard()]);
-    setAlerts(pending.items);
-    setDashboard((current) => ({ ...current, alerts: pending.items, alertSummary: pending.summary, networkAlerts: refreshed.networkAlerts }));
-    showToast(id ? t("告警已确认", "Alert acknowledged") : t("全部告警已确认", "All alerts acknowledged"));
+  const confirmAlerts = async (change: AlertAcknowledgement) => {
+    if (alertWriteInFlight.current) throw new Error("alert_write_in_progress");
+    alertWriteInFlight.current = true;
+    const generation = ++alertAcknowledgementGeneration.current;
+    try {
+      if (change === "all") await acknowledgeAllAlerts(); else await acknowledgeAlert(change.episodeId);
+      if (generation !== alertAcknowledgementGeneration.current) return;
+      setDashboard((current) => {
+        const network = current.networkAlerts;
+        const affectsNetwork = change === "all" || change.id.startsWith("network-");
+        return {
+          ...current,
+          alerts: acknowledgedItems(current.alerts, change),
+          alertSummary: current.alertSummary && acknowledgedSummary(current.alertSummary, change),
+          networkAlerts: network && affectsNetwork ? {
+            items: acknowledgedItems(network.items, change, true),
+            pending: change === "all" ? 0 : Math.max(0, network.pending - 1),
+          } : network,
+        };
+      });
+      showToast(change === "all" ? t("全部告警已确认", "All alerts acknowledged") : t("告警已确认", "Alert acknowledged"));
+    } finally {
+      alertAcknowledgementGeneration.current += 1;
+      alertWriteInFlight.current = false;
+    }
   };
   const saveIntegration = useCallback(
     async (id: IntegrationId, values: Record<string, string>) => {
@@ -439,7 +457,6 @@ export function CastoriceApp() {
         const saved = await configureIntegration(id, true, values);
         const payload = await fetchDashboard();
         setDashboard(payload);
-        setAlerts(payload.alerts);
         setConnections(payload.connections);
         hasLiveData.current = true;
         const verified = payload.integrations.find((item) => item.id === id) ?? saved;
@@ -589,7 +606,7 @@ export function CastoriceApp() {
             networkAlertCount={dashboard.networkAlerts?.pending}
             alertIntegration={integrationFor("alerts")}
             onOpenAlerts={() => navigate("alerts")}
-            onAcknowledgeAll={() => confirmAlerts()}
+            onAcknowledgeAll={() => confirmAlerts("all")}
             onToast={showToast}
             integration={integrationFor("network")}
             onConfigure={() => configurePage("network")}
@@ -621,12 +638,13 @@ export function CastoriceApp() {
       case "alerts":
         return (
           <AlertsPage
-            alerts={alerts}
             integration={integrationFor("alerts")}
             onConfigure={() => configurePage("alerts")}
             onAcknowledge={confirmAlerts}
-            onAcknowledgeAll={() => confirmAlerts()}
-            onSummaryChange={(summary) => setDashboard((current) => ({ ...current, alertSummary: summary }))}
+            onAcknowledgeAll={() => confirmAlerts("all")}
+            onSummaryChange={(summary) => {
+              if (!alertWriteInFlight.current) setDashboard((current) => ({ ...current, alertSummary: summary }));
+            }}
             onToast={showToast}
           />
         );

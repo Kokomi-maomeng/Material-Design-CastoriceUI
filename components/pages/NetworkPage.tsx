@@ -207,11 +207,16 @@ function ProbeReadings({ target }: { target: NetworkTarget }) {
   </dl>;
 }
 
+const NETWORK_ALERT_LIMIT = 5;
+
 function NetworkAlerts({ integration, alerts, pendingCount, onOpen, onAcknowledgeAll, onToast }: { integration?: IntegrationStatus; alerts: AlertItem[]; pendingCount?: number; onOpen?: () => void; onAcknowledgeAll?: () => Promise<void>; onToast: (message: string) => void }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const networkAlerts = alerts.filter((item) => item.id.startsWith("network-") && !item.acknowledged);
-  const count = pendingCount ?? networkAlerts.length;
+  const count = busy ? 0 : pendingCount ?? networkAlerts.length;
+  const visible = count ? networkAlerts.slice(0, NETWORK_ALERT_LIMIT) : [];
+  const showMore = count > NETWORK_ALERT_LIMIT && Boolean(onOpen);
+  const liveKey = visible.map((item) => item.episodeId ?? item.id).join("|") + (showMore ? "|more" : "");
   const confirm = async () => {
     if (busy || !onAcknowledgeAll) return;
     setBusy(true);
@@ -223,7 +228,11 @@ function NetworkAlerts({ integration, alerts, pendingCount, onOpen, onAcknowledg
   return <Card variant="outlined" className="network-alerts-card">
     <div className="network-alerts-card__heading"><div className="network-alerts-card__title"><h2>{t("网络告警", "Network alerts")}</h2><Chip staticChip tone="info">{integration?.enabled === false ? t("已停用", "Disabled") : `${count} ${t("项提醒", "reminders")}`}</Chip></div><div className="network-alerts-card__actions">{onAcknowledgeAll ? <Button variant="text" compact icon="done_all" disabled={busy || !count} onClick={() => void confirm()}>{t("全部确认", "Acknowledge all")}</Button> : null}{onOpen ? <Button variant="text" icon="notifications" onClick={onOpen}>{t("告警中心", "Alert center")}</Button> : null}</div></div>
 
-    <AnimatedRecords itemCount={Math.min(10, networkAlerts.length)} transitionKey={networkAlerts.slice(0, 10).map((item) => item.episodeId).join("|")}><div className="network-alerts-card__list" role="list">{networkAlerts.slice(0, 10).map((item) => <div role="listitem" key={item.episodeId ?? item.id}><div className="network-alerts-card__message"><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div><AlertTimes alert={item} /></div>)}</div></AnimatedRecords>
+    <AnimatedRecords itemCount={visible.length} transitionKey="network-alerts" liveKey={liveKey}>
+      {count > 0 ? <div className="network-alerts-card__list" role="list">{visible.map((item) => <div role="listitem" key={item.episodeId ?? item.id} data-live-record={item.episodeId ?? item.id}><div className="network-alerts-card__message"><strong>{t(item.titleZh ?? item.title, item.titleEn ?? item.title)}</strong><span>{t(item.descriptionZh ?? item.description, item.descriptionEn ?? item.description)}</span></div><AlertTimes alert={item} /></div>)}</div> : null}
+      {showMore ? <div className="network-alerts-card__more" data-live-record="more"><Button variant="text" compact icon="arrow_forward" onClick={onOpen}>{t("更多记录前往告警中心查看", "See more records in the alert center")}</Button></div> : null}
+      {!count ? <p className="network-alerts-card__empty" role="status" data-live-record="empty">{t("所有问题已确认，更多前往告警中心查看", "All issues acknowledged. See the alert center for more.")}</p> : null}
+    </AnimatedRecords>
   </Card>;
 }
 

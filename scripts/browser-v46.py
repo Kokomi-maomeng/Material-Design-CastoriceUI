@@ -195,7 +195,9 @@ def run(engine, timezone, browser):
     page.get_by_text("Synthetic alert 100", exact=True).wait_for()
     page.get_by_role("button", name="Collapse to latest 30").click()
     page.wait_for_function("document.querySelectorAll('.alert-row').length===30")
-    page.get_by_role("button", name="Acknowledge all", exact=True).click()
+    with page.expect_response(lambda response: response.url.endswith("/api/v2/alerts/ack-all")) as confirmed:
+        page.get_by_role("button", name="Acknowledge all", exact=True).click()
+    assert confirmed.value.ok
     page.get_by_role("button", name="Pending 0", exact=True).wait_for()
     assert len(history) == 135 and all(item["acknowledged"] for item in history)
     expect(page.locator(".notification-badge")).to_have_count(0)

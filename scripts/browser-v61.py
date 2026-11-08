@@ -89,17 +89,67 @@ def run(engine, browser, language):
             focus_count += page.evaluate("""()=>{let count=0;for(const e of document.querySelectorAll('button:not([disabled]),input,textarea,summary,[tabindex="0"],a[href]')){if(e.closest('[inert],[aria-hidden="true"]')||!e.getClientRects().length)continue;e.focus({preventScroll:true});const field=e.matches('input')&&e.closest('.search-field,.auth-input,.md-select-search,.quota-input-stable');const s=getComputedStyle(field||e);if(e.matches(':focus-visible')){if(parseFloat(s.outlineWidth)<2||parseFloat(s.outlineOffset)>-parseFloat(s.outlineWidth))throw Error('Clipped/absent outline: '+(field||e).className);count++}}return count}""")
             cases.append({'section': section, 'total': total, 'width': width})
 
+    translated = lambda zh, en: zh if language == 'zh' else en
+    dashboard['accounts'] = [
+        {**account(0), 'name': 'Bravo', 'email': 'bravo@example.test', 'usedBytes': 50, 'protocols': ['AnyTLS']},
+        {**account(1), 'name': 'Alpha', 'email': 'alpha@example.test', 'usedBytes': 120, 'protocols': ['Hysteria2'], 'expiresAt': '2027-02-01'},
+        {**account(2), 'name': 'Charlie', 'email': 'charlie@example.test', 'usedBytes': 90, 'protocols': ['VMess'], 'expiresAt': '2027-01-01'},
+        {**account(3), 'name': 'Delta', 'email': 'delta@example.test', 'usedBytes': 200, 'protocols': ['Hysteria2'], 'configuredStatus': 'disabled'},
+    ]
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.goto(BASE + '/?qa_columns#/accounts', wait_until='networkidle')
+    names = page.locator('.account-subscription-trigger strong')
+    search_button = page.get_by_role('button', name=translated('搜索与排序账号', 'Search and sort accounts'), exact=True)
+    expect(page.get_by_role('textbox', name=translated('搜索账号', 'Search accounts'), exact=True)).to_have_count(0)
+    search_button.click()
+    page.get_by_role('button', name='A–Z', exact=True).click()
+    expect(names).to_have_text(['Alpha', 'Bravo', 'Charlie', 'Delta'])
+    page.get_by_role('button', name='Z–A', exact=True).click()
+    expect(names).to_have_text(['Delta', 'Charlie', 'Bravo', 'Alpha'])
+    page.get_by_role('textbox', name=translated('搜索账号', 'Search accounts'), exact=True).fill('example.test')
+    page.keyboard.press('Escape')
+    expect(search_button).to_be_focused()
+
+    traffic_sort = page.get_by_role('button', name=translated('按累计流量排序', 'Sort by cumulative traffic'), exact=True)
+    for ordered in (['Delta', 'Alpha', 'Charlie', 'Bravo'], ['Bravo', 'Charlie', 'Alpha', 'Delta'], ['Bravo', 'Alpha', 'Charlie', 'Delta']):
+        traffic_sort.click()
+        expect(names).to_have_text(ordered)
+    expiry_sort = page.get_by_role('button', name=translated('按到期时间排序', 'Sort by expiry date'), exact=True)
+    for ordered in (['Charlie', 'Alpha', 'Bravo', 'Delta'], ['Alpha', 'Charlie', 'Bravo', 'Delta']):
+        expiry_sort.click()
+        expect(names).to_have_text(ordered)
+        expect(page.locator('.accounts-table th[aria-sort]')).to_have_count(1)
+
+    status_label = translated('筛选账号状态', 'Filter account status')
+    page.get_by_role('button', name=status_label, exact=True).click()
+    page.get_by_role('dialog', name=status_label).get_by_role('button', name=translated('账号启用', 'Account enabled'), exact=True).click()
+    protocol_label = translated('筛选协议', 'Filter protocols')
+    page.get_by_role('button', name=protocol_label, exact=True).click()
+    protocol_filter = page.get_by_role('dialog', name=protocol_label)
+    protocol_filter.get_by_role('button', name='Hysteria2', exact=True).click()
+    expect(names).to_have_text(['Alpha'])
+    protocol_filter.get_by_role('button', name='VMess', exact=True).click()
+    expect(names).to_have_text(['Alpha', 'Charlie'])
+    page.keyboard.press('Escape')
+    expiry_sort.click()
+    expect(page.locator('.accounts-table th[aria-sort]')).to_have_count(0)
+    expect(names).to_have_text(['Alpha', 'Charlie'])
+    expect(page.locator('.accounts-table tbody tr').first).to_have_class('account-unattributed')
+    assert page.locator('.account-cell .avatar').evaluate_all("avatars=>avatars.every(e=>getComputedStyle(e).width==='34px'&&getComputedStyle(e).backgroundColor===getComputedStyle(avatars[0]).backgroundColor)")
+
     # The removed route cannot expose a standalone page. Account details own it.
     dashboard['accounts'] = [account(0)]; dashboard['subscriptions'] = [{'id': 'qa-sub', 'account': 'qa-0', 'protocols': ['AnyTLS'], 'enabled': True}]
     dashboard['traffic']['totalBytes'] = 12_500_000_000
     page.set_viewport_size({'width': 390, 'height': 844}); page.goto(BASE + '/#/accounts', wait_until='networkidle')
     assert state['urlReads'] == 0
+    search_button.click()
     search = page.get_by_role('textbox', name='搜索账号' if language == 'zh' else 'Search accounts', exact=True)
     search.click(); search.fill('　ＱＡ ０　')
     assert search.evaluate("""e => {
         const ring=getComputedStyle(e.closest('.search-field'));
         return getComputedStyle(e).outlineStyle==='none' && parseFloat(ring.outlineWidth)>=2 && parseFloat(ring.borderRadius)>=20;
     }""")
+    page.keyboard.press('Escape')
     pinned = page.locator('.accounts-table tbody tr').first
     expect(pinned).to_contain_text('未归属' if language == 'zh' else 'Unattributed')
     expect(pinned).to_contain_text('12.5 GB')
@@ -134,6 +184,22 @@ def run(engine, browser, language):
     assert page.locator('.account-subscriptions').count() == 0
     assert page.evaluate('location.hash') == '#/accounts'
 
+    page.set_viewport_size({'width': 1536, 'height': 960})
+    page.goto(BASE + '/#/traffic', wait_until='networkidle')
+    expect(page.get_by_text(translated('连接与用量', 'Connections and usage'), exact=True)).to_be_visible()
+    usage = page.locator('.traffic-analysis')
+    toggle = usage.get_by_role('button', name=translated('用量明细', 'Usage details'), exact=True)
+    expect(toggle).to_have_attribute('aria-expanded', 'true')
+    page.mouse.move(0, 0); settled(page)
+    surface = usage.evaluate('e=>getComputedStyle(e).backgroundColor')
+    toggle.hover(); settled(page)
+    hover = usage.evaluate('e=>getComputedStyle(e).backgroundColor')
+    assert hover != surface and toggle.evaluate('e=>getComputedStyle(e).backgroundColor') == 'rgba(0, 0, 0, 0)'
+    page.mouse.down(); settled(page)
+    assert usage.evaluate('e=>getComputedStyle(e).backgroundColor') != hover
+    page.mouse.up()
+    expect(toggle).to_have_attribute('aria-expanded', 'false')
+
     page.goto(BASE + '/#/accounts', wait_until='networkidle')
     page.set_viewport_size({'width': 1536, 'height': 960}); settled(page)
     page.get_by_role('button', name='设置' if language == 'zh' else 'Settings', exact=True).click()
@@ -148,7 +214,7 @@ def run(engine, browser, language):
     assert state['writes'] == [{'auditRetentionDays': 30}]
     assert not errors, errors
     context.close()
-    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True}
+    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'usageCard': True}
 
 
 with sync_playwright() as playwright:

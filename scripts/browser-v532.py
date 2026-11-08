@@ -128,9 +128,17 @@ def run(engine, browser):
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'), (route, width, 'document overflow')
             assert page.locator('.page-content').evaluate('e=>getComputedStyle(e).animationName') == 'page-enter'
             if route in ('accounts','traffic'):
-                control = page.get_by_role('button', name='Account enabled', exact=True) if route == 'accounts' else page.locator('.traffic-range-control').get_by_role('button', name='1h', exact=True)
+                if route == 'accounts':
+                    page.get_by_role('button', name='Filter account status', exact=True).click()
+                    filters = page.get_by_role('dialog', name='Filter account status', exact=True)
+                    filters.wait_for(); settled(page)
+                    control = filters.get_by_role('button', name='Account enabled', exact=True)
+                else:
+                    control = page.locator('.traffic-range-control').get_by_role('button', name='1h', exact=True)
                 selection = frames(control, lambda: control.click(), reduced)
                 if not reduced: assert len({r['backgroundColor'] for r in selection}) >= 3, (route, selection)
+                if route == 'accounts':
+                    page.keyboard.press('Escape')
                 settled(page)
         if width > 900:
             sidebar = page.get_by_role('button', name='Hide sidebar', exact=True)

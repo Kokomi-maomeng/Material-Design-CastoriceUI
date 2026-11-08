@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState, type PointerEventHandler, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEventHandler, type ReactNode, type RefObject } from "react";
 import { usePresence } from "./usePresence";
 
 type Placement = "left" | "right" | "top" | "bottom";
@@ -16,6 +16,7 @@ interface AnchoredPopoverProps {
   className?: string;
   preferredWidth?: number;
   placementPreference?: "adjacent" | "vertical";
+  focusOnOpen?: boolean;
   onPointerEnter?: PointerEventHandler<HTMLDivElement>;
   onPointerLeave?: PointerEventHandler<HTMLDivElement>;
 }
@@ -42,6 +43,7 @@ export function AnchoredPopover({
   className = "",
   preferredWidth = 304,
   placementPreference = "adjacent",
+  focusOnOpen = false,
   onPointerEnter,
   onPointerLeave,
 }: AnchoredPopoverProps) {
@@ -98,14 +100,17 @@ export function AnchoredPopover({
   }, [anchorRef, placementPreference, preferredWidth, surfaceRef]);
 
   useEffect(() => {
-    if (!present) return;
+    if (!present || !open) return;
     const frame = window.requestAnimationFrame(positionPanel);
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!popupRef.current?.contains(target) && !anchorRef.current?.contains(target)) onClose();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        if (focusOnOpen && popupRef.current?.contains(document.activeElement)) anchorRef.current?.focus({ preventScroll: true });
+        onClose();
+      }
     };
     window.addEventListener("resize", positionPanel);
     window.addEventListener("scroll", positionPanel, true);
@@ -123,7 +128,13 @@ export function AnchoredPopover({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [anchorRef, onClose, positionPanel, present]);
+  }, [anchorRef, focusOnOpen, onClose, open, positionPanel, present]);
+
+  useLayoutEffect(() => {
+    if (focusOnOpen && open && present && position.ready) {
+      popupRef.current?.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+    }
+  }, [focusOnOpen, open, position.ready, present]);
 
   if (!present || typeof document === "undefined") return null;
 

@@ -26,11 +26,11 @@ def valid_reports(name, reports):
         final = [r for r in reports if key in r]
         return len(final) == 1 and check(final[0])
     if name == "browser-v61.py":
-        return one("accountAuditCenter", lambda r: r.get("passed") and len(r.get("languages", [])) == 2 and all(len(c["cases"]) == 18 and c["focusIndicators"] > 0 and all(c.get(key) for key in ("clientLinks", "securitySettings", "stableQrLoading", "searchRing", "pinnedUsage")) for c in r["languages"]))
+        return one("accountAuditCenter", lambda r: r.get("passed") and len(r.get("languages", [])) == 2 and all(len(c["cases"]) == 18 and c["focusIndicators"] > 0 and all(c.get(key) for key in ("clientLinks", "securitySettings", "stableQrLoading", "searchRing", "pinnedUsage", "accountColumns", "usageCard")) for c in r["languages"]))
     if name == "browser-v57.py":
         return one("connectionProduct", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and r.get("layoutCases", 0) >= 152 and r.get("badgeCases") == 28 and r.get("populatedCounts") == [0, 1, 50, 100] and r.get("targetLifecycle") and r.get("searchSurvivesPolling") and r.get("stableGroupPolling") and r.get("routesPassed") == 9 and not r.get("pageErrors"))
     if name == "browser-v56.py":
-        return one("auditFixes", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and not r.get("backendErrors") and len(r["auditFixes"]) == 1 and all(len(c["capacityCases"]) == 4 and c["nullCapacityRecovery"] and len(c["connectionCases"]) == 5 and c["pendingThresholdPersistence"] and c["invalidPortsRejected"] == 5 and not c["pageErrors"] and c.get("networkProduct", {}).get("layoutCases") == 40 and all(c["networkProduct"].get(k) for k in ("duplicatesBlocked", "savedOrderPersists", "settingsEntry", "tenAlertLimit", "uniformControls", "metricsHelp")) for c in r["auditFixes"]))
+        return one("auditFixes", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and not r.get("backendErrors") and len(r["auditFixes"]) == 1 and all(len(c["capacityCases"]) == 4 and c["nullCapacityRecovery"] and len(c["connectionCases"]) == 5 and c["pendingThresholdPersistence"] and c["invalidPortsRejected"] == 5 and not c["pageErrors"] and c.get("networkProduct", {}).get("layoutCases") == 40 and all(c["networkProduct"].get(k) for k in ("duplicatesBlocked", "savedOrderPersists", "settingsEntry", "fiveAlertLimit", "uniformControls", "metricsHelp", "liveAlertMotion")) for c in r["auditFixes"]))
     if name == "browser-matrix.py":
         return one("layoutCases", lambda r: r.get("layoutCases") == r.get("uniqueConditions") == 400 and not r.get("javascriptErrors"))
     if name == "browser-v46.py":
@@ -47,7 +47,7 @@ def valid_reports(name, reports):
                            and all(c.get(k) for k in ("selectionMotion", "nativeSummaryKeyboard", "rapidReversal", "failedSignOutRestoresScreen", "logoutRemovesPrivateDom", "logoutKeepsDocumentImage", "postLoginOverview"))
                            and c.get("settingsWrites") == 0 for c in r["motionCases"]))
     if name == "browser-v53.py":
-        return one("opticalCases", lambda r: r.get("passed") and len(r["opticalCases"]) == 18 and not r.get("pageErrors")
+        return one("opticalCases", lambda r: r.get("passed") and len(r["opticalCases"]) == 18 and r.get("languageControl") and not r.get("pageErrors")
                    and r.get("opticalProof", {}).get("differentRenderedPixels") and r["opticalProof"].get("noDisplacement")
                    and all(r.get("controls", {}).get(k) for k in ("draftsPreserved", "continuousDrag", "snapsToPreset", "keyboardPresets", "menuExitFrames", "exitingMenuInert", "glassAppliedWithoutReload"))
                    and r.get("documentLifecycle", {}).get("firstLogoutPaintHasImage")

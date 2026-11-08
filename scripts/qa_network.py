@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import time
 from playwright.sync_api import expect
-from qa_browser import open_page, settled
+from qa_browser import frames, open_page, settled
 
 
 def network_product(page, context, dashboard, storage, origin, headers, refresh):
@@ -71,10 +71,10 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
             assert storage.network_alert_preview()['pending'] == 25, storage.network_alert_preview()
             page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
             editor = page.get_by_role('dialog', name='Customize network probes' if language == 'en' else '自定义网络探测', exact=True)
-            assert page.locator('.network-alerts-card [role=listitem]').count() == 10
+            assert page.locator('.network-alerts-card [role=listitem]').count() == 5
             assert page.locator('.network-alerts-card__rules').count() == 0
             expect(page.locator('.network-alerts-card .md-chip--info')).to_have_text('25 reminders' if language == 'en' else '25 项提醒')
-            assert page.locator('.network-alerts-card time').count() >= 10
+            assert page.locator('.network-alerts-card time').count() >= 5
             for motion in ('reduce', 'no-preference'):
                 page.emulate_media(reduced_motion=motion)
                 for width in (320, 390, 620, 768, 1440):
@@ -108,16 +108,47 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
     storage.reconcile_alerts([])
     page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
     card = page.locator('.network-alerts-card')
-    assert card.locator('time').count() >= 20
+    assert card.locator('time').count() >= 10
     before = storage.network_alert_preview()['pending']; assert before == 25
-    card.get_by_role('button', name='Alert center' if language == 'en' else '告警中心', exact=True).click()
+    card.get_by_role('button', name='更多记录前往告警中心查看', exact=True).click()
     page.get_by_role('heading', level=1, name='Alerts' if language == 'en' else '告警中心', exact=True).wait_for()
     page.locator('.alert-row').first.get_by_role('button', name='Acknowledge' if language == 'en' else '确认', exact=True).click()
     page.wait_for_function('document.querySelectorAll(".alert-row").length===24')
     open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
     expect(card.locator('.md-chip--info')).to_have_text('24 reminders' if language == 'en' else '24 项提醒')
-    card.get_by_role('button', name='Acknowledge all' if language == 'en' else '全部确认', exact=True).click()
-    page.wait_for_function('document.querySelector(".network-alerts-card .md-chip--info").textContent.trim().startsWith("0 ")')
+    empty = card.get_by_text('所有问题已确认，更多前往告警中心查看', exact=True)
+    def confirm_network():
+        with page.expect_response(lambda response: response.url.endswith('/api/v2/alerts/ack-all')) as ack:
+            card.get_by_role('button', name='全部确认', exact=True).click()
+        assert ack.value.ok
+        expect(empty).to_be_visible()
+    collapse = frames(card.locator('.record-transition'), confirm_network, False)
+    assert collapse[0]['height'] > collapse[2]['height'] > collapse[-1]['height'], collapse
     assert card.locator('[role=listitem]').count() == 0
     assert storage.network_alert_preview()['pending'] == 0
-    return {'layoutCases': 40, 'duplicatesBlocked': True, 'savedOrderPersists': True, 'settingsEntry': True, 'tenAlertLimit': True, 'uniformControls': True, 'metricsHelp': True, 'recoveryTimes': True, 'sharedAcknowledgement': True}
+
+    origin_time = page.evaluate('performance.timeOrigin')
+    incident = {**events[0], 'id': 'network-live-qa', 'title': 'New network QA alert'}
+    def alert_row(panel, episode):
+        return panel.locator(f'[data-live-record="{episode}"]')
+    first_episode = None
+    def show_incident():
+        nonlocal first_episode
+        first_episode = storage.reconcile_alerts([incident])[incident['id']]['episodeId']
+        expect(alert_row(card, first_episode)).to_be_attached(timeout=12000)
+    network_frames = frames(card.locator('.record-transition'), show_incident, False)
+    assert network_frames[0]['height'] < network_frames[2]['height'] < network_frames[-1]['height'], network_frames
+    assert card.get_by_role('button', name='更多记录前往告警中心查看', exact=True).count() == 0
+    assert page.evaluate('performance.timeOrigin') == origin_time
+
+    open_page(page, 'alerts', '告警中心')
+    alert_panel = page.locator('.alert-panel')
+    expect(alert_row(alert_panel, first_episode)).to_be_visible()
+    second = {**incident, 'id': 'network-live-second', 'title': 'Second live QA alert'}
+    def show_second():
+        episode = storage.reconcile_alerts([incident, second])[second['id']]['episodeId']
+        expect(alert_row(alert_panel, episode)).to_be_attached(timeout=12000)
+    alert_frames = frames(alert_panel.locator('.record-transition'), show_second, False)
+    assert alert_frames[0]['height'] < alert_frames[2]['height'] < alert_frames[-1]['height'], alert_frames
+    assert page.evaluate('performance.timeOrigin') == origin_time
+    return {'layoutCases': 40, 'duplicatesBlocked': True, 'savedOrderPersists': True, 'settingsEntry': True, 'fiveAlertLimit': True, 'uniformControls': True, 'metricsHelp': True, 'recoveryTimes': True, 'sharedAcknowledgement': True, 'liveAlertMotion': True}

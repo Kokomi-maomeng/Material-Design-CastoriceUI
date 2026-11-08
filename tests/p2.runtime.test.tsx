@@ -120,8 +120,8 @@ describe("P2 truthfulness and interaction regressions", () => {
       usedBytes: 90, quotaBytes: 100, expiresAt: "", onlineDevices: 1, usageSource: "protocolCounter",
     };
     renderEnglish(<AccountsPage accounts={[account]} onConfigure={vi.fn()} />);
-    expect(screen.getAllByText("Account enabled").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByRole("button", { name: "Account enabled" })).toBeTruthy();
+    expect(screen.getByText("Account enabled")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter account status" })).toBeTruthy();
     expect(screen.queryByText(/Different accounting scopes; no percentage shown/)).toBeNull();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
@@ -134,7 +134,7 @@ describe("P2 truthfulness and interaction regressions", () => {
       acknowledgedAt: "2026-01-01T01:02:33+00:00", source: "Service monitor",
     };
     vi.spyOn(api, "fetchAlerts").mockResolvedValue({ items: [alert], total: 1, page: 1, pageSize: 30, totalPages: 1, summary: { pending: 0, critical: 0, warning: 0, info: 0 } });
-    renderEnglish(<AlertsPage alerts={[alert]} onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    renderEnglish(<AlertsPage onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     fireEvent.click(screen.getByText("All records"));
     await screen.findByText("Nginx is offline");
     const timestamps = [...document.querySelectorAll(".alert-row__times > span")].map((element) => element.textContent);

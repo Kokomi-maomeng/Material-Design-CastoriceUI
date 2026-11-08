@@ -16,18 +16,18 @@ it("keeps a recovered episode pending until manual confirmation and passes its e
   let acknowledged = false;
   const fetch = vi.spyOn(api, "fetchAlerts").mockImplementation(async () => acknowledged ? result([], 0) : result());
   const onAcknowledge = vi.fn(async () => { acknowledged = true; });
-  english(<AlertsPage alerts={[]} onAcknowledge={onAcknowledge} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  english(<AlertsPage onAcknowledge={onAcknowledge} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   expect(await screen.findByText(alert.title)).toBeTruthy();
   expect(screen.getAllByText("Recovered").length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole("button", { name: /^Acknowledge$/ }));
   await waitFor(() => expect(screen.queryByText(alert.title)).toBeNull());
-  expect(onAcknowledge).toHaveBeenCalledWith("recovered-episode");
+  expect(onAcknowledge).toHaveBeenCalledWith(alert);
   expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ filter: "pending" }));
 });
 
 it("loads latest 30 then expanded pages of 50 using the audit controls, including jump and collapse", async () => {
   const fetch = vi.spyOn(api, "fetchAlerts").mockImplementation(async (options) => ({ ...result(Array.from({ length: options.pageSize }, (_, index) => ({ ...alert, episodeId: `${options.page}-${index}`, title: `Episode ${options.page}-${index}` })), 231), page: options.page, pageSize: options.pageSize, totalPages: Math.ceil(231 / options.pageSize) }));
-  english(<AlertsPage alerts={[]} onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  english(<AlertsPage onAcknowledge={vi.fn()} onAcknowledgeAll={vi.fn()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   await screen.findByText("Episode 1-0");
   fireEvent.click(screen.getByText("All records"));
   await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "all", pageSize: 50, page: 1 })));
@@ -47,9 +47,14 @@ it("loads latest 30 then expanded pages of 50 using the audit controls, includin
 it("retains pending data and reports a failed confirmation without claiming success", async () => {
   vi.spyOn(api, "fetchAlerts").mockResolvedValue(result());
   const toast = vi.fn();
-  english(<AlertsPage alerts={[]} onAcknowledge={vi.fn().mockRejectedValue(new Error("Synthetic failure"))} onAcknowledgeAll={vi.fn()} onToast={toast} onConfigure={vi.fn()} />);
+  let rejectWrite: (reason: Error) => void = () => undefined;
+  const acknowledge = vi.fn(() => new Promise<void>((_, reject) => { rejectWrite = reject; }));
+  english(<AlertsPage onAcknowledge={acknowledge} onAcknowledgeAll={vi.fn()} onToast={toast} onConfigure={vi.fn()} />);
   await screen.findByText(alert.title);
   fireEvent.click(screen.getByRole("button", { name: /^Acknowledge$/ }));
+  expect(screen.queryByText(alert.title)).toBeNull();
+  expect(screen.getByRole("button", { name: "Pending 0" })).toBeTruthy();
+  rejectWrite(new Error("Synthetic failure"));
   await waitFor(() => expect(toast).toHaveBeenCalled());
   expect(screen.getByText(alert.title)).toBeTruthy();
 });
@@ -57,7 +62,7 @@ it("retains pending data and reports a failed confirmation without claiming succ
 it("acknowledges all through one callback even with pending pages beyond the dashboard cache", async () => {
   vi.spyOn(api, "fetchAlerts").mockResolvedValue(result([alert], 305));
   const all = vi.fn().mockResolvedValue(undefined);
-  english(<AlertsPage alerts={[]} onAcknowledge={vi.fn()} onAcknowledgeAll={all} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  english(<AlertsPage onAcknowledge={vi.fn()} onAcknowledgeAll={all} onToast={vi.fn()} onConfigure={vi.fn()} />);
   await screen.findByText(alert.title);
   fireEvent.click(screen.getByRole("button", { name: "Acknowledge all" }));
   await waitFor(() => expect(all).toHaveBeenCalledTimes(1));

@@ -35,6 +35,9 @@
 .network-alerts-card__list .alert-row__times { display: grid; justify-items: end; gap: 2px; margin: 0; font-size: inherit; }
 @media (min-width: 1200px) { .network-alerts-card__list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .network-alerts-card__list span { color: var(--on-surface-variant); }
+.network-alerts-card__more { margin-top: 4px; }
+.network-alerts-card__more .md-button { max-width: 100%; white-space: normal; text-align: start; }
+.network-alerts-card__empty { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--surface-container-low); color: var(--on-surface-variant); font-size: var(--text-xs); line-height: 1.4; }
 .network-alert-editor { margin: 0; min-width: 0; padding: 12px; border: 1px solid var(--outline-variant); border-radius: 12px; }
 .network-alert-editor legend { padding: 0 6px; font-size: var(--text-sm); font-weight: 600; }
 .network-alert-editor label { display: grid; grid-template-rows: 1fr auto; gap: 6px; min-width: 0; color: var(--on-surface-variant); font-size: var(--text-sm); }

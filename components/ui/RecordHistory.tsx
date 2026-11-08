@@ -4,36 +4,43 @@ import { Button } from "./Button";
 import { RECORD_PREVIEW_LIMIT } from "../../lib/record-history";
 import { Icon } from "./Icon";
 
-export function AnimatedRecords({ children, transitionKey, itemCount, ready = true }: { children: ReactNode; transitionKey: string; itemCount: number; ready?: boolean }) {
+export function AnimatedRecords({ children, transitionKey, itemCount, ready = true, liveKey }: { children: ReactNode; transitionKey: string; itemCount: number; ready?: boolean; liveKey?: string }) {
   const container = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const previous = useRef({ height: 0, width: 0, key: transitionKey, count: itemCount, ready: false });
+  const previous = useRef({ height: 0, width: 0, key: transitionKey, count: itemCount, ready: false, liveKey, ids: new Set<string>() });
   useLayoutEffect(() => {
     const element = container.current, inner = content.current;
     if (!element || !inner || typeof ResizeObserver === "undefined") return;
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const cancel = () => { element.getAnimations().forEach((animation) => animation.cancel()); inner.getAnimations().forEach((animation) => animation.cancel()); };
+    const running = () => [element, inner, ...inner.querySelectorAll("[data-live-record]")].flatMap((node) => node.getAnimations?.() ?? []);
+    const cancel = () => running().forEach((animation) => animation.cancel());
     const reduce = () => { if (media.matches) cancel(); };
     media.addEventListener?.("change", reduce);
     // Responsive reflow is a new baseline, not a record expansion. Keeping the
     // old desktop height would briefly shrink a mobile list and clamp scroll.
+    let frame = 0;
     const observer = new ResizeObserver(() => {
       const rect = inner.getBoundingClientRect();
-      if (rect.width !== previous.current.width) cancel();
+      if (rect.width !== previous.current.width) {
+        const animations = running();
+        window.cancelAnimationFrame(frame);
+        frame = window.requestAnimationFrame(() => animations.forEach((animation) => animation.cancel()));
+      }
       previous.current = { ...previous.current, height: rect.height, width: rect.width };
     });
     observer.observe(inner);
-    return () => { observer.disconnect(); media.removeEventListener?.("change", reduce); cancel(); };
+    return () => { observer.disconnect(); window.cancelAnimationFrame(frame); media.removeEventListener?.("change", reduce); cancel(); };
   }, []);
   useLayoutEffect(() => {
     const element = container.current, inner = content.current;
     if (!element || !inner) return;
     const { height, width } = inner.getBoundingClientRect();
+    const rows = liveKey === undefined ? [] : Array.from(inner.querySelectorAll<HTMLElement>("[data-live-record]"));
     const before = previous.current;
-    previous.current = { height, width, key: transitionKey, count: itemCount, ready };
+    previous.current = { height, width, key: transitionKey, count: itemCount, ready, liveKey, ids: new Set(rows.map((row) => row.dataset.liveRecord ?? "")) };
     if (!element.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     if (!before.ready || !ready) return;
-    if (before.count === itemCount && before.key === transitionKey) return;
+    if (before.count === itemCount && before.key === transitionKey && before.liveKey === liveKey) return;
     if (before.width === width && before.height !== height) {
       const running = element.getAnimations();
       const startHeight = running.length ? element.getBoundingClientRect().height : before.height;
@@ -43,8 +50,13 @@ export function AnimatedRecords({ children, transitionKey, itemCount, ready = tr
     if (before.key !== transitionKey) {
       inner.getAnimations().forEach((animation) => animation.cancel());
       inner.animate([{ opacity: .35, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" });
+    } else {
+      for (const row of rows) {
+        if (before.ids.has(row.dataset.liveRecord ?? "")) continue;
+        row.animate([{ opacity: 0, transform: "translateY(-4px)" }, { opacity: 1, transform: "none" }], { duration: 180, easing: "ease-out" });
+      }
     }
-  });
+  }, [itemCount, liveKey, ready, transitionKey]);
   return <div ref={container} className="record-transition"><div ref={content}>{children}</div></div>;
 }
 

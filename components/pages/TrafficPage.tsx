@@ -27,7 +27,7 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
     : `${start} – ${end}`;
 
   return <div className="page-content page-enter">
-    <PageHeader eyebrow={t("用量", "Usage")} title={t("流量分析", "Traffic analytics")} />
+    <PageHeader eyebrow={t("连接与用量", "Connections and usage")} title={t("流量分析", "Traffic analytics")} />
     <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="配置主网卡与流量额度后，才能统计真实用量。" descriptionEn="Configure the primary interface and traffic quota to measure real usage." onConfigure={onConfigure} />
     <section className="traffic-kpis">
       <Kpi label={t("近 24h 用量", "Last 24h usage")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0))} icon="today" />

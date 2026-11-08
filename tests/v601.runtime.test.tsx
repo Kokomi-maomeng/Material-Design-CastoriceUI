@@ -132,6 +132,8 @@ it("shows pending reminders in blue with recovery times and the shared acknowled
   expect(buttons[0].textContent).toContain("Acknowledge all");
   fireEvent.click(buttons[0]); fireEvent.click(buttons[0]);
   expect(acknowledge).toHaveBeenCalledOnce();
+  expect(within(card).getByRole("status").textContent).toContain("All issues acknowledged");
+  expect(within(card).queryAllByRole("listitem")).toHaveLength(0);
   done?.();
   await waitFor(() => expect(buttons[0]).toHaveProperty("disabled", false));
   view.rerender(english(<NetworkPage {...props} alerts={rows.map((row) => ({ ...row, acknowledged: true }))} />));
