@@ -29,6 +29,8 @@ def open_page(page, section, heading):
     page.evaluate("section=>location.hash='/'+section", section)
     page.get_by_role("heading", level=1, name=heading, exact=True).wait_for()
     page.locator("#main-content .page-loading").wait_for(state="detached")
+    if section == "traffic/connections":
+        page.locator(".active-connections > h2").wait_for()
     settled(page)
     assert page.evaluate("location.hash") == "#/" + section
 

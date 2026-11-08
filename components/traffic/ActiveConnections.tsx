@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchConnectionTargets } from "../../lib/api";
 import { copyText } from "../../lib/clipboard";
 import { CLOSED_CONNECTION_RETENTION_MS, connectionDestination, connectionDuration, listedRate, matchesConnectionTarget, reconcileLiveConnections, visibleLiveConnections, type ConnectionFilters, type LiveConnection, type LiveDetail } from "../../lib/connection-view";
@@ -15,11 +15,11 @@ import { Chip } from "../ui/Chip";
 import { Collapse } from "../ui/Collapse";
 import { Icon } from "../ui/Icon";
 import { MaterialSelect } from "../ui/MaterialSelect";
-import { PageHeader } from "../ui/Page";
 import { AnimatedRecords } from "../ui/RecordHistory";
 import { usePresence } from "../ui/usePresence";
 
 const emptyFilters: ConnectionFilters = { ip: "", ipMode: "contains", domain: "", domainMode: "contains", port: "" };
+const hasAddressFilters = ({ ip, domain, port }: ConnectionFilters) => Boolean(ip.trim() || domain.trim() || port.trim());
 
 function TargetDisclosure({ shown, details, now, stale, onCopy }: { shown: boolean; details: LiveDetail[]; now: number; stale: boolean; onCopy: (value: string) => void }) {
   const { t } = useI18n();
@@ -59,8 +59,14 @@ function TargetList({ details, now, stale, onCopy }: { details: LiveDetail[]; no
   </div>;
 }
 
-export function ConnectionsPage({ connections, now, onToast, integration, onConfigure, stale = false }: { connections: Connection[]; now: number; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void; stale?: boolean }) {
+export function ActiveConnections({ connections, now, onToast, integration, onConfigure, stale = false, focusSection = false }: { connections: Connection[]; now: number; onToast: (message: string) => void; integration?: IntegrationStatus; onConfigure: () => void; stale?: boolean; focusSection?: boolean }) {
   const { t } = useI18n();
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!focusSection) return;
+    heading.current?.focus({ preventScroll: true });
+    heading.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
+  }, [focusSection]);
   const [protocol, setProtocol] = useState("all");
   const [ipVersion, setIpVersion] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -69,7 +75,7 @@ export function ConnectionsPage({ connections, now, onToast, integration, onConf
   const [liveGroups, setLiveGroups] = useState<LiveConnection[]>([]);
   const [targetError, setTargetError] = useState(false);
   const [addressFilters, setAddressFilters] = useState<ConnectionFilters>(emptyFilters);
-  const needsTargets = showTargets || Boolean(addressFilters.ip.trim() || addressFilters.domain.trim() || addressFilters.port.trim());
+  const needsTargets = showTargets || hasAddressFilters(addressFilters);
   const protocols = useMemo(() => Array.from(new Set(connections.map((item) => item.protocol.startsWith("VLESS") ? "VLESS" : item.protocol))).sort(), [connections]);
   // Keep an explicit filter when a protocol temporarily disappears during polling.
   const groups = useMemo(() => {
@@ -84,8 +90,18 @@ export function ConnectionsPage({ connections, now, onToast, integration, onConf
     if (!details.length && !matchesConnectionTarget(item.sourceIp, undefined, addressFilters)) return [];
     return [{ ...item, details }];
   }), [groups, ipVersion, protocol, addressFilters]);
-  const hasFilter = protocol !== "all" || ipVersion !== "all" || Boolean(addressFilters.ip.trim() || addressFilters.domain.trim() || addressFilters.port.trim());
-  const clearFilters = () => { setProtocol("all"); setIpVersion("all"); setAddressFilters(emptyFilters); };
+  const hasFilter = protocol !== "all" || ipVersion !== "all" || hasAddressFilters(addressFilters);
+  const discardTargets = () => { setLiveGroups([]); setTargetAvailable(null); setTargetError(false); };
+  const updateAddressFilters = (next: ConnectionFilters) => {
+    setAddressFilters(next);
+    if (!showTargets && !hasAddressFilters(next)) discardTargets();
+  };
+  const clearFilters = () => { setProtocol("all"); setIpVersion("all"); updateAddressFilters(emptyFilters); };
+  const toggleTargets = () => {
+    if (showTargets && !hasAddressFilters(addressFilters)) discardTargets();
+    setShowTargets(!showTargets);
+    setTargetError(false);
+  };
   useEffect(() => {
     if (!needsTargets || stale) return;
     const controller = new AbortController();
@@ -96,8 +112,8 @@ export function ConnectionsPage({ connections, now, onToast, integration, onConf
   const duration = (item: Connection) => { const seconds = connectionDuration(item.connectedAt, now); return seconds === null ? null : <span>{t("当前最早连接已持续", "Oldest current connection")} {formatDuration(seconds)}</span>; };
   const rate = (value: number | null) => value === null || stale ? "—" : formatRate(value);
 
-  return <div className="page-content page-enter connections-page">
-    <PageHeader title={t("在线连接", "Active connections")} />
+  return <section className="active-connections" aria-labelledby="active-connections-heading">
+    <h2 id="active-connections-heading" ref={heading} tabIndex={-1}>{t("在线连接", "Active connections")}</h2>
     <IntegrationGate status={integration} name="连接快照采集" nameEn="Connection snapshots" description="接入协议统计后即可查看活动连接。" descriptionEn="Connect protocol statistics to view active connections." onConfigure={onConfigure} />
     {stale ? <p className="connection-status" role="status">{t("采集未更新，以下为上次连接记录，速率暂不可用", "Collection is not updating. These are previous connections; rates are unavailable.")}</p> : null}
     <section className="connection-summary" aria-label={t("在线连接速率与显示", "Active connection rates and display")}>
@@ -108,13 +124,13 @@ export function ConnectionsPage({ connections, now, onToast, integration, onConf
     <div className="connection-controls">
       <Button variant="tonal" icon="filter_list" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>{hasFilter ? t("筛选中", "Filters applied") : t("筛选", "Filter")}</Button>
       {hasFilter ? <Button variant="text" onClick={clearFilters}>{t("清除筛选", "Clear filters")}</Button> : null}
-      <div className="connection-live-toggle"><div><span>{t("显示实时连接", "Show live connections")}</span><small>{showTargets ? t("已开启", "On") : t("已关闭", "Off")}</small></div><button type="button" className={`md-switch ${showTargets ? "is-on" : ""}`} role="switch" aria-checked={showTargets} aria-label={t("显示实时连接", "Show live connections")} onClick={() => { setShowTargets((value) => !value); setTargetError(false); }}><span /></button></div>
+      <div className="connection-live-toggle"><div><span>{t("显示实时连接", "Show live connections")}</span><small>{showTargets ? t("已开启", "On") : t("已关闭", "Off")}</small></div><button type="button" className={`md-switch ${showTargets ? "is-on" : ""}`} role="switch" aria-checked={showTargets} aria-label={t("显示实时连接", "Show live connections")} onClick={toggleTargets}><span /></button></div>
     </div>
     <Collapse expanded={filtersOpen} className="connection-filters-collapse"><div className="connection-filters">
       <div className="connection-filter-field"><span>{t("协议", "Protocol")}</span><MaterialSelect ariaLabel={t("协议", "Protocol")} value={protocol} onChange={setProtocol} searchable={protocols.length > 6} options={[{ value: "all", label: t("全部协议", "All protocols") }, ...Array.from(new Set([...protocols, ...(protocol === "all" ? [] : [protocol])])).map((item) => ({ value: item, label: item }))]} /></div>
       <div className="connection-filter-field"><span>{t("来源 IP", "Source IP")}</span><MaterialSelect ariaLabel={t("来源 IP", "Source IP")} value={ipVersion} onChange={setIpVersion} options={[{ value: "all", label: t("全部来源", "All sources") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }, { value: "null", label: t("未提供来源", "Source not provided") }]} /></div>
-      {(["ip", "domain"] as const).map((field) => <div className="connection-filter-field" key={field}><label className="connection-search">{field === "ip" ? t("IP 地址", "IP address") : t("目标域名", "Destination domain")}<input type="search" value={addressFilters[field]} placeholder={field === "ip" ? t("来源或目标 IP", "Source or destination IP") : "example.test"} onChange={(event) => setAddressFilters((value) => ({ ...value, [field]: event.target.value }))} /></label><MaterialSelect ariaLabel={field === "ip" ? t("IP 匹配方式", "IP match mode") : t("域名匹配方式", "Domain match mode")} value={addressFilters[`${field}Mode`]} onChange={(mode) => setAddressFilters((value) => ({ ...value, [`${field}Mode`]: mode as "contains" | "exact" }))} options={[{ value: "contains", label: t("关键词匹配", "Keyword match") }, { value: "exact", label: t("精确匹配", "Exact match") }]} /></div>)}
-      <label className="connection-filter-field connection-search">{t("目标端口", "Destination port")}<input type="search" inputMode="numeric" value={addressFilters.port} placeholder="443" onChange={(event) => setAddressFilters((value) => ({ ...value, port: event.target.value }))} /></label>
+      {(["ip", "domain"] as const).map((field) => <div className="connection-filter-field" key={field}><label className="connection-search">{field === "ip" ? t("IP 地址", "IP address") : t("目标域名", "Destination domain")}<input type="search" value={addressFilters[field]} placeholder={field === "ip" ? t("来源或目标 IP", "Source or destination IP") : "example.test"} onChange={(event) => updateAddressFilters({ ...addressFilters, [field]: event.target.value })} /></label><MaterialSelect ariaLabel={field === "ip" ? t("IP 匹配方式", "IP match mode") : t("域名匹配方式", "Domain match mode")} value={addressFilters[`${field}Mode`]} onChange={(mode) => setAddressFilters((value) => ({ ...value, [`${field}Mode`]: mode as "contains" | "exact" }))} options={[{ value: "contains", label: t("关键词匹配", "Keyword match") }, { value: "exact", label: t("精确匹配", "Exact match") }]} /></div>)}
+      <label className="connection-filter-field connection-search">{t("目标端口", "Destination port")}<input type="search" inputMode="numeric" value={addressFilters.port} placeholder="443" onChange={(event) => updateAddressFilters({ ...addressFilters, port: event.target.value })} /></label>
     </div></Collapse>
     </section>
     <Collapse expanded={needsTargets && (targetError || stale || targetAvailable === false)}><p className="connection-status" role="status">{targetError ? t("目标读取失败，保留上次记录，请稍后重试", "Could not read destinations. Previous records are retained; please retry.") : t("暂无可用的实时目标，保留上次记录", "Live destinations unavailable. Previous records are retained.")}</p></Collapse>
@@ -129,5 +145,5 @@ export function ConnectionsPage({ connections, now, onToast, integration, onConf
       </Card>;
     })}</div></AnimatedRecords>
     {!filtered.length ? <div className="table-empty"><Icon name="link_off" size={28} /><strong>{hasFilter ? t("没有符合筛选条件的连接", "No connections match these filters") : t("当前没有可显示的连接", "No connections to show right now")}</strong>{hasFilter ? <Button variant="text" onClick={clearFilters}>{t("清除筛选", "Clear filters")}</Button> : null}</div> : null}
-  </div>;
+  </section>;
 }

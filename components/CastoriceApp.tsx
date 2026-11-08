@@ -26,7 +26,7 @@ import { emptyDashboard } from "../lib/empty-dashboard";
 import { pendingCriticalAlerts } from "../lib/login-background";
 import { alertBadge } from "../lib/alert-badge";
 import { useI18n } from "../lib/i18n";
-import { navigation, PANEL_IDS } from "../lib/navigation";
+import { navigation, PANEL_IDS, type PageRoute } from "../lib/navigation";
 import { readBooleanPreference, readPreference, writePreference } from "../lib/preferences";
 import { THEME_COLORS, THEME_MODES, type ThemeColor, type ThemeMode } from "../lib/theme";
 import type {
@@ -71,11 +71,6 @@ const AlertsPage = lazy(() =>
 const AuditPage = lazy(() =>
   import("./pages/AuditPage").then((module) => ({ default: module.AuditPage })),
 );
-const ConnectionsPage = lazy(() =>
-  import("./pages/ConnectionsPage").then((module) => ({
-    default: module.ConnectionsPage,
-  })),
-);
 const NetworkPage = lazy(() =>
   import("./pages/NetworkPage").then((module) => ({
     default: module.NetworkPage,
@@ -95,9 +90,15 @@ const SetupPage = lazy(() =>
   import("./pages/SetupPage").then((module) => ({ default: module.SetupPage })),
 );
 
-function pageFromHash(): PageId {
-  const candidate = window.location.hash.replace(/^#\/?/, "") as PageId;
-  return PAGE_IDS.has(candidate) ? candidate : "overview";
+function routeFromHash(): PageRoute {
+  const candidate = window.location.hash.replace(/^#\/?/, "");
+  if (candidate === "connections" || candidate === "subscriptions") {
+    const destination = candidate === "connections" ? "traffic/connections" : "accounts";
+    window.history.replaceState(null, "", `#/${destination}`);
+    return destination;
+  }
+  if (candidate === "traffic/connections") return candidate;
+  return PAGE_IDS.has(candidate as PageId) ? candidate as PageId : "overview";
 }
 
 export function CastoriceApp() {
@@ -113,7 +114,8 @@ export function CastoriceApp() {
   const loginBackground = useLoginBackground(bootstrap?.appearance ?? { type: "default", url: "", fit: "cover" }, pageEnteredAt);
   const [session, setSession] = useState<SessionState | null>(null);
   const [bootError, setBootError] = useState(false);
-  const [page, setPage] = useState<PageId>("overview");
+  const [route, setRoute] = useState<PageRoute>("overview");
+  const page = route === "traffic/connections" ? "traffic" : route;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [desktopNavigationHidden, setDesktopNavigationHidden] = useState(() => readBooleanPreference("castorice-desktop-navigation-hidden", false));
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -239,7 +241,7 @@ export function CastoriceApp() {
     setSettingsOpen(false);
     hasLiveData.current = false;
     setUserMenuOpen(false);
-    setPage("overview");
+    setRoute("overview");
     window.history.replaceState(null, "", "#/overview");
   }, [t]);
   const loadDashboard = useCallback(async () => {
@@ -281,7 +283,10 @@ export function CastoriceApp() {
     };
   }, [loadDashboard, session]);
   useEffect(() => {
-    const syncPage = () => setPage(pageFromHash());
+    const syncPage = () => {
+      setRoute(routeFromHash());
+      setDrawerOpen(false);
+    };
     syncPage();
     window.addEventListener("hashchange", syncPage);
     window.addEventListener("popstate", syncPage);
@@ -355,13 +360,13 @@ export function CastoriceApp() {
   const pageTitle = labelFor(page);
   const badge = alertBadge(dashboard.alertSummary, alerts);
   const criticalAlerts = pendingCriticalAlerts(dashboard.alertSummary, alerts);
-  const navigate = useCallback((id: PageId) => {
-    setPage(id);
+  const navigate = useCallback((destination: PageRoute) => {
+    setRoute(destination);
     setDrawerOpen(false);
-    const nextHash = `#/${id}`;
+    const nextHash = `#/${destination}`;
     if (window.location.hash !== nextHash)
       window.history.pushState(null, "", nextHash);
-    window.scrollTo({
+    if (destination !== "traffic/connections") window.scrollTo({
       top: 0,
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
@@ -552,21 +557,11 @@ export function CastoriceApp() {
         return (
           <AccountsPage
             accounts={dashboard.accounts}
+            unattributedBytes={Math.max(0, dashboard.traffic.totalBytes - dashboard.accounts.reduce((total, account) => total + account.usedBytes, 0))}
             subscriptions={dashboard.subscriptions}
             onToast={showToast}
             integration={integrationFor("hysteria2")}
             onConfigure={() => configurePage("hysteria2")}
-          />
-        );
-      case "connections":
-        return (
-          <ConnectionsPage
-            connections={connections}
-            now={now}
-            onToast={showToast}
-            integration={integrationFor("connections")}
-            stale={dashboard.mode === "stale"}
-            onConfigure={() => configurePage("connections")}
           />
         );
       case "traffic":
@@ -575,6 +570,15 @@ export function CastoriceApp() {
             traffic={dashboard.traffic}
             integration={integrationFor("traffic")}
             onConfigure={() => configurePage("traffic")}
+            activity={{
+              connections,
+              now,
+              onToast: showToast,
+              integration: integrationFor("connections"),
+              stale: dashboard.mode === "stale",
+              onConfigure: () => configurePage("connections"),
+              focusSection: route === "traffic/connections",
+            }}
           />
         );
       case "network":
@@ -659,7 +663,7 @@ export function CastoriceApp() {
           </span>
           <div>
             <strong>{uiSettings.panelTitle || "CastoriceUI"}</strong>
-            <span>VPS Console</span>
+            <span>{t("VPS 控制台", "VPS Console")}</span>
           </div>
         </div>
         <nav aria-label={t("主导航", "Primary navigation")}>
@@ -724,7 +728,7 @@ export function CastoriceApp() {
           <div className="top-actions">
             <div className="snapshot-time-wrap" ref={dateMenuRef}>
               <button className="snapshot-time" onClick={() => setDateOpen((open) => !open)} aria-expanded={dateOpen} aria-label={t("显示本地日期", "Show local date")}>
-                <time dateTime={new Date(now).toISOString()}>{new Date(now).toLocaleTimeString(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}</time>
+                <time dateTime={new Date(now).toISOString()}>{new Date(now).toLocaleTimeString(language === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</time>
               </button>
               <div className={`snapshot-date floating-surface ${dateOpen ? "is-open" : ""}`} role="status" aria-hidden={!dateOpen}>{new Date(now).toLocaleDateString("en-CA").replaceAll("-", "")}</div>
             </div>

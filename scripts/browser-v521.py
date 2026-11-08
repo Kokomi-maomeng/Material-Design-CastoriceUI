@@ -12,6 +12,7 @@ import tempfile
 import time
 import urllib.request
 from playwright.sync_api import sync_playwright
+from qa_browser import settled
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,7 +24,7 @@ def synthetic_chart_dashboard_from_empty(data):
     data['overview'].update(nodeName='QA node',cpuPercent=9,cpuCores=2,memoryPercent=42,memoryUsedBytes=420_000_000,memoryTotalBytes=1_000_000_000,diskPercent=25,diskUsedBytes=5_000_000_000,diskTotalBytes=20_000_000_000,trafficUsedBytes=100_000_000_000,trafficLimitBytes=1_000_000_000_000,interface='eth0',databaseWritable=True)
     data['traffic'].update(totalBytes=100_000_000_000,ranges={key:points for key in ['1h','6h','24h','3day','7day']},hourly=points)
     data['networkTargets']=[{'id':'qa-target','name':'QA target','provider':'Synthetic','address':'192.0.2.1','ipVersion':4,'latency':20,'jitter':.1,'loss':0,'status':'healthy','history':[20,21,19]}]
-    data['uiSettings']['visiblePanels']=['alerts','accounts','services','network','connections','traffic','audit']
+    data['uiSettings']['visiblePanels']=['alerts','accounts','services','network','traffic','audit']
     return data
 
 
@@ -48,13 +49,24 @@ def check_chart(page, case):
     assert abs(sizes['width']-sizes['viewWidth']) <= 2 and abs(sizes['height']-sizes['viewHeight']) <= 2, (case,sizes)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+2'), case
     svg=page.locator('.chart--traffic svg')
+    page.mouse.move(0, 0)
     svg.focus(); svg.press('End')
+    settled(page)
     assert page.locator('.chart-inspector').count()==1, case
-    inspector=page.locator('.chart-inspector rect').bounding_box()
+    inspector=page.locator('.chart-tooltip.is-open').bounding_box()
     box=svg.bounding_box()
     assert inspector['x'] >= box['x']-1 and inspector['x']+inspector['width'] <= box['x']+box['width']+1, (case,'tooltip clipped')
+    tooltip = page.locator('.chart-tooltip-position')
+    high = tooltip.evaluate("e => new DOMMatrix(e.style.transform).m42")
     svg.press('Home')
     assert page.locator('.chart-inspector').count()==1
+    if page.locator('.chart-point--primary').count() > 1:
+        page.wait_for_function("""high => {
+          const tooltip=document.querySelector('.chart-tooltip-position');
+          return tooltip && new DOMMatrix(tooltip.style.transform).m42 > high + 2;
+        }""", arg=high, timeout=3500)
+        low = tooltip.evaluate("e => new DOMMatrix(e.style.transform).m42")
+        assert low > high + 2, (case, "tooltip did not follow sample height", high, low)
     svg.hover(position={'x':box['width']*.7,'y':box['height']*.5})
     assert page.locator('.chart-inspector').count()==1
     page.wait_for_timeout(180)
@@ -65,17 +77,18 @@ def check_chart(page, case):
 
 def main():
     engines=sys.argv[1:] or ['chromium','firefox','webkit']
+    shared_origin=os.environ.get('CASTORICEUI_BROWSER_URL','').rstrip('/')
     with socket.socket() as available:
         available.bind(('127.0.0.1',0));port=available.getsockname()[1]
-    origin=f'https://127.0.0.1:{port}'
+    origin=shared_origin or f'https://127.0.0.1:{port}'
     with tempfile.TemporaryDirectory(prefix='castorice-chart-') as folder:
         with (Path(folder)/'vite.log').open('w') as output:
-            dev=subprocess.Popen([shutil.which('node'),str(ROOT/'node_modules/vite/bin/vite.js'),'--port',str(port),'--strictPort'],cwd=ROOT,stdout=output,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            dev=None if shared_origin else subprocess.Popen([shutil.which('node'),str(ROOT/'node_modules/vite/bin/vite.js'),'--port',str(port),'--strictPort'],cwd=ROOT,stdout=output,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             try:
                 for _ in range(100):
                     try: urllib.request.urlopen(origin,context=ssl._create_unverified_context(),timeout=1).close();break
                     except OSError:
-                        if dev.poll() is not None: raise RuntimeError('Chart test server exited')
+                        if dev and dev.poll() is not None: raise RuntimeError('Chart test server exited')
                         time.sleep(.1)
                 else: raise TimeoutError('Chart test server did not start')
                 cases=[]
@@ -124,9 +137,10 @@ def main():
                         finally: browser.close()
                 print(json.dumps({'chartCases':cases,'syntheticApiFixture':True,'pageErrors':0}))
             finally:
-                dev.terminate()
-                try:dev.wait(10)
-                except subprocess.TimeoutExpired:dev.kill();dev.wait()
+                if dev:
+                    dev.terminate()
+                    try:dev.wait(10)
+                    except subprocess.TimeoutExpired:dev.kill();dev.wait()
 
 
 if __name__=='__main__':main()

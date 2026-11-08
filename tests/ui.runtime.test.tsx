@@ -58,7 +58,7 @@ describe("v4.1 navigation and protocol inspection", () => {
   it("routes every overview shortcut and isolates the account destination", () => {
     const navigate = vi.fn();
     renderEnglish(overview(navigate));
-    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "connections"], ["View network quality", "network"]]) {
+    for (const [label, page] of [["View traffic analytics", "traffic"], ["View traffic trend analytics", "traffic"], ["CPU · View services", "services"], ["Memory · View services", "services"], ["Storage · View services", "services"], ["View connections", "traffic/connections"], ["View network quality", "network"]]) {
       navigate.mockClear();
       fireEvent.click(screen.getByRole("link", { name: label }));
       expect(navigate.mock.calls).toEqual([[page]]);
@@ -93,19 +93,22 @@ describe("v4.1 navigation and protocol inspection", () => {
     fireEvent.keyDown(link, { key: "Enter" });
     expect(navigate).toHaveBeenCalledWith("traffic");
   });
-  it("clears protocol hover when leaving the whole card, including after focus and click", () => {
+  it("synchronizes the protocol bar and legend and clears inspection on blur", () => {
     const traffic = { ...emptyDashboard.traffic, protocolTotalBytes: 3e9, protocol: [{ name: "AnyTLS", value: 1e9 }, { name: "Hysteria2", value: 2e9 }] };
     const { container } = renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);
-    const circle = container.querySelector('.donut-segment')!;
-    fireEvent.pointerEnter(circle); fireEvent.focus(circle); fireEvent.pointerDown(circle);
-    expect(container.querySelector('.donut-center')?.textContent).toContain("1.00 GBAnyTLS");
-    fireEvent.pointerLeave(container.querySelector('.protocol-panel')!);
-    expect(container.querySelector('.donut-center')?.textContent).toContain("3 GBDistribution total");
-    expect(container.querySelector('.donut-segment.is-active')).toBeNull();
-    fireEvent.focus(screen.getByRole("button", { name: /Hysteria2/ }));
-    expect(container.querySelector('.donut-center')?.textContent).toContain("Hysteria2");
-    fireEvent.blur(screen.getByRole("button", { name: /Hysteria2/ }));
-    expect(container.querySelector('.donut-center')?.textContent).toContain("Distribution total");
+    const segment = container.querySelector('.protocol-distribution__bar button')!;
+    const reading = container.querySelector('.protocol-distribution__reading')!;
+    fireEvent.click(segment);
+    expect(reading.textContent).toContain("AnyTLS1.0 GB");
+    expect(container.querySelector('.protocol-distribution__legend > button.is-active')?.textContent).toContain("AnyTLS");
+    fireEvent.blur(segment);
+    expect(reading.textContent).toContain("Distribution total3.0 GB");
+    expect(container.querySelector('.protocol-distribution__bar > button.is-active')).toBeNull();
+    const legend = container.querySelector('.protocol-distribution__legend button:nth-child(2)')!;
+    fireEvent.focus(legend);
+    expect(reading.textContent).toContain("Hysteria2");
+    fireEvent.blur(legend);
+    expect(reading.textContent).toContain("Distribution total");
   });
   it("uses a responsive protocol overflow surface and an anchored coverage detail", async () => {
     const names = ["Hysteria2", "AnyTLS", "VLESS", "SOCKS5", "Shadowsocks", "Unattributed"];
@@ -117,19 +120,20 @@ describe("v4.1 navigation and protocol inspection", () => {
       protocol: names.map((name, index) => ({ name, value: (index + 1) * 1e9 })),
     };
     const { container } = renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);
-    expect(container.querySelector(".content-grid--traffic-main > .traffic-trend-panel")).toBeTruthy();
-    expect(container.querySelector(".content-grid--traffic-secondary > .monthly-traffic-panel")).toBeTruthy();
-    expect(container.querySelector(".content-grid--traffic-secondary > .protocol-panel")).toBeTruthy();
+    expect(container.querySelector(".traffic-analysis__grid > .traffic-analysis__trend")).toBeTruthy();
+    expect(container.querySelector(".traffic-analysis__grid > .monthly-traffic-panel")).toBeTruthy();
+    expect(container.querySelector(".traffic-analysis__grid > .protocol-panel")).toBeTruthy();
     const more = screen.getByRole("button", { name: /More protocols/ });
     expect(more.textContent).toContain("+2");
     fireEvent.click(more);
-    const protocolPopover = await screen.findByRole("dialog", { name: "More protocol traffic" });
-    expect(protocolPopover.textContent).toContain("Shadowsocks");
-    fireEvent.focus(screen.getByRole("button", { name: /Unattributed/ }));
-    expect(container.querySelector(".donut-center")?.textContent).toContain("Unattributed");
+    const overflow = document.getElementById(more.getAttribute("aria-controls")!)!;
+    expect(overflow.closest(".motion-collapse")?.getAttribute("aria-hidden")).toBe("false");
+    expect(overflow.textContent).toContain("Shadowsocks");
+    fireEvent.focus(overflow.lastElementChild!);
+    expect(container.querySelector(".protocol-distribution__reading")?.textContent).toContain("Unattributed");
     const coverage = screen.getByRole("button", { name: "Measurement coverage is incomplete" });
     fireEvent.click(coverage);
-    expect((await screen.findByRole("dialog", { name: "Measurement coverage is incomplete" })).textContent).toContain("2 collection gap(s)");
+    expect((await screen.findByRole("dialog", { name: "Measurement coverage is incomplete" })).textContent).toContain("2 collection gaps");
     expect(screen.queryByText("Measurement coverage is incomplete", { selector: ".preview-mode-banner strong" })).toBeNull();
   });
   it("shows host memory and counts every protocol without counting the core twice", () => {
@@ -240,10 +244,10 @@ describe("v3.3 runtime behavior", () => {
 
   it("presents account status without the removed note column", () => {
     renderEnglish(<AccountsPage accounts={[]} onConfigure={vi.fn()} />);
-    expect(screen.getByRole("heading", { name: "Account status" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Account management" })).toBeTruthy();
     expect(screen.queryByText("Note")).toBeNull();
     expect(screen.queryByText("A note is configured (content hidden)")).toBeNull();
-    expect(screen.queryByText("Account management")).toBeNull();
+    expect(screen.queryByText("Managed accounts")).toBeNull();
   });
 
   it("exposes a visible and operable settings switch", () => {
@@ -331,17 +335,20 @@ describe("v3.3 runtime behavior", () => {
       ],
       account: [{ name: "primary", value: 0 }, { name: "Unattributed", nameZh: "未归属", nameEn: "Unattributed", value: 532_000_000_000 }],
     }} integration={{ id: "traffic", enabled: true, configured: true, status: "ready", summary: "ready" }} onConfigure={vi.fn()} />);
-    expect(Array.from(document.querySelectorAll(".ranking-row strong"), (node) => node.textContent)).toEqual(["Unattributed", "primary"]);
+    expect(screen.queryByText("Managed-account usage ranking")).toBeNull();
     expect(screen.queryByText("2 attribution entries")).toBeNull();
     expect(screen.getByText("Recent monthly traffic")).toBeTruthy();
     expect(screen.getByText("2026-04-01 – 2026-04-30")).toBeTruthy();
-    expect(screen.getByText("800 GB")).toBeTruthy();
+    expect(screen.getByText("800.0 GB")).toBeTruthy();
+    expect(screen.getByText("0.0 GB", { selector: ".monthly-traffic-row strong" })).toBeTruthy();
     const meters = Array.from(document.querySelectorAll<HTMLElement>(".monthly-traffic-track"));
     expect(meters).toHaveLength(6);
     expect(meters[2].firstElementChild?.getAttribute("style")).toContain("width: 100%");
-    expect(document.querySelectorAll(".traffic-disclosure.is-expanded")).toHaveLength(2);
-    fireEvent.click(screen.getByText("Managed-account usage ranking"));
-    expect(document.querySelectorAll(".traffic-disclosure.is-expanded")).toHaveLength(1);
+    const disclosure = screen.getByRole("button", { name: "Usage details" });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".traffic-analysis > .motion-collapse")?.hasAttribute("inert")).toBe(true);
     expect(screen.queryByText("Trend samples")).toBeNull();
   });
 

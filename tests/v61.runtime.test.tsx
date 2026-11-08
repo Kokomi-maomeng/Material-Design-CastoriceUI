@@ -26,18 +26,23 @@ it.each([0, 1, 29, 30, 31])("uses identical threshold controls for %i records of
 });
 
 it("paginates accounts, collapses to the first 30 and resets after filtering", () => {
-  english(<AccountsPage accounts={Array.from({ length: 121 }, (_, index) => account(index))} onConfigure={vi.fn()} />);
-  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(30);
+  english(<AccountsPage accounts={Array.from({ length: 121 }, (_, index) => account(index))} unattributedBytes={12.5e9} onConfigure={vi.fn()} />);
+  const pinned = document.querySelector(".accounts-table tbody tr:first-child")!;
+  expect(pinned.textContent).toContain("Unattributed12.5 GB");
+  expect(pinned.querySelector("button, a, [tabindex]")).toBeNull();
+  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(31);
   fireEvent.click(screen.getByRole("button", { name: "Show all records" }));
-  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(50);
+  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(51);
   fireEvent.click(screen.getByRole("button", { name: "Next page" }));
   expect(screen.getByText("QA 50")).toBeTruthy();
+  expect(document.querySelector(".accounts-table tbody tr:first-child")).toBe(pinned);
   fireEvent.click(screen.getByRole("button", { name: "Collapse to latest 30" }));
   expect(screen.getByText("QA 0")).toBeTruthy();
-  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(30);
-  fireEvent.change(screen.getByRole("textbox", { name: "Search accounts" }), { target: { value: "QA 120" } });
+  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(31);
+  fireEvent.change(screen.getByRole("textbox", { name: "Search accounts" }), { target: { value: "　ＱＡ １２０ " } });
   expect(screen.getByText("1 total records")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Show all records" })).toBeNull();
+  expect(document.querySelector(".accounts-table tbody tr:first-child")).toBe(pinned);
 });
 
 it("keeps expansion while filter round trips return to page one", () => {
@@ -51,7 +56,7 @@ it("keeps expansion while filter round trips return to page one", () => {
   fireEvent.change(search, { target: { value: "" } });
   expect(screen.getByText("Page 1 of 3")).toBeTruthy();
   expect(screen.getByText("QA 0")).toBeTruthy();
-  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(50);
+  expect(document.querySelectorAll(".accounts-table tbody tr")).toHaveLength(51);
 });
 
 it("retains a clamped account page when polling removes and later restores records", () => {
@@ -74,6 +79,8 @@ it("fetches only the selected account subscription and aborts a late response on
   english(<AccountsPage accounts={[account(1), account(2)]} subscriptions={[{ id: "first", account: "qa-1", protocols: ["AnyTLS"], enabled: true }, { id: "second", account: "QA 2", protocols: ["AnyTLS"], enabled: true }]} onConfigure={vi.fn()} />);
   expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "View QA 1 subscriptions" }));
+  expect(screen.getByText("Loading subscription")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Copy URL" }) as HTMLButtonElement).disabled).toBe(true);
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("first", expect.any(AbortSignal)));
   const signal = fetch.mock.calls[0][1];
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -138,8 +145,8 @@ it("groups timeout, password and all seven retention options under Security", as
   fireEvent.click(summary);
   fireEvent.click(screen.getByRole("button", { name: "Audit log retention" }));
   expect(await screen.findAllByRole("option")).toHaveLength(7);
-  fireEvent.click(screen.getByRole("option", { name: "30 days" }));
+  fireEvent.click(screen.getByRole("option", { name: "30d" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith({ auditRetentionDays: 30 }));
-  expect(navigation.map((item) => item.id)).toHaveLength(9);
+  expect(navigation.map((item) => item.id)).toEqual(["overview", "setup", "alerts", "accounts", "services", "network", "traffic", "audit"]);
   expect(navigation.find((item) => item.id === "audit")?.labelEn).toBe("Audit center");
 });

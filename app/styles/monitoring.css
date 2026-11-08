@@ -21,20 +21,7 @@
 .network-chart__legend { height: 18px; display: flex; align-items: center; justify-content: space-between; font-size: var(--text-xs); color: var(--primary); }
 .network-chart__legend span:last-child { color: var(--warning); }
 .network-chart__empty { position: absolute; inset: 18px 38px 34px 61px; display: grid; place-items: center; color: var(--on-surface-variant); font-size: var(--text-sm); pointer-events: none; }
-.network-chart__tooltip-position { position: absolute; top: 0; left: 0; z-index: 3; pointer-events: none; transition: transform 160ms var(--motion-standard); }
-.network-chart__tooltip { min-width: 100px; padding: 8px 10px; display: grid; gap: 2px; border-radius: 12px; background: var(--inverse-surface); color: var(--inverse-on-surface); box-shadow: 0 5px 16px rgb(var(--shadow-color) / .18); font-size: var(--text-xs); line-height: 1.35; font-variant-numeric: tabular-nums; transform-origin: 50% 80%; }
-.network-chart__tooltip time { font-size: var(--text-xs); opacity: .8; }
-.network-chart__tooltip b { font-size: .875rem; }
-.network-chart__tooltip-values { display: grid; gap: 2px; animation: network-values-in 140ms var(--motion-standard) both; }
-.network-chart__tooltip.is-open { animation: network-tip-in 180ms var(--motion-standard) both; }
-.network-chart__tooltip.is-leaving { animation: network-tip-out 180ms var(--motion-exit) both; }
-.network-chart__cursor { opacity: 0; transition: transform 160ms var(--motion-standard), opacity 160ms; }
-.network-chart__cursor.is-open { opacity: 1; }
-.network-chart__cursor line { stroke: var(--outline); stroke-width: 1; stroke-dasharray: 3 4; }
-.network-chart__point { transition: cy 160ms var(--motion-standard); stroke: var(--surface); stroke-width: 2; }
-@keyframes network-tip-in { from { opacity: 0; transform: translateY(6px) scale(.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes network-tip-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(4px) scale(.96); } }
-@keyframes network-values-in { from { opacity: .35; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+
 .network-alerts-card { padding: 16px 18px; display: grid; gap: 10px; }
 .network-alerts-card__heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .network-alerts-card__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
@@ -52,7 +39,6 @@
 .network-alert-editor legend { padding: 0 6px; font-size: var(--text-sm); font-weight: 600; }
 .network-alert-editor label { display: grid; grid-template-rows: 1fr auto; gap: 6px; min-width: 0; color: var(--on-surface-variant); font-size: var(--text-sm); }
 .network-alert-editor input { width: 100%; min-width: 0; height: 42px; padding: 9px 12px; border: 1px solid var(--outline); border-radius: 10px; background: var(--surface-container-lowest); color: var(--on-surface); font: inherit; outline: none; }
-.network-alert-editor input:focus { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .network-editor { display: grid; gap: 14px; }
 .network-editor-help { margin: 0; line-height: 1.6; }
 .network-editor-dialog .network-editor-row { margin: 0; min-width: 0; display: grid; grid-template-columns: 86px minmax(0, 1fr) minmax(0, 1fr) 90px 90px 38px; grid-template-areas: "order name name family family remove" "address address dns tcp udp udp"; gap: 12px 10px; align-items: start; padding: 12px; border: 1px solid var(--outline-variant); border-radius: 15px; }
@@ -70,7 +56,6 @@
 .network-editor-dialog .network-editor-row > .icon-button { grid-area: remove; margin-top: 21px; }
 .network-editor-dialog input, .network-editor-dialog .md-select-trigger { height: 42px; min-height: 42px; min-width: 0; width: 100%; border: 1px solid var(--outline); border-radius: 10px; padding: 9px 10px; background: var(--surface-container-lowest); color: var(--on-surface); font: inherit; font-size: var(--text-sm); transition: border-color 160ms var(--motion-standard), box-shadow 160ms var(--motion-standard); }
 .network-editor-dialog .md-select-trigger > span { font-size: inherit; color: inherit; }
-.network-editor-dialog input:focus, .network-editor-dialog .md-select-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .network-editor-dialog [aria-invalid="true"], .network-editor-dialog [data-invalid="true"] { border-color: var(--error); }
 .network-field-error { color: var(--error); font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; margin: 0; }
 .network-help { padding: 16px; }
@@ -89,7 +74,7 @@
   .network-alerts-card__heading { gap: 6px; }
   .network-alerts-card__heading > .md-button { padding-inline: 8px; flex-shrink: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .network-chart__tooltip-position, .network-chart__cursor, .network-chart__point, .network-editor-dialog input, .network-editor-dialog .md-select-trigger { transition: none; } .network-chart__tooltip, .network-chart__tooltip-values, .network-editor-row { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .network-editor-dialog input, .network-editor-dialog .md-select-trigger { transition: none; } .network-editor-row { animation: none !important; } }
 .alert-summary__button { border: 1px solid transparent; color: var(--on-surface); text-align: left; cursor: pointer; transition: border-color .18s, background .18s; font: inherit; }
 .alert-summary__button.is-selected { border-color: var(--primary); background: var(--secondary-container); }
 .alert-summary__button:hover { border-color: var(--outline); }

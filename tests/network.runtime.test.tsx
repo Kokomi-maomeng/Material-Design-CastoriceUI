@@ -29,7 +29,7 @@ it("keeps loss at 100% and labels zero plus the actual RTT range", async () => {
   expect(chart.querySelector('[data-metric="loss"]')?.getAttribute("d")).toContain(",18");
   fireEvent.focus(chart);
   const tooltip = await screen.findByRole("tooltip");
-  expect(tooltip.textContent).toContain(`${new Date(at * 1000).getSeconds()}s`);
+  expect(tooltip.querySelector("time")?.dateTime).toBe(new Date(at * 1000).toISOString());
   expect(tooltip.textContent).toContain("— ms");
   expect(tooltip.textContent).toContain("100%");
   expect(tooltip.textContent).not.toContain("#");

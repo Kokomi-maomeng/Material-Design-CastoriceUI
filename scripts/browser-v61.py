@@ -24,8 +24,8 @@ def run(engine, browser, language):
     page = context.new_page()
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode='live', generatedAt='2026-11-01T00:00:00Z')
-    dashboard['uiSettings']['visiblePanels'] = ['alerts', 'accounts', 'services', 'network', 'connections', 'traffic', 'audit']
-    state = {'count': 1, 'urlReads': 0, 'writes': []}
+    dashboard['uiSettings']['visiblePanels'] = ['alerts', 'accounts', 'services', 'network', 'traffic', 'audit']
+    state = {'count': 1, 'urlReads': 0, 'writes': [], 'heldUrl': None, 'delayUrl': False}
     url = 'https://publisher.example.com/qa.yaml?token=synthetic%2Bvalue'
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -49,7 +49,11 @@ def run(engine, browser, language):
                     rows.append({'id': str(index), 'action': '登录成功', 'category': '认证', 'actor': 'QA', 'ip': '192.0.2.1', 'time': '2026-11-01T00:00:00Z', 'result': '成功', 'detail': 'Synthetic'})
             data = {'items': rows, 'total': total, 'page': page_number, 'pageSize': size, 'totalPages': max(1, (total + size - 1) // size), 'summary': {'pending': total, 'warning': total, 'critical': 0, 'info': 0}}
         elif path.endswith('/url'):
-            state['urlReads'] += 1; data = {'url': url}
+            state['urlReads'] += 1
+            if state['delayUrl']:
+                state['heldUrl'] = route
+                return
+            data = {'url': url}
         elif path == 'settings/background-options':
             data = {'files': [], 'directory': '/var/lib/castoriceui/backgrounds', 'selected': {'type': 'default', 'url': '', 'fit': 'cover'}, 'configured': {'type': 'default', 'value': ''}}
         elif path == 'settings/ui':
@@ -60,7 +64,7 @@ def run(engine, browser, language):
 
     context.route('**/api/v2/**', api)
     cases = []; animations = []; focus_count = 0
-    titles = {'accounts': ('账号状态', 'Account status'), 'alerts': ('告警中心', 'Alerts'), 'audit': ('审计中心', 'Audit center')}
+    titles = {'accounts': ('账号管理', 'Account management'), 'alerts': ('告警中心', 'Alerts'), 'audit': ('审计中心', 'Audit center')}
     for section in titles:
         for index, total in enumerate((0, 1, 29, 30, 31, 121)):
             width, height = ((1536, 960), (901, 420), (390, 844), (320, 700))[index % 4]
@@ -82,15 +86,40 @@ def run(engine, browser, language):
                 page.screenshot(path='outputs/v61-overflow.png')
                 raise AssertionError((section, total, width, 'document overflow'))
             page.keyboard.press('Tab')
-            focus_count += page.evaluate("""()=>{let count=0;for(const e of document.querySelectorAll('button:not([disabled]),input,textarea,summary,[tabindex="0"],a[href]')){if(e.closest('[inert],[aria-hidden="true"]')||!e.getClientRects().length)continue;e.focus({preventScroll:true});const s=getComputedStyle(e);if(e.matches(':focus-visible')){if(parseFloat(s.outlineWidth)<2||parseFloat(s.outlineOffset)>-parseFloat(s.outlineWidth))throw Error('Clipped/absent outline: '+e.className);count++}}return count}""")
+            focus_count += page.evaluate("""()=>{let count=0;for(const e of document.querySelectorAll('button:not([disabled]),input,textarea,summary,[tabindex="0"],a[href]')){if(e.closest('[inert],[aria-hidden="true"]')||!e.getClientRects().length)continue;e.focus({preventScroll:true});const field=e.matches('input')&&e.closest('.search-field,.auth-input,.md-select-search,.quota-input-stable');const s=getComputedStyle(field||e);if(e.matches(':focus-visible')){if(parseFloat(s.outlineWidth)<2||parseFloat(s.outlineOffset)>-parseFloat(s.outlineWidth))throw Error('Clipped/absent outline: '+(field||e).className);count++}}return count}""")
             cases.append({'section': section, 'total': total, 'width': width})
 
     # The removed route cannot expose a standalone page. Account details own it.
     dashboard['accounts'] = [account(0)]; dashboard['subscriptions'] = [{'id': 'qa-sub', 'account': 'qa-0', 'protocols': ['AnyTLS'], 'enabled': True}]
+    dashboard['traffic']['totalBytes'] = 12_500_000_000
     page.set_viewport_size({'width': 390, 'height': 844}); page.goto(BASE + '/#/accounts', wait_until='networkidle')
     assert state['urlReads'] == 0
-    page.get_by_role('button', name='查看 QA 0 的订阅' if language == 'zh' else 'View QA 0 subscriptions', exact=True).click()
+    search = page.get_by_role('textbox', name='搜索账号' if language == 'zh' else 'Search accounts', exact=True)
+    search.click(); search.fill('　ＱＡ ０　')
+    assert search.evaluate("""e => {
+        const ring=getComputedStyle(e.closest('.search-field'));
+        return getComputedStyle(e).outlineStyle==='none' && parseFloat(ring.outlineWidth)>=2 && parseFloat(ring.borderRadius)>=20;
+    }""")
+    pinned = page.locator('.accounts-table tbody tr').first
+    expect(pinned).to_contain_text('未归属' if language == 'zh' else 'Unattributed')
+    expect(pinned).to_contain_text('12.5 GB')
+    expect(pinned.locator('button')).to_have_count(0)
+    trigger = page.get_by_role('button', name='查看 QA 0 的订阅' if language == 'zh' else 'View QA 0 subscriptions', exact=True)
+    state['delayUrl'] = True
+    with page.expect_request('**/subscriptions/*/url'):
+        trigger.click()
+    expect(page.get_by_text('正在读取订阅' if language == 'zh' else 'Loading subscription', exact=True)).to_be_visible()
+    copy = page.get_by_role('button', name='复制地址' if language == 'zh' else 'Copy URL', exact=True)
+    expect(copy).to_be_disabled()
+    slot = page.locator('.subscription-qr-slot')
+    settled(page)
+    before = slot.bounding_box()
+    state['heldUrl'].fulfill(json={'url': url})
+    state['delayUrl'] = False
     expect(page.locator('.qr-surface svg')).to_be_visible(); settled(page)
+    after = slot.bounding_box()
+    assert abs(after['height'] - before['height']) < 2 and abs(after['width'] - before['width']) < 2
+    assert state['urlReads'] == 1
     if os.environ.get('CASTORICEUI_QA_SHOTS'):
         folder = Path(os.environ['CASTORICEUI_QA_SHOTS']); folder.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(folder / f'{engine}-{language}-account-card.png'))
@@ -103,6 +132,7 @@ def run(engine, browser, language):
     expect(page.locator('.qr-surface')).to_have_count(0)
     page.goto(BASE + '/#/subscriptions', wait_until='networkidle')
     assert page.locator('.account-subscriptions').count() == 0
+    assert page.evaluate('location.hash') == '#/accounts'
 
     page.goto(BASE + '/#/accounts', wait_until='networkidle')
     page.set_viewport_size({'width': 1536, 'height': 960}); settled(page)
@@ -113,12 +143,12 @@ def run(engine, browser, language):
     group.get_by_role('button', name='日志审计时长' if language == 'zh' else 'Audit log retention', exact=True).click()
     expect(page.get_by_role('option')).to_have_count(7); settled(page)
     if os.environ.get('CASTORICEUI_QA_SHOTS'):page.screenshot(path=str(folder / f'{engine}-{language}-security.png'))
-    page.get_by_role('option', name='30天' if language == 'zh' else '30 days', exact=True).click()
+    page.get_by_role('option', name='30d', exact=True).click()
     page.wait_for_function("()=>document.querySelector('.security-settings-group').textContent.includes('30')")
     assert state['writes'] == [{'auditRetentionDays': 30}]
     assert not errors, errors
     context.close()
-    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True}
+    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True}
 
 
 with sync_playwright() as playwright:

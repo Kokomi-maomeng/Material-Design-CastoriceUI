@@ -12,6 +12,22 @@ from castoriceui.storage import Storage, AUDIT_RETENTION_DAYS
 
 
 class AuditRetentionTests(unittest.TestCase):
+    def test_search_matches_localized_labels_and_literal_input_in_saved_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(str(Path(directory) / 'state.db'))
+            storage.add_audit('登录成功', '认证', '管理员会话已创建', actor='测试员')
+            storage.add_audit('更新网络探测目标', '配置', '已保存 3 个探测目标')
+            storage.add_audit('修改密码', '认证', '管理员密码已更新，其他会话已失效')
+            for query, action in (
+                ('登录成功', '登录成功'), ('ＳＩＧＮＥＤ ＩＮ', '登录成功'),
+                ('session was created', '登录成功'), ('测试员', '登录成功'),
+                ('3 probe targets', '更新网络探测目标'), ('changed password', '修改密码'),
+            ):
+                with self.subTest(query=query):
+                    self.assertEqual([row['action'] for row in storage.audit_page(search=query)['items']], [action])
+            self.assertEqual(storage.audit_page(search='%')['total'], 0)
+            self.assertEqual(storage.audit_page(search='signed in', category='配置')['total'], 0)
+
     def test_every_retention_prunes_expired_rows_but_keeps_boundary_and_newer(self):
         now = 2_000_000_000
         for days in AUDIT_RETENTION_DAYS:
@@ -51,7 +67,7 @@ class AuditRetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch('castoriceui.storage.time.time', return_value=now):
             path = str(Path(directory) / 'state.db')
             storage = Storage(path)
-            settings = {'visiblePanels': ['alerts', 'subscriptions', 'accounts'], 'panelTitle': 'QA', 'idleTimeoutMinutes': 20, 'auditRetentionDays': 60}
+            settings = {'visiblePanels': ['alerts', 'subscriptions', 'accounts', 'connections'], 'panelTitle': 'QA', 'idleTimeoutMinutes': 20, 'auditRetentionDays': 60}
             storage.set_setting('ui_settings', settings)
             with storage.connect() as connection:
                 connection.execute("INSERT INTO audits(action,category,actor,source_ip,result,detail,created_at) VALUES('old','系统','system','127.0.0.1','成功','Synthetic',?)", (datetime.fromtimestamp(now - 61 * 86400, timezone.utc).isoformat(),))

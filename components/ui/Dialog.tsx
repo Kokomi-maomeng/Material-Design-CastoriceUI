@@ -89,7 +89,7 @@ export function Dialog({
     restoreBackgroundScroll();
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!openRef.current || dialogStack[dialogStack.length - 1] !== dialog || event.defaultPrevented) return;
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.isComposing) {
         event.preventDefault();
         event.stopImmediatePropagation();
         onCloseRef.current();

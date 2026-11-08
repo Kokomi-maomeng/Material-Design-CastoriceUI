@@ -99,14 +99,14 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
   const [navigation, app, settings, projectMetadata, styles] = await Promise.all([
     read("lib/navigation.ts"), read("components/CastoriceApp.tsx"), read("components/settings/SettingsDialog.tsx"), read("lib/project.ts"), readStyles(),
   ]);
-  const order = ["overview", "setup", "alerts", "accounts", "services", "network", "connections", "traffic", "audit"];
+  const order = ["overview", "setup", "alerts", "accounts", "services", "network", "traffic", "audit"];
   let previous = -1;
   for (const id of order) {
     const position = navigation.indexOf(`id: "${id}"`);
     assert.ok(position > previous, `${id} must follow the requested navigation order`);
     previous = position;
   }
-  assert.match(navigation, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"services"[^]*"network"[^]*"connections"[^]*"traffic"[^]*"audit"/);
+  assert.match(navigation, /const PANEL_IDS[^]*"alerts"[^]*"accounts"[^]*"services"[^]*"network"[^]*"traffic"[^]*"audit"/);
   assert.match(app, /desktopNavigationHidden/);
   assert.match(styles, /app-shell--navigation-hidden/);
   assert.doesNotMatch(app, /className="bottom-navigation"/);
@@ -118,7 +118,7 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
 });
 
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
-  const [page, collector, dashboard] = await Promise.all([read("components/pages/ConnectionsPage.tsx"), read("server/castoriceui/collectors.py"), read("server/castoriceui/dashboard.py")]);
+  const [page, collector, dashboard] = await Promise.all([read("components/traffic/ActiveConnections.tsx"), read("server/castoriceui/collectors.py"), read("server/castoriceui/dashboard.py")]);
   assert.match(page, /copy\(item\.sourceIp\)/);
   assert.match(page, /item\.sourceIp \? <div/);
   assert.doesNotMatch(page, /Not provided by core/);
@@ -137,7 +137,9 @@ test("network targets are editable and charts use real smooth sample paths", asy
   assert.match(network, /NetworkHelp/);
   assert.match(editor, /order/);
   const networkChart = await read("components/charts/NetworkChart.tsx");
-  assert.match(chart, / C /);
+  assert.match(chart, /smoothChartPath/);
+  assert.match(networkChart, /smoothChartPath/);
+  assert.match(await read("lib/chart-path.ts"), /C \$/);
   assert.match(chart, /getScreenCTM\(\)/);
   assert.match(chart, /matrix\.inverse\(\)/);
   assert.match(networkChart, /getScreenCTM\(\)/);
@@ -151,7 +153,7 @@ test("P2 compatibility, deploy examples, and protocol probe unit stay regression
     read("components/charts/TrafficChart.tsx"), read("server/config.example.json"),
     read("deploy/castoriceui-protocol-probe.service"), read("docs/DEPLOYMENT.md"),
     read("components/pages/AccountsPage.tsx"), read("components/pages/OverviewPage.tsx"),
-    read("components/pages/ConnectionsPage.tsx"), read("server/preflight.py"), readStyles(),
+    read("components/traffic/ActiveConnections.tsx"), read("server/preflight.py"), readStyles(),
   ]);
   assert.doesNotMatch(chart, /\.at\s*\(/);
   const config = JSON.parse(configText);
@@ -237,7 +239,7 @@ test("subscription hints are removed and traffic quota remains one shared value"
   assert.doesNotMatch(subscriptions, /FeatureIntro|独立入口|快速导入/);
   assert.doesNotMatch(subscriptions, /tokenHint|updatedAt|lastFetchedAt|订阅安全提示|Subscription security/);
   assert.match(overview, /流量使用趋势/);
-  assert.match(accounts, /映射协议累计流量/);
+  assert.match(accounts, /累计流量/);
   assert.doesNotMatch(accounts, /统一累计账本|Unified cumulative/);
   assert.match(dashboard, /"quotaBytes": int\(self\.traffic_quota_state\(\)\["bytes"\]\)/);
   assert.match(quotaDialog, /quota-input-stable/);
@@ -246,7 +248,7 @@ test("subscription hints are removed and traffic quota remains one shared value"
 test("v3.1 quota schedules, stable live layouts, and requested removals stay wired end to end", async () => {
   const [quotaDialog, api, collector, quotaModel, dashboard, connections, traffic, network, overview, services, audit, styles, security] = await Promise.all([
     read("components/traffic/TrafficQuotaDialog.tsx"), read("server/castoriceui/api.py"), read("server/castoriceui/collectors.py"), read("server/castoriceui/traffic_quota.py"),
-    read("server/castoriceui/dashboard.py"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/TrafficPage.tsx"),
+    read("server/castoriceui/dashboard.py"), read("components/traffic/ActiveConnections.tsx"), read("components/pages/TrafficPage.tsx"),
     read("components/pages/NetworkPage.tsx"), read("components/pages/OverviewPage.tsx"), read("server/castoriceui/collectors.py"), read("components/pages/AuditPage.tsx"),
     readStyles(), read("server/castoriceui/security.py"),
   ]);
@@ -282,9 +284,9 @@ test("common sing-box protocols are explicit and unmatched connections stay hidd
 });
 
 test("v3.1 detail interactions avoid native or stale UI artifacts", async () => {
-  const [app, styles, audit, traffic, donut, login] = await Promise.all([
+  const [app, styles, audit, traffic, distribution, login] = await Promise.all([
     read("components/CastoriceApp.tsx"), readStyles(), read("components/pages/AuditPage.tsx"),
-    read("components/charts/TrafficChart.tsx"), read("components/charts/DonutChart.tsx"), read("components/auth/AuthPage.tsx"),
+    read("components/charts/TrafficChart.tsx"), read("components/charts/ProtocolDistribution.tsx"), read("components/auth/AuthPage.tsx"),
   ]);
   assert.match(app, /notification-badge/);
   assert.doesNotMatch(styles, /notification-button span:last-child/);
@@ -300,7 +302,7 @@ test("v3.1 detail interactions avoid native or stale UI artifacts", async () => 
   assert.match(audit, /RecordPagination/);
   assert.match(await read("components/ui/RecordHistory.tsx"), /pageItems/);
   assert.match(traffic, /chart-inspector/);
-  assert.doesNotMatch(`${traffic}\n${donut}`, /<title>/);
+  assert.doesNotMatch(`${traffic}\n${distribution}`, /<title>/);
   assert.doesNotMatch(login, /凭据只发送到当前面板后端|Use your panel account to access live server data/);
 });
 
@@ -359,7 +361,7 @@ test("v3.1 fails closed for config, payload fields, traffic resets, login abuse,
 
 test("v3.2 operator identity, layout, settings, and truthful status requirements remain enforced", async () => {
   const [overview, connections, network, services, setup, settings, datePicker, styles, dashboard, collector, storage, i18n] = await Promise.all([
-    read("components/pages/OverviewPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/charts/NetworkChart.tsx"),
+    read("components/pages/OverviewPage.tsx"), read("components/traffic/ActiveConnections.tsx"), read("components/charts/NetworkChart.tsx"),
     read("components/pages/ServicesPage.tsx"), read("components/setup/SetupPanel.tsx"), read("components/settings/SettingsDialog.tsx"),
     read("components/ui/MaterialDatePicker.tsx"), readStyles(), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/collectors.py"), read("server/castoriceui/storage.py"), read("lib/i18n.tsx"),
@@ -396,7 +398,7 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
 test("v3.3 validates subscriptions, account attribution, ranking, alerts, and reset time end to end", async () => {
   const [wizard, definitions, traffic, accounts, connections, subscriptions, app, quotaDialog, dashboard, quota, security] = await Promise.all([
     read("components/setup/SetupWizard.tsx"), read("lib/integrations.ts"), read("components/pages/TrafficPage.tsx"),
-    read("components/pages/AccountsPage.tsx"), read("components/pages/ConnectionsPage.tsx"), read("components/pages/AccountSubscriptions.tsx"),
+    read("components/pages/AccountsPage.tsx"), read("components/traffic/ActiveConnections.tsx"), read("components/pages/AccountSubscriptions.tsx"),
     read("components/CastoriceApp.tsx"), read("components/traffic/TrafficQuotaDialog.tsx"), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/traffic_quota.py"), read("server/castoriceui/security.py"),
   ]);
@@ -410,11 +412,11 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
   assert.match(dashboard, /integration-\{integration_id\}/);
   assert.match(dashboard, /usageSource.*protocolCounter/);
   assert.doesNotMatch(dashboard, /usageSource.*durableLedger/);
-  assert.match(traffic, /\.sort\(\(left, right\) => right\.value - left\.value/);
+  assert.match(traffic, /ProtocolDistribution/);
   assert.doesNotMatch(traffic, /趋势采样|Trend samples|时间桶|time buckets/);
-  assert.match(accounts, /管理账号/);
+  assert.match(accounts, /账号管理/);
   assert.match(connections, /item.account \? <div/);
-  assert.match(subscriptions, /关联管理账号/);
+  assert.match(subscriptions, /关联账号/);
   assert.match(app, /new Date\(now\)\.toLocaleTimeString/);
   assert.match(quotaDialog, /resetTime/);
   assert.match(dashboard, /resetTime/);
@@ -439,7 +441,7 @@ test("v3.4 fixes new-user deployment, truthful attribution, SSRF pinning, and ma
   assert.match(dashboard, /protocolTotalBytes/);
   assert.match(api, /HTTPStatus\.SERVICE_UNAVAILABLE/);
   assert.match(types, /"error"/);
-  assert.match(traffic, /Distribution total/);
+  assert.match(traffic, /protocolTotalBytes/);
   assert.match(services, /ServiceCards services=\{services\} metrics=\{metrics\}/);
   assert.match(await read("components/ServiceCards.tsx"), /services\.filter\(isProtocolService\)/);
   assert.match(security, /class _PinnedHTTPSConnection/);

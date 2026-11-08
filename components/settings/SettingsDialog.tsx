@@ -223,15 +223,15 @@ export function SettingsDialog({
       <section className="theme-section security-settings-group">
         <h3><Icon name="security" /><span>{t("安全", "Security")}</span></h3>
         <AnimatedDetails className="settings-disclosure general-setting-item">
-          <summary><span><Icon name="timer" /><span><strong>{t("在线超时时长", "Inactivity timeout")}</strong><small>{`${draftUiSettings.idleTimeoutMinutes}min`}</small></span></span><Icon name="expand_more" /></summary>
+          <summary><span><Icon name="timer" /><span><strong>{t("在线超时时长", "Inactivity timeout")}</strong><small>{formatTimeSpan(draftUiSettings.idleTimeoutMinutes * 60)}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
-            <div className="field"><span>{t("在线超时时长", "Inactivity timeout")}</span><MaterialSelect disabled={uiSaving} ariaLabel={t("在线超时时长", "Inactivity timeout")} value={String(draftUiSettings.idleTimeoutMinutes)} options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: `${minutes}min` }))} onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })} /></div>
+            <div className="field"><span>{t("在线超时时长", "Inactivity timeout")}</span><MaterialSelect disabled={uiSaving} ariaLabel={t("在线超时时长", "Inactivity timeout")} value={String(draftUiSettings.idleTimeoutMinutes)} options={[2, 5, 10, 15, 20, 30].map((minutes) => ({ value: String(minutes), label: formatTimeSpan(minutes * 60) }))} onChange={(value) => void saveUiSettings({ idleTimeoutMinutes: Number(value) as UiSettings["idleTimeoutMinutes"] })} /></div>
           </div>
         </AnimatedDetails>
         <AnimatedDetails className="settings-disclosure general-setting-item">
-          <summary><span><Icon name="history" /><span><strong>{t("日志审计时长", "Audit log retention")}</strong><small>{draftUiSettings.auditRetentionDays === 365 ? t("1年", "1 year") : t(`${draftUiSettings.auditRetentionDays}天`, `${draftUiSettings.auditRetentionDays} days`)}</small></span></span><Icon name="expand_more" /></summary>
+          <summary><span><Icon name="history" /><span><strong>{t("日志审计时长", "Audit log retention")}</strong><small>{formatTimeSpan(draftUiSettings.auditRetentionDays * 86400)}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
-            <div className="field"><span>{t("日志审计时长", "Audit log retention")}</span><MaterialSelect disabled={uiSaving} ariaLabel={t("日志审计时长", "Audit log retention")} value={String(draftUiSettings.auditRetentionDays)} options={[30, 60, 90, 120, 150, 180, 365].map((days) => ({ value: String(days), label: days === 365 ? t("1年", "1 year") : t(`${days}天`, `${days} days`) }))} onChange={(value) => void saveUiSettings({ auditRetentionDays: Number(value) as UiSettings["auditRetentionDays"] })} /><small className="field-hint">{t("默认保留180天。修改后立即清理超期记录，并每小时自动清理。", "Keep 180 days by default. Expired records are deleted when this changes and automatically every hour.")}</small></div>
+            <div className="field"><span>{t("日志审计时长", "Audit log retention")}</span><MaterialSelect disabled={uiSaving} ariaLabel={t("日志审计时长", "Audit log retention")} value={String(draftUiSettings.auditRetentionDays)} options={[30, 60, 90, 120, 150, 180, 365].map((days) => ({ value: String(days), label: formatTimeSpan(days * 86400) }))} onChange={(value) => void saveUiSettings({ auditRetentionDays: Number(value) as UiSettings["auditRetentionDays"] })} /><small className="field-hint">{t("默认保留 180d。修改后立即清理超期记录，此后每 1h 清理一次。", "The default is 180d. Changing retention removes expired records immediately, and cleanup runs every 1h.")}</small></div>
           </div>
         </AnimatedDetails>
       <AnimatedDetails className="settings-disclosure security-settings">

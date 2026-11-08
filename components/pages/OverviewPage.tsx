@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import type { PageRoute } from "../../lib/navigation";
 
 import { formatBytes, formatDecimalBytes, percent } from "../../lib/format";
 import type {
@@ -9,7 +10,6 @@ import type {
   DashboardPayload,
   NetworkTarget,
   OverviewMetrics,
-  PageId,
   ServiceStatus,
   TrafficRange,
 } from "../../lib/types";
@@ -43,12 +43,12 @@ export function OverviewPage({
   traffic: DashboardPayload["traffic"];
   onEditQuota: () => void;
   onRefresh: () => void;
-  onNavigate: (page: PageId) => void;
+  onNavigate: (page: PageRoute) => void;
 }) {
   const { language, t } = useI18n();
   const trafficLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量分析", "View traffic analytics"));
   const trendLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量趋势分析", "View traffic trend analytics"));
-  const connectionsLink = useNavigationSurface(() => onNavigate("connections"), t("查看在线连接", "View connections"));
+  const connectionsLink = useNavigationSurface(() => onNavigate("traffic/connections"), t("查看在线连接", "View connections"));
   const networkLink = useNavigationSurface(() => onNavigate("network"), t("查看网络质量", "View network quality"));
   const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const stale = mode === "stale";
@@ -60,7 +60,7 @@ export function OverviewPage({
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
   );
   const quota = metrics.trafficQuota;
-  const nextResetInBillingZone = quota?.nextReset ? new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { timeZone: quota.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(quota.nextReset)) : "";
+  const nextResetInBillingZone = quota?.nextReset ? new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { timeZone: quota.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(quota.nextReset)) : "";
   const quotaCycleText = quota?.autoReset && quota.nextReset
     ? t(
         `每 ${quota.periodCount} ${quota.periodUnit === "day" ? "日" : quota.periodUnit === "week" ? "周" : quota.periodUnit === "month" ? "月" : "年"}重置 · 下次 ${nextResetInBillingZone}（${quota.timezone}）`,

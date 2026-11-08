@@ -81,7 +81,7 @@ def verify_navigation_focus(page):
     for width,height in ((1536,960),(1024,720),(901,420)):
         page.set_viewport_size({'width':width,'height':height}); settled(page)
         buttons = page.locator('.navigation-rail nav button')
-        expect(buttons).to_have_count(9)
+        expect(buttons).to_have_count(8)
         buttons.first.press('Tab'); page.keyboard.press('Shift+Tab')
         for index in range(buttons.count()):
             # WebKit scrolls a newly focused item on a later rendering turn.
@@ -97,5 +97,13 @@ def verify_navigation_focus(page):
             expect(buttons.nth(index)).to_have_attribute('aria-current', 'page')
             rows.append({'width':width,'height':height,'page':index,'outlineVisible':True})
             if index < buttons.count()-1: page.keyboard.press('Tab')
+        buttons.first.press('Enter')
+        page.get_by_role('link', name='View connections', exact=True).press('Enter')
+        heading = page.get_by_role('heading', level=2, name='Active connections', exact=True)
+        expect(heading).to_be_focused()
+        assert heading.evaluate("""e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+          return e.matches(':focus-visible') && parseFloat(s.outlineWidth)>=2 && r.top>=0 && r.bottom<=innerHeight}""")
+        assert page.evaluate("location.hash") == "#/traffic/connections"
+        rows.append({'width':width,'height':height,'page':'traffic/connections','outlineVisible':True})
     page.set_viewport_size({'width':1536,'height':960}); settled(page)
     return rows

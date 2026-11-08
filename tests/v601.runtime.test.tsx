@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import * as api from "../lib/api";
-import { ConnectionsPage } from "../components/pages/ConnectionsPage";
+import { ActiveConnections } from "../components/traffic/ActiveConnections";
 import { NetworkPage } from "../components/pages/NetworkPage";
 import { I18nProvider } from "../lib/i18n";
 import { matchesConnectionTarget, reconcileLiveConnections, visibleLiveConnections, type ConnectionFilters } from "../lib/connection-view";
@@ -61,7 +61,7 @@ it("keeps combined domain and port filters on the same flow", () => {
 
 it("animates the filter container, fetches target filters with live display off and preserves hidden drafts", async () => {
   const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue(targets);
-  const { container } = render(english(<ConnectionsPage connections={[group]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />));
+  const { container } = render(english(<ActiveConnections connections={[group]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />));
   fireEvent.click(screen.getByRole("button", { name: "Filter" }));
   const query = screen.getByRole("searchbox", { name: "Destination domain" });
   expect(query.closest(".motion-collapse")?.classList.contains("is-expanded")).toBe(true);
@@ -79,7 +79,7 @@ it("animates the filter container, fetches target filters with live display off 
 
 it("shows a closed countdown instead of open duration and keeps the target through read failures", async () => {
   const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue(targets);
-  const page = (connections: Connection[], now = Date.now()) => english(<ConnectionsPage connections={connections} now={now} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  const page = (connections: Connection[], now = Date.now()) => english(<ActiveConnections connections={connections} now={now} onToast={vi.fn()} onConfigure={vi.fn()} />);
   const view = render(page([group]));
   fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
   await screen.findByText("View destinations");
@@ -102,7 +102,7 @@ it("keeps a previously visible closed destination on screen beyond the ten-row l
   const details = Array.from({ length: 15 }, (_, i) => ({ ...detail, id: `flow-${i}`, downloadBps: i }));
   const value = (rows: typeof details): ConnectionTargets => ({ available: true, sampledAt: null, groups: [{ id: group.id, details: rows.map((row) => ({ id: row.id, destination: `${row.id}.example.test:443` })) }] });
   const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue(value(details));
-  const page = (rows: typeof details) => english(<ConnectionsPage connections={[{ ...group, details: rows }]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+  const page = (rows: typeof details) => english(<ActiveConnections connections={[{ ...group, details: rows }]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   const view = render(page(details));
   fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
   await screen.findByText("View destinations");

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../lib/i18n";
 import { AuthPage } from "../components/auth/AuthPage";
-import { ConnectionsPage } from "../components/pages/ConnectionsPage";
+import { ActiveConnections } from "../components/traffic/ActiveConnections";
 import { AccountsPage } from "../components/pages/AccountsPage";
 import { AlertsPage } from "../components/pages/AlertsPage";
 import { TrafficChart } from "../components/charts/TrafficChart";
@@ -57,7 +57,7 @@ describe("P2 truthfulness and interaction regressions", () => {
       id: "unknown", protocol: "Hysteria2", account: "", sourceIp: "", ipVersion: null,
       connections: 1, uploadBps: null, downloadBps: null, connectedAt: null, details: [],
     };
-    renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("0 B/s")).toBeNull();
     expect(screen.queryByText("1 unknown identity")).toBeNull();
@@ -85,7 +85,7 @@ describe("P2 truthfulness and interaction regressions", () => {
       connections: 2, uploadBps: 0, downloadBps: 0, connectedAt: null, details: [],
       ratesPartial: true, rateCoverage: { known: 1, total: 2 },
     };
-    renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     expect(screen.getAllByText(/0 B\/s/).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText(/partial, 1\/2/)).toBeNull();
     expect(screen.getByLabelText("Active connection rates and display")).toBeTruthy();
@@ -98,7 +98,7 @@ describe("P2 truthfulness and interaction regressions", () => {
       connections: 1, uploadBps: 5, downloadBps: 8, connectedAt: null,
       details: [{ id: "detail", destination: "example.test:443", uploadBps: 5, downloadBps: 8, connectedAt: null }],
     };
-    const { container } = renderEnglish(<ConnectionsPage connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    const { container } = renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     expect(container.querySelector(".connection-disclosure")).toBeNull();
     expect(screen.queryByText("example.test:443")).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));

@@ -4,11 +4,11 @@ import * as api from "../lib/api";
 import { alertBadge } from "../lib/alert-badge";
 import { connectionDuration, listedRate } from "../lib/connection-view";
 import { I18nProvider } from "../lib/i18n";
-import { ConnectionsPage } from "../components/pages/ConnectionsPage";
+import { ActiveConnections } from "../components/traffic/ActiveConnections";
 import type { AlertItem, Connection, ConnectionTargets } from "../lib/types";
 
 const entry = (id = "a", protocol: Connection["protocol"] = "Hysteria2"): Connection => ({ id, protocol, account: "", sourceIp: "", ipVersion: null, connections: 100, onlineClients: protocol === "Hysteria2" ? 4 : undefined, connectedAt: "2026-01-01T00:00:00Z", downloadBps: null, uploadBps: 0, details: Array.from({ length: 100 }, (_, i) => ({ id: `${id}-${i}`, destination: null, connectedAt: null, downloadBps: i, uploadBps: 0 })) });
-const view = (connections: Connection[], stale = false, now = Date.parse("2026-01-02T00:00:00Z")) => <I18nProvider><ConnectionsPage connections={connections} stale={stale} now={now} onToast={vi.fn()} onConfigure={vi.fn()} /></I18nProvider>;
+const view = (connections: Connection[], stale = false, now = Date.parse("2026-01-02T00:00:00Z")) => <I18nProvider><ActiveConnections connections={connections} stale={stale} now={now} onToast={vi.fn()} onConfigure={vi.fn()} /></I18nProvider>;
 beforeEach(() => { localStorage.clear(); localStorage.setItem("castorice-language", "en"); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 

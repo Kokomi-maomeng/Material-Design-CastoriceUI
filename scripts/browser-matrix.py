@@ -15,7 +15,7 @@ from qa_browser import open_page as open_ready_page, settled
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
 VIEWPORTS = ((2560, 1440), (1440, 1000), (768, 1024), (390, 844), (320, 700))
-PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "account-subscriptions", "alerts", "audit", "setup")
+PAGES = ("overview", "traffic", "traffic/connections", "accounts", "network", "services", "account-subscriptions", "alerts", "audit", "setup")
 
 
 def check_typography(page, case):
@@ -151,7 +151,7 @@ def synthetic_dashboard(page) -> dict[str, object]:
     dashboard["subscriptions"] = [{"id": "matrix-subscription", "account": "matrix-account", "protocols": ["AnyTLS"], "enabled": True}]
     dashboard["uiSettings"].update(
         showSetup=True,
-        visiblePanels=["alerts", "accounts", "services", "network", "connections", "traffic", "audit"],
+        visiblePanels=["alerts", "accounts", "services", "network", "traffic", "audit"],
     )
     dashboard["connections"] = [
         {"id": "matrix-hy2", "protocol": "Hysteria2", "account": "QA", "sourceIp": "", "ipVersion": None, "connections": 50, "onlineClients": 4, "uploadBps": None, "downloadBps": 8192, "connectedAt": now.isoformat(), "details": [{"id": f"matrix-stream-{i}", "destination": None, "connectedAt": now.isoformat(), "uploadBps": None, "downloadBps": None} for i in range(50)]},
@@ -164,8 +164,8 @@ def open_page(page, section: str) -> None:
     titles = {
         "overview": ("QA node", "QA node"),
         "traffic": ("流量分析", "Traffic analytics"),
-        "connections": ("在线连接", "Active connections"),
-        "accounts": ("账号状态", "Account status"),
+        "traffic/connections": ("流量分析", "Traffic analytics"),
+        "accounts": ("账号管理", "Account management"),
         "network": ("网络质量", "Network quality"),
         "services": ("服务状态", "Services"),
         "alerts": ("告警中心", "Alerts"),
@@ -334,10 +334,15 @@ with sync_playwright() as playwright:
                             check_typography(page, (engine, language, theme, motion, width, section))
                             if section == "traffic":
                                 assert page.locator(".chart--traffic").evaluate("element => element.scrollWidth <= element.clientWidth + 2"), (engine, language, width, section, "chart clipping")
-                                if width >= 901:
-                                    monthly = page.locator(".monthly-traffic-panel").bounding_box()
-                                    protocol = page.locator(".protocol-panel").bounding_box()
-                                    assert monthly and protocol and abs(monthly["height"] - protocol["height"]) <= 2, (engine, language, width, "secondary card heights")
+                                trend = page.locator(".traffic-analysis__trend").bounding_box()
+                                monthly = page.locator(".monthly-traffic-panel").bounding_box()
+                                protocol = page.locator(".protocol-panel").bounding_box()
+                                assert abs(monthly["height"] - trend["height"]) <= 2, (engine, language, width, "unbalanced chart cards")
+                                assert protocol["y"] >= monthly["y"] + monthly["height"] - 1, (engine, language, width, "protocol placement")
+                                if width >= 1440:
+                                    assert monthly["x"] > trend["x"] + trend["width"] - 1 and abs(monthly["y"] - trend["y"]) <= 2
+                                if width <= 768:
+                                    assert abs(monthly["width"] - trend["width"]) <= 2 and monthly["y"] > trend["y"] + trend["height"] - 1
                                 if engine == "chromium" and language == "en" and width in (1440, 390, 320):
                                     trigger = page.get_by_role("button", name="Measurement coverage is incomplete")
                                     trigger.hover()
@@ -348,13 +353,17 @@ with sync_playwright() as playwright:
                                     assert popup_box["x"] <= anchor_box["x"] + anchor_box["width"] + 12 and popup_box["x"] + popup_box["width"] >= anchor_box["x"] - 12, (width, "coverage popover detached")
                                     page.mouse.move(0, 0)
                                     more = page.get_by_role("button", name="More protocols")
-                                    more.hover()
-                                    more_popup = page.get_by_role("dialog", name="More protocol traffic")
-                                    more_popup.wait_for(state="visible")
-                                    more_box = more_popup.bounding_box()
-                                    assert more_box and more_box["x"] >= 0 and more_box["x"] + more_box["width"] <= width + 2, (width, "protocol popover overflow")
-                                    page.mouse.move(0, 0)
-                                    page.wait_for_timeout(220)
+                                    bar = page.locator(".protocol-distribution__bar")
+                                    size_before = bar.bounding_box()
+                                    more.click()
+                                    assert more.get_attribute("aria-expanded") == "true"
+                                    settled(page)
+                                    extra = page.locator(".protocol-distribution .motion-collapse.is-expanded")
+                                    assert extra.locator("button").count() >= 2
+                                    size_after = bar.bounding_box()
+                                    assert size_after["height"] == size_before["height"] and size_after["width"] == size_before["width"]
+                                    more.click()
+                                    settled(page)
                             if section == "network":
                                 assert page.locator(".network-target-card").evaluate_all("cards => cards.every(card => { const plots=Array.from(card.querySelectorAll('.network-chart__plot')); return plots.length===2 && plots[0].getBoundingClientRect().height>=200 && Math.abs(plots[0].getBoundingClientRect().height-plots[1].getBoundingClientRect().height)<1; })")
                             if screenshot_root := os.environ.get("CASTORICEUI_BROWSER_SCREENSHOTS"):

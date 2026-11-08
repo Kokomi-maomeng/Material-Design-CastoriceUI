@@ -9,14 +9,14 @@
 
 @media (max-width: 620px) {
   .background-layout-controls { grid-template-columns: 1fr; }
-  .connection-detail-grid.has-destination, .connection-detail-grid.no-destination { grid-template-columns: 32px 1fr; }
+
 }
 
 @media (max-width: 760px) {
   .chart--traffic { overflow: hidden; }
   .chart--traffic .native-chart { width: 100%; min-width: 0; }
   .chart--traffic .native-chart--interactive { touch-action: pan-y; }
-  .traffic-trend-panel { min-height: 400px; }
+
 }
 
 .page-enter > * { animation: md-content-rise .42s cubic-bezier(.2,0,0,1) both; }

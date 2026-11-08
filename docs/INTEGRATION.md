@@ -53,7 +53,7 @@ Authenticated endpoints:
 
 All authenticated mutations require both the session CSRF token and `X-CastoriceUI-Request: 1`. Session cookies are HttpOnly, SameSite=Strict, path `/`, and Secure when `secure_cookies` is enabled. Login uses a bounded failure window and serialized scrypt verification to limit CPU/memory amplification on small VPS instances.
 
-Account status opens subscription details for records whose protected `account` matches the managed account ID, name or nonempty email. Dashboard metadata contains no full URLs. Opening the card explicitly fetches the URL; closing or switching accounts aborts pending reads. Copying client links wraps this HTTPS URL as `clash://install-config` or `shadowrocket://add/sub://` with standard UTF-8 Base64 and an encoded display name. It does not convert the publisher format or contact third parties.
+Account management opens subscription details for records whose protected `account` matches the managed account ID, name or nonempty email. Dashboard metadata contains no full URLs. Opening the card explicitly fetches the URL; closing or switching accounts aborts pending reads. Copying client links wraps this HTTPS URL as `clash://install-config` or `shadowrocket://add/sub://` with standard UTF-8 Base64 and an encoded display name. It does not convert the publisher format or contact third parties.
 
 `PUT /api/v2/settings/ui` accepts `auditRetentionDays` as an integer from 30, 60, 90, 120, 150, 180 or 365. Security settings default to 180 days. The saved value overrides the deployment default, survives restarts, and prunes expired audit records immediately after a settings update, at startup, on audit reads/writes and hourly. Removing the former subscription navigation preference preserves all other settings and protected records.
 
@@ -95,7 +95,7 @@ AnyTLS, VLESS, SOCKS5, Shadowsocks, VMess, Trojan, and TUIC require exact inboun
 }
 ```
 
-Tags are matched case-insensitively against sing-box connection metadata using the same protocol registry as setup validation. Custom tags may contain slashes. Conflicting tag/type evidence and ambiguous, unknown or unconfigured tags are omitted from Active connections. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Each browser setup action also performs an authenticated loopback `/connections` request before saving. Source IPs are validated as IPv4/IPv6; only explicit user/authentication fields supply account names, never a listener name. TCP and UDP entries share this metadata path whenever the core returns them.
+Tags are matched case-insensitively against sing-box connection metadata using the same protocol registry as setup validation. Custom tags may contain slashes. Conflicting tag/type evidence and ambiguous, unknown or unconfigured tags are omitted from the Active connections section of Traffic analytics. CastoriceUI does not guess a protocol from port numbers, destinations, usernames, or human-readable labels. Each browser setup action also performs an authenticated loopback `/connections` request before saving. Source IPs are validated as IPv4/IPv6; only explicit user/authentication fields supply account names, never a listener name. TCP and UDP entries share this metadata path whenever the core returns them.
 
 For VLESS, `securityProfile` accepts `standard`, `xtls-vision`, `reality`, or `xtls-vision-reality`. This is display/mapping metadata: XTLS Vision corresponds to the official `xtls-rprx-vision` user flow, while Reality belongs to the inbound TLS configuration. CastoriceUI does not rewrite the sing-box configuration.
 
@@ -111,7 +111,7 @@ Host-interface traffic and protocol-account traffic are different sources:
 - account usage/rankings: only explicitly mapped protocol/account counters; a single account never inherits the whole host ledger;
 - account quota and Overview quota: one shared backend traffic-limit setting.
 
-Every account row exposes a mapped protocol-core counter or no mapping, separately from registered status, recorded expiry state, and current core observation evidence. CastoriceUI never scales protocol counters to fit the interface ledger. Positive host-ledger remainder appears only in aggregate breakdowns as `Unattributed`; `protocolTotalBytes` and `accountTotalBytes` remain separate from host-interface `totalBytes`. A protocol cumulative value is not billing-cycle usage unless the upstream core resets on that exact cycle.
+Every account row exposes a mapped protocol-core counter or no mapping, separately from registered status, recorded expiry state, and current core observation evidence. CastoriceUI never scales protocol counters to fit the interface ledger. Positive host-ledger remainder appears in the pinned Unattributed row and in the API aggregate breakdowns; `protocolTotalBytes` and `accountTotalBytes` remain separate from host-interface `totalBytes`. A protocol cumulative value is not billing-cycle usage unless the upstream core resets on that exact cycle.
 
 ## Subscription validation
 
@@ -190,9 +190,11 @@ Connection integration status follows configured HY2 and sing-box adapters. Unco
 
 ## Explicit live destination viewing (v5.7)
 
+The Overview shortcut opens the Active connections section of Traffic analytics. Saved links to the retired standalone page open that section. The former page visibility preference is removed on upgrade.
+
 Authenticated route: `/api/v2/connections/targets`.
 
-`GET /api/v2/connections/targets` requires the existing administrator session. It returns only live, cached destination identifiers and domain/IP plus port for configured connection groups, with `sampledAt` and `available`. Transport data uses `[address]:port` for IPv6; the page displays the address without brackets and the port separately. Copy buttons copy the address. An unauthenticated request returns 401; all responses use no-store. Stale or failed source samples yield no destinations. The page's Show live connections switch defaults off, reveals available destinations immediately when enabled, and discards them on disable or unmount. Upload and download totals use all available listed connection samples and stay independent of list filters; they never substitute network-interface traffic for missing samples.
+`GET /api/v2/connections/targets` requires the existing administrator session. It returns only live, cached destination identifiers and domain/IP plus port for configured connection groups, with `sampledAt` and `available`. Transport data uses `[address]:port` for IPv6; the page displays the address without brackets and the port separately. Copy buttons copy the address. An unauthenticated request returns 401; all responses use no-store. Stale or failed source samples yield no destinations. The Show live connections switch in Traffic analytics defaults off, reveals available destinations immediately when enabled, and discards them on disable or unmount. Upload and download totals use all available listed connection samples and stay independent of list filters; they never substitute network-interface traffic for missing samples.
 
 The normal dashboard always omits destinations. The connection page requests this separate view only after the administrator selects View live destinations; leaving the page, hiding the view or signing out clears it. Destination values are not stored in preferences, connection history, audit logs or exports. No additional role or persistent viewing permission is created. Full HTTPS paths and query strings are not available. The protected global redaction setting and core configuration remain unchanged.
 

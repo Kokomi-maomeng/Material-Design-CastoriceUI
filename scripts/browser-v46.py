@@ -14,7 +14,7 @@ from qa_browser import settled as settle_view, open_page as open_ready_page
 
 BASE_URL = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
-PAGES = ("overview", "traffic", "connections", "accounts", "network", "services", "alerts", "audit", "setup")
+PAGES = ("overview", "traffic", "traffic/connections", "accounts", "network", "services", "alerts", "audit", "setup")
 TIME = "2026-01-01T00:00:00+00:00"
 
 
@@ -27,7 +27,7 @@ def run(engine, timezone, browser):
     page.on("pageerror", lambda error: errors.append(str(error)))
     dashboard = empty_dashboard(context, page, BASE_URL)
     dashboard.update(mode="live", generatedAt=TIME)
-    dashboard["uiSettings"]["visiblePanels"] = list(PAGES)
+    dashboard["uiSettings"]["visiblePanels"] = ["alerts", "accounts", "services", "network", "traffic", "audit"]
     dashboard["accounts"] = [{"id": "qa-account", "name": "QA account", "email": "qa@example.com", "status": "registered", "configuredStatus": "active", "expiryStatus": "notConfigured", "coreEvidence": "unknown", "protocols": ["AnyTLS"], "usedBytes": 0, "usageSource": "unmapped", "quotaBytes": 0, "expiresAt": "", "onlineDevices": 0}]
     dashboard["subscriptions"] = [{"id": "qa-subscription", "account": "qa-account", "protocols": ["AnyTLS"], "enabled": True}]
     history = [{"id": "same-condition", "episodeId": f"episode-{i}", "title": f"Synthetic alert {i}", "description": "QA condition", "source": "Synthetic QA", "severity": "warning", "acknowledged": False, "status": "resolved", "time": "now", "startedAt": TIME, "resolvedAt": TIME, "acknowledgedAt": None} for i in range(135)]
@@ -68,14 +68,14 @@ def run(engine, timezone, browser):
         route.fulfill(json=data)
 
     context.route("**/api/v2/**", route_api)
-    page.goto(BASE_URL, wait_until="networkidle")
+    page.goto(BASE_URL, wait_until="domcontentloaded")
     page.locator(".traffic-hero").wait_for()
 
     def settled():
         settle_view(page)
 
     def open_page(section):
-        titles = {"overview": dashboard["overview"]["nodeName"], "traffic": "Traffic analytics", "connections": "Active connections", "accounts": "Account status", "network": "Network quality", "services": "Services", "alerts": "Alerts", "audit": "Audit center", "setup": "Setup"}
+        titles = {"overview": dashboard["overview"]["nodeName"], "traffic": "Traffic analytics", "traffic/connections": "Traffic analytics", "accounts": "Account management", "network": "Network quality", "services": "Services", "alerts": "Alerts", "audit": "Audit center", "setup": "Setup"}
         open_ready_page(page, section, titles[section])
 
     def geometry():
