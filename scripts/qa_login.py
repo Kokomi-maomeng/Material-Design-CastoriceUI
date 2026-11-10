@@ -151,7 +151,7 @@ def verify_navigation_focus(page):
             if index < buttons.count()-1: page.keyboard.press('Tab')
         buttons.first.press('Enter')
         page.get_by_role('link', name='View connections', exact=True).press('Enter')
-        heading = page.get_by_role('heading', level=2, name='Active connections', exact=True)
+        heading = page.get_by_role('heading', level=2, name='Live connections', exact=True)
         expect(heading).to_be_focused()
         assert heading.evaluate("""e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);
           return e.matches(':focus-visible') && parseFloat(s.outlineWidth)>=2 && r.top>=0 && r.bottom<=innerHeight}""")

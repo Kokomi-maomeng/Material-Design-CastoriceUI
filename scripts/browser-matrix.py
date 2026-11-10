@@ -132,7 +132,7 @@ def synthetic_dashboard(page) -> dict[str, object]:
         hourly=points,
         daily=points,
         monthly=[
-            {"startDate": f"2025-{month:02d}-01", "endDate": f"2025-{month:02d}-28", "bytes": month * 10_000_000_000}
+            {"startDate": f"2025-{month:02d}-01", "endDate": f"2025-{month:02d}-28", "bytes": month * 10_000_000_000, "coverage": {"complete": False, "gapCount": 2}}
             for month in range(7, 13)
         ],
         protocol=[{"name": name, "value": value} for name, value in (

@@ -21,13 +21,13 @@ describe("v5.7 connection product regressions", () => {
     expect(alertBadge(undefined, [alert, { ...alert, severity: "critical", acknowledged: true }, { ...alert, severity: "warning" }])).toEqual({ count: 1, critical: 0, reminders: 1 });
   });
 
-  it("omits empty fields, anonymous details and misleading quantities even with 100 entries", () => {
-    const { container } = render(view([entry()]));
+  it("shows a uniform source and count without exposing the core account identity", () => {
+    const { container } = render(view([{ ...entry(), account: "core-qa" }]));
     expect(container.querySelectorAll(".connection-card")).toHaveLength(1);
-    expect(container.querySelectorAll(".connection-target, .connection-disclosure, .connection-address, .connection-account, table")).toHaveLength(0);
-    expect(screen.getByText("4 online clients")).toBeTruthy();
-    expect(screen.getByText("100 TCP connections")).toBeTruthy();
-    expect(screen.queryByText(/unknown identit|Connection groups|partial,|Not provided by core/)).toBeNull();
+    expect(container.querySelectorAll(".connection-target, .connection-detail-panel, table")).toHaveLength(0);
+    expect(container.querySelector(".connection-card .connection-address")?.textContent).toContain("Source IP");
+    expect(screen.getByText("100 connections")).toBeTruthy();
+    expect(screen.queryByText(/core-qa|online clients|TCP connections/)).toBeNull();
   });
 
   it("preserves protocol filters through disappearance and offers an accurate empty-state reset", async () => {
@@ -38,7 +38,7 @@ describe("v5.7 connection product regressions", () => {
     rerender(view([entry("a")]));
     expect(screen.getByText("No connections match these filters")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Clear filters" })[0]);
-    expect(screen.getByText("100 TCP connections")).toBeTruthy();
+    expect(screen.getByText("100 connections")).toBeTruthy();
   });
 
   it("requests no targets by default, pages by rate, searches, and discards a late result after hiding", async () => {
@@ -48,17 +48,17 @@ describe("v5.7 connection product regressions", () => {
     const request = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValueOnce(response).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
     const { container } = render(view([a]));
     expect(request).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    const toggle = screen.getByRole("button", { name: "Hysteria2 connection details" });
+    fireEvent.click(toggle);
     await waitFor(() => expect(container.querySelectorAll(".connection-target")).toHaveLength(10));
     expect(container.querySelector(".connection-target code")?.textContent).toBe("target-a-99.example.test");
-    fireEvent.click(screen.getByText("View destinations", { exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Show 10 more" }));
     expect(container.querySelectorAll(".connection-target")).toHaveLength(20);
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
     expect(container.querySelectorAll(".connection-target")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
     resolve(response);
     await waitFor(() => expect(container.querySelectorAll(".connection-target")).toHaveLength(0));
   });
@@ -66,17 +66,15 @@ describe("v5.7 connection product regressions", () => {
   it("hides live rates, client claims and target details on stale data", () => {
     const { container } = render(view([{ ...entry(), downloadBps: 123 }], true));
     expect(screen.queryByText("4 online clients")).toBeNull();
-    expect(container.querySelectorAll(".connection-disclosure")).toHaveLength(0);
-    expect(container.querySelector(".connection-card-rates")?.textContent).toBe("↑ —↓ —");
+    expect(container.querySelectorAll(".connection-detail-panel")).toHaveLength(0);
+    expect(container.querySelector(".connection-rates")?.textContent).toBe("↑ —↓ —");
   });
 
   it("keeps a nonempty destination search clearable when polling shrinks the list below ten", async () => {
     const a = entry();
     const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });
     const { container, rerender } = render(view([a]));
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
-    await screen.findByText("View destinations");
-    fireEvent.click(screen.getByText("View destinations", { exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Hysteria2 connection details" }));
     await screen.findByRole("searchbox", { name: "Find destination" });
     fireEvent.change(screen.getByRole("searchbox", { name: "Find destination" }), { target: { value: "target-a-42." } });
     fetch.mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: a.id, details: a.details.slice(0, 3).map((d) => ({ id: d.id, destination: `target-${d.id}.example.test:443` })) }] });

@@ -57,8 +57,8 @@ describe("P2 truthfulness and interaction regressions", () => {
       id: "unknown", protocol: "Hysteria2", account: "", sourceIp: "", ipVersion: null,
       connections: 1, uploadBps: null, downloadBps: null, connectedAt: null, details: [],
     };
-    renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    const { container } = renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
+    expect(container.querySelector(".connection-rates")?.textContent).toBe("↑ —↓ —");
     expect(screen.queryByText("0 B/s")).toBeNull();
     expect(screen.queryByText("1 unknown identity")).toBeNull();
   });
@@ -88,10 +88,10 @@ describe("P2 truthfulness and interaction regressions", () => {
     renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
     expect(screen.getAllByText(/0 B\/s/).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText(/partial, 1\/2/)).toBeNull();
-    expect(screen.getByLabelText("Active connection rates and display")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Live connections" })).toBeTruthy();
   });
 
-  it("keeps destinations private until explicitly requested, then uses a native disclosure", async () => {
+  it("keeps destinations private until the corresponding row is explicitly expanded", async () => {
     vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue({ available: true, sampledAt: null, groups: [{ id: "expandable", details: [{ id: "detail", destination: "example.test:443" }] }] });
     const connection: Connection = {
       id: "expandable", protocol: "Hysteria2", account: "alice", sourceIp: "203.0.113.8", ipVersion: 4,
@@ -99,17 +99,15 @@ describe("P2 truthfulness and interaction regressions", () => {
       details: [{ id: "detail", destination: "example.test:443", uploadBps: 5, downloadBps: 8, connectedAt: null }],
     };
     const { container } = renderEnglish(<ActiveConnections connections={[connection]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
-    expect(container.querySelector(".connection-disclosure")).toBeNull();
+    expect(container.querySelector(".connection-detail-panel")).toBeNull();
     expect(screen.queryByText("example.test:443")).toBeNull();
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    const toggle = screen.getByRole("button", { name: "Hysteria2 connection details" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
     await screen.findByText("example.test");
-    const details = container.querySelector<HTMLDetailsElement>(".connection-disclosure")!;
-    expect(details.open).toBe(false);
-    fireEvent.click(details.querySelector("summary")!);
-    expect(details.open).toBe(true);
-    fireEvent.click(details.querySelector("summary")!);
-    expect(details.open).toBe(false);
-    fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
     await waitFor(() => expect(screen.queryByText("example.test")).toBeNull());
   });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type ComponentProps } from "react";
+import { connectionRate, listedRate } from "../../lib/connection-view";
 import { formatDecimalBytes } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import type { DashboardPayload, IntegrationStatus, TrafficRange } from "../../lib/types";
@@ -8,9 +9,9 @@ import { ProtocolDistribution } from "../charts/ProtocolDistribution";
 import { TrafficChart } from "../charts/TrafficChart";
 import { IntegrationGate } from "../setup/IntegrationGate";
 import { ActiveConnections } from "../traffic/ActiveConnections";
+import { TrafficSection } from "../traffic/TrafficSection";
 import { AnchoredPopover } from "../ui/AnchoredPopover";
 import { Card, CardHeader } from "../ui/Card";
-import { Collapse } from "../ui/Collapse";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 
@@ -18,8 +19,9 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
   const { language, t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
   const [expanded, setExpanded] = useState(true);
-  const detailsId = useId();
   const hourlyTraffic = traffic.ranges?.["24h"] ?? traffic.hourly;
+  const currentMonth = traffic.monthly.at(-1);
+  const coverage = currentMonth?.coverage;
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const monthlyMax = Math.max(0, ...traffic.monthly.map((item) => item.bytes));
   const formatPeriod = (start: string, end: string) => language === "zh"
@@ -32,22 +34,19 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
     <section className="traffic-kpis">
       <Kpi label={t("近 24h 用量", "Last 24h usage")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0))} icon="today" />
       <Kpi
-        label={t("主机网卡已测用量", "Measured host-interface usage")}
-        value={formatDecimalBytes(traffic.totalBytes)}
+        label={t("本月网卡已测用量", "Measured interface usage this month")}
+        value={currentMonth ? formatDecimalBytes(currentMonth.bytes) : "—"}
         icon="calendar_month"
-        coverage={traffic.coverage && !traffic.coverage.complete ? {
+        coverage={coverage && !coverage.complete ? {
           title: t("统计覆盖不完整", "Measurement coverage is incomplete"),
-          description: t(`已计入可确认的重置后计数；存在 ${traffic.coverage.gapCount} 个采集间隙，未推算缺失流量。`, `Known post-reset counters are included. There are ${traffic.coverage.gapCount} collection gaps with no estimated traffic.`),
+          description: t(`已计入可确认的重置后计数，存在 ${coverage.gapCount} 个采集间隙。`, `Known post-reset counters are included. There are ${coverage.gapCount} collection gaps.`),
         } : undefined}
       />
-      <Kpi label={t("协议数据源", "Protocol sources")} value={String(traffic.protocol.length)} icon="speed" />
+      <Kpi label={t("总上传(TX)", "Total upload (TX)")} value={connectionRate(listedRate(activity?.connections ?? [], "uploadBps"), activity?.stale)} icon="north" />
+      <Kpi label={t("总下载(RX)", "Total download (RX)")} value={connectionRate(listedRate(activity?.connections ?? [], "downloadBps"), activity?.stale)} icon="south" />
     </section>
-    <Card variant="outlined" className="traffic-analysis">
-      <h2 className="traffic-analysis__heading"><button className="traffic-analysis__toggle" type="button" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded((value) => !value)}>
-        {t("用量明细", "Usage details")}<Icon name="expand_more" />
-      </button></h2>
-      <Collapse expanded={expanded}>
-        <div className="traffic-analysis__grid" id={detailsId}>
+    <TrafficSection className="traffic-analysis" title={t("用量明细", "Usage details")} expanded={expanded} onToggle={() => setExpanded((value) => !value)}>
+        <div className="traffic-analysis__grid">
           <Card variant="filled" className="traffic-analysis__trend">
             <CardHeader title={t("流量趋势", "Traffic trend")} action={<div className="segmented-control traffic-range-control" role="group" aria-label={t("流量趋势时间范围", "Traffic trend range")}>{(["1h", "6h", "24h", "3day", "7day"] as const).map((item) => <button type="button" key={item} className={range === item ? "is-selected" : ""} aria-pressed={range === item} onClick={() => setRange(item)}>{item === "3day" ? "3d" : item === "7day" ? "7d" : item}</button>)}</div>} />
             <div className="legend-inline legend-inline--chart"><span className="dot dot--primary" />{t("下载", "Download")}<span className="dot dot--secondary" />{t("上传", "Upload")}</div>
@@ -76,8 +75,7 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
             <ProtocolDistribution data={traffic.protocol} totalBytes={traffic.protocolTotalBytes} />
           </Card>
         </div>
-      </Collapse>
-    </Card>
+    </TrafficSection>
     {activity ? <ActiveConnections {...activity} /> : null}
   </div>;
 }

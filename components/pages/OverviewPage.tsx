@@ -48,7 +48,7 @@ export function OverviewPage({
   const { language, t } = useI18n();
   const trafficLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量分析", "View traffic analytics"));
   const trendLink = useNavigationSurface(() => onNavigate("traffic"), t("查看流量趋势分析", "View traffic trend analytics"));
-  const connectionsLink = useNavigationSurface(() => onNavigate("traffic/connections"), t("查看在线连接", "View connections"));
+  const connectionsLink = useNavigationSurface(() => onNavigate("traffic/connections"), t("查看实时连接", "View connections"));
   const networkLink = useNavigationSurface(() => onNavigate("network"), t("查看网络质量", "View network quality"));
   const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const stale = mode === "stale";

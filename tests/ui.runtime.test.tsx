@@ -116,7 +116,7 @@ describe("v4.1 navigation and protocol inspection", () => {
       ...emptyDashboard.traffic,
       totalBytes: 21e9,
       protocolTotalBytes: 21e9,
-      coverage: { complete: false, gapCount: 2, resetCount: 1, sampleCount: 8, firstSampleAt: 1, lastSampleAt: 2 },
+      monthly: [{ startDate: "2026-01-01", endDate: "2026-01-31", bytes: 9e9, coverage: { complete: false, gapCount: 2, resetCount: 1, firstSampleAt: 1, lastSampleAt: 2 } }],
       protocol: names.map((name, index) => ({ name, value: (index + 1) * 1e9 })),
     };
     const { container } = renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);

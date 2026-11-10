@@ -56,6 +56,7 @@ export interface ConnectionDetail {
 export interface ConnectionTargets {
   available: boolean;
   sampledAt: string | null;
+  sources?: Array<"hysteria2" | "singbox">;
   groups: Array<{ id: string; details: Array<{ id: string; destination: string }> }>;
 }
 

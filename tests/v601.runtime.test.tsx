@@ -40,6 +40,8 @@ it("does not treat unavailable snapshots, unknown entries or racing target data 
   expect(reconcileLiveConnections(live, [], { ...emptyTargets, available: false }, 1_000)).toBe(live);
   expect(reconcileLiveConnections(live, [{ ...group, entriesAvailable: false, details: [] }], emptyTargets, 1_000)[0].details[0].closedAt).toBeUndefined();
   expect(reconcileLiveConnections(live, [{ ...group, details: [] }], targets, 1_000)[0].details[0].closedAt).toBeUndefined();
+  expect(reconcileLiveConnections(live, [], { ...emptyTargets, sources: ["hysteria2"] }, 1_000)[0].details[0].closedAt).toBeUndefined();
+  expect(reconcileLiveConnections(live, [], emptyTargets, 1_000, false)[0].details[0].closedAt).toBeUndefined();
 });
 
 it("matches keywords or exact source and destination addresses with IPv6 and domain normalization", () => {
@@ -68,7 +70,7 @@ it("animates the filter container, fetches target filters with live display off 
   fireEvent.change(query, { target: { value: "api.example.test" } });
   await waitFor(() => expect(fetch).toHaveBeenCalled());
   await waitFor(() => expect(container.querySelectorAll(".connection-card")).toHaveLength(1));
-  expect(screen.getByRole("switch", { name: "Show live connections" }).getAttribute("aria-checked")).toBe("false");
+  expect(screen.getByRole("button", { name: "Trojan connection details" }).getAttribute("aria-expanded")).toBe("false");
   fireEvent.click(screen.getByRole("button", { name: "Filters applied" }));
   expect(screen.queryByRole("searchbox", { name: "Destination domain" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Filters applied" }));
@@ -81,9 +83,8 @@ it("shows a closed countdown instead of open duration and keeps the target throu
   const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue(targets);
   const page = (connections: Connection[], now = Date.now()) => english(<ActiveConnections connections={connections} now={now} onToast={vi.fn()} onConfigure={vi.fn()} />);
   const view = render(page([group]));
-  fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
-  await screen.findByText("View destinations");
-  fireEvent.click(screen.getByText("View destinations"));
+  fireEvent.click(screen.getByRole("button", { name: "Trojan connection details" }));
+  await screen.findByText("api.example.test");
   fetch.mockResolvedValue(emptyTargets);
   view.rerender(page([]));
   await waitFor(() => expect(view.container.querySelector(".connection-countdown")?.textContent).toContain("Closed"));
@@ -91,7 +92,7 @@ it("shows a closed countdown instead of open duration and keeps the target throu
   expect(view.container.querySelector(".connection-target-meta")?.textContent).not.toContain("Open for");
   fetch.mockRejectedValue(new Error("unavailable"));
   view.rerender(page([]));
-  await screen.findByText(/Could not read destinations\. Previous records are retained; please retry/);
+  await screen.findByText("Live connection details unavailable");
   expect(view.container.querySelector(".connection-target code")?.textContent).toBe("api.example.test");
   view.rerender(page([], Date.now() + 31_000));
   expect(view.container.querySelector(".connection-target")).toBeNull();
@@ -104,11 +105,9 @@ it("keeps a previously visible closed destination on screen beyond the ten-row l
   const fetch = vi.spyOn(api, "fetchConnectionTargets").mockResolvedValue(value(details));
   const page = (rows: typeof details) => english(<ActiveConnections connections={[{ ...group, details: rows }]} now={Date.now()} onToast={vi.fn()} onConfigure={vi.fn()} />);
   const view = render(page(details));
-  fireEvent.click(screen.getByRole("switch", { name: "Show live connections" }));
-  await screen.findByText("View destinations");
-  fireEvent.click(screen.getByText("View destinations"));
+  fireEvent.click(screen.getByRole("button", { name: "Trojan connection details" }));
+  await waitFor(() => expect(view.container.querySelectorAll(".connection-target")).toHaveLength(10));
   await act(async () => { await new Promise(requestAnimationFrame); });
-  expect(view.container.querySelectorAll(".connection-target")).toHaveLength(10);
   const current = details.slice(0, -1);
   fetch.mockResolvedValue(value(current));
   view.rerender(page(current));

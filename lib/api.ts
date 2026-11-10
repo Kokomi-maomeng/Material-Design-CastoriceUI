@@ -113,6 +113,7 @@ export function fetchDashboard(signal?: AbortSignal) {
 export async function fetchConnectionTargets(signal?: AbortSignal) {
   const body = await request<ConnectionTargets>("/api/v2/connections/targets", { signal });
   if (!body || typeof body.available !== "boolean" || !Array.isArray(body.groups) ||
+      (body.sources !== undefined && (!Array.isArray(body.sources) || !body.sources.every((source) => source === "hysteria2" || source === "singbox"))) ||
       !body.groups.every((group) => typeof group.id === "string" && Array.isArray(group.details) && group.details.every((detail) => typeof detail.id === "string" && typeof detail.destination === "string"))) {
     throw new ApiError(502, "invalid_connection_targets");
   }

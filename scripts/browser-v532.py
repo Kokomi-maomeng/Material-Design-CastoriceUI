@@ -122,7 +122,7 @@ def run(engine, browser):
             nav.click()
             if route == 'traffic/connections':
                 page.get_by_role('link', name='View connections', exact=True).press('Enter')
-                page.get_by_role('heading', level=2, name='Active connections', exact=True).wait_for()
+                page.get_by_role('heading', level=2, name='Live connections', exact=True).wait_for()
                 assert page.evaluate("location.hash") == "#/traffic/connections"
             page.get_by_role('heading', level=1, name=heading, exact=True).wait_for(); settled(page)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1'), (route, width, 'document overflow')

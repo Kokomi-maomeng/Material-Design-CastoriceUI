@@ -98,8 +98,18 @@ class Connections(IsolatedState):
         self.assertTrue(self.dashboard.connection_targets()['available'])
         for state in ('stale','error','unavailable'):
             self.dashboard._collection_result('singbox', observed_at='2000-01-01T00:00:00Z' if state=='stale' else self.now,error='unavailable' if state!='stale' else None)
-            self.assertFalse(self.dashboard.connection_targets()['available'])
+            targets = self.dashboard.connection_targets()
+            self.assertEqual(targets['sources'], ['hysteria2'])
+            self.assertEqual(targets['groups'], [])
             payload=self.dashboard.snapshot()
             self.assertIsNone(payload['connections'][0]['downloadBps'])
             self.assertIsNone(payload['connections'][0]['details'][0]['downloadBps'])
         self.assertIsNotNone(self.dashboard.runtime_cache['connections'][0]['downloadBps'],'projection must not mutate cached samples')
+
+    def test_empty_sample_distinguishes_no_flows_from_unavailable_sources(self):
+        self.assertEqual(self.dashboard.connection_targets(), {
+            'available': True, 'sources': ['hysteria2', 'singbox'], 'sampledAt': self.now, 'groups': [],
+        })
+        self.dashboard.runtime_cache['hy2']['endpointStatus'] = {'streams': False}
+        self.dashboard._collection_result('singbox', observed_at=self.now, error='unavailable')
+        self.assertFalse(self.dashboard.connection_targets()['available'])
