@@ -84,11 +84,13 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
                     assert all(item['scroll'] <= item['client'] + 1 and item['overflow'] != 'auto' for item in geometry['alerts']), geometry
                     assert all(abs(height - 220) < 1 for height in geometry['plots']), geometry
                     if width == 320:
-                        page.get_by_role('button', name='About metrics' if language == 'en' else '指标说明', exact=True).click()
+                        help_button = page.get_by_role('button', name='About metrics' if language == 'en' else '指标说明', exact=True)
+                        help_button.click()
                         popup = page.get_by_role('dialog', name='Network metrics' if language == 'en' else '网络指标说明', exact=True)
                         popup.wait_for(); settled(page)
                         rect = popup.bounding_box(); assert rect['x'] >= 0 and rect['x'] + rect['width'] <= width + 1, rect
-                        page.keyboard.press('Escape'); popup.wait_for(state='hidden')
+                        page.keyboard.press('Escape'); popup.wait_for(state='hidden'); settled(page)
+                        expect(help_button).to_have_attribute('aria-expanded', 'false')
                     page.get_by_role('button', name='Customize' if language == 'en' else '自定义', exact=True).click(); editor.wait_for(); settled(page)
                     sizes = editor.locator('input, .md-select-trigger').evaluate_all("elements=>elements.map(e=>({height:e.getBoundingClientRect().height,width:e.getBoundingClientRect().width,scroll:e.scrollWidth,client:e.clientWidth}))")
                     assert all(abs(item['height'] - 42) < 1 for item in sizes), sizes

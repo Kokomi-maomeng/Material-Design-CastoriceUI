@@ -1,11 +1,9 @@
 /* Truthful setup, quota time, and wide network-chart layout. */
-.traffic-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .sparkline { position: relative; width: 100%; min-width: 0; height: 200px; aspect-ratio: auto; overflow: visible; }
 .sparkline svg { display: block; width: 100%; min-width: 0; height: 200px; overflow: visible; }
 .network-trend-chart { max-height: none; }
 .wizard-success.is-warning .material-symbols-rounded { color: var(--warning); }
 .quota-time-selects { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
-@media (max-width: 760px) { .traffic-kpis { grid-template-columns: 1fr 1fr; } }
 
 @media (max-width: 620px) {
   .background-layout-controls { grid-template-columns: 1fr; }

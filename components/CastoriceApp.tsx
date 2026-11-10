@@ -589,6 +589,7 @@ export function CastoriceApp() {
             onConfigure={() => configurePage("traffic")}
             activity={{
               connections,
+              sampledAt: dashboard.runtimeObservedAt,
               now,
               onToast: showToast,
               integration: integrationFor("connections"),

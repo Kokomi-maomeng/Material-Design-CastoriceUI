@@ -141,7 +141,7 @@ export function AnchoredPopover({
   return createPortal(
     <div
       ref={popupRef}
-      className={`md-anchored-popover md-floating-panel ${className} ${open ? "is-open" : "is-closing"}`}
+      className={`md-anchored-popover md-floating-panel ${className} ${position.ready || !focusOnOpen ? (open ? "is-open" : "is-closing") : ""}`}
       data-placement={position.placement}
       role="dialog"
       aria-label={ariaLabel}

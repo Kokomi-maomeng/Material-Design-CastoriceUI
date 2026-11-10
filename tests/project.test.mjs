@@ -122,9 +122,9 @@ test("v3.5 navigation order, desktop collapse, mobile cleanup, and about metadat
 
 test("connections group honestly, copy source IPs, and omit explanatory footer clutter", async () => {
   const [page, collector, dashboard] = await Promise.all([read("components/traffic/ActiveConnections.tsx"), read("server/castoriceui/collectors.py"), read("server/castoriceui/dashboard.py")]);
-  assert.match(page, /copy\(item\.sourceIp\)/);
-  assert.match(page, /item\.sourceIp \? <div/);
-  assert.doesNotMatch(page, /Not provided by core/);
+  assert.match(page, /onCopy\(item\.sourceIp\)/);
+  assert.match(page, /item\.sourceIp \? <button/);
+  assert.match(page, /item\.sourceIp \|\| "—"/);
   assert.doesNotMatch(page, /同协议、账号和来源 IP 自动合并/);
   assert.doesNotMatch(page, /速率由相邻真实累计字节快照计算/);
   assert.match(collector, /if not mapped:\s+continue/);
@@ -152,11 +152,11 @@ test("network targets are editable and charts use real smooth sample paths", asy
 });
 
 test("P2 compatibility, deploy examples, and protocol probe unit stay regression guarded", async () => {
-  const [chart, configText, service, docs, accounts, overview, connections, preflight, styles] = await Promise.all([
+  const [chart, configText, service, docs, accounts, overview, connections, traffic, preflight, styles] = await Promise.all([
     read("components/charts/TrafficChart.tsx"), read("server/config.example.json"),
     read("deploy/castoriceui-protocol-probe.service"), read("docs/DEPLOYMENT.md"),
     read("components/pages/AccountsPage.tsx"), read("components/pages/OverviewPage.tsx"),
-    read("components/traffic/ActiveConnections.tsx"), read("server/preflight.py"), readStyles(),
+    read("components/traffic/ActiveConnections.tsx"), read("components/pages/TrafficPage.tsx"), read("server/preflight.py"), readStyles(),
   ]);
   assert.doesNotMatch(chart, /\.at\s*\(/);
   const config = JSON.parse(configText);
@@ -170,7 +170,7 @@ test("P2 compatibility, deploy examples, and protocol probe unit stay regression
   assert.match(preflight, /preflight cannot replace independent Debian VM/);
   assert.doesNotMatch(accounts, /<Progress/);
   assert.doesNotMatch(accounts, /Different accounting scopes|统计范围不同|协议核心生命周期累计|计费周期额度/);
-  assert.match(connections, /listedRate/);
+  assert.match(traffic, /listedRate/);
   assert.doesNotMatch(connections, /rateCoverage/);
   assert.match(overview, /const totalDown = metrics.downloadBps/);
   assert.match(styles, /\.audit-table code \{[^}]*overflow-wrap: anywhere/);
@@ -259,8 +259,8 @@ test("v3.1 quota schedules, stable live layouts, and requested removals stay wir
   assert.match(api, /traffic_quota/);
   assert.match(collector, /nextReset/);
   assert.doesNotMatch(connections, /<table/);
-  assert.match(connections, /connection-disclosure/);
-  assert.match(connections, /<AnimatedDetails/);
+  assert.match(connections, /connection-row-toggle/);
+  assert.match(connections, /<Collapse/);
   assert.doesNotMatch(traffic, /容量预测|Capacity forecast/);
   assert.match(`${overview}\n${dashboard}`, /trafficCoverage/);
   assert.doesNotMatch(`${overview}\n${dashboard}\n${styles}`, /coverageComplete|forecast-card/);
@@ -379,7 +379,7 @@ test("v3.2 operator identity, layout, settings, and truthful status requirements
   assert.match(dashboard, /"ip": row\["source_ip"\]/);
   assert.match(connections, /connection-list/);
   assert.doesNotMatch(connections, /<table|<colgroup>/);
-  assert.match(styles, /\.connection-list \{ display: grid; gap: 12px; \}/);
+  assert.match(styles, /\.connection-list \{ display: grid; gap: 8px; \}/);
   assert.match(network, /preserveAspectRatio="xMinYMin meet"/);
   assert.match(network, /ResizeObserver/);
   assert.match(network, /setWidth/);
@@ -418,7 +418,7 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
   assert.match(traffic, /ProtocolDistribution/);
   assert.doesNotMatch(traffic, /趋势采样|Trend samples|时间桶|time buckets/);
   assert.match(accounts, /账号管理/);
-  assert.match(connections, /item.account \? <div/);
+  assert.doesNotMatch(connections, /item\.account/);
   assert.match(subscriptions, /关联账号/);
   assert.match(app, /new Date\(now\)\.toLocaleTimeString/);
   assert.match(quotaDialog, /resetTime/);

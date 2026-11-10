@@ -137,6 +137,47 @@ def run(engine, browser, language):
     expect(page.locator('.accounts-table tbody tr').first).to_have_class('account-unattributed')
     assert page.locator('.account-cell .avatar').evaluate_all("avatars=>avatars.every(e=>getComputedStyle(e).width==='34px'&&getComputedStyle(e).backgroundColor===getComputedStyle(avatars[0]).backgroundColor)")
 
+    page.evaluate("""()=>{window.qaAccountMotion=[];document.addEventListener('animationstart',e=>{
+      if(e.target.matches('.account-results > tr,.account-column__action > span,.account-column-popover'))window.qaAccountMotion.push(e.animationName)
+    })}""")
+    def headers():
+        return page.locator('.accounts-table thead').evaluate("""e=>{
+          const card=e.closest('.accounts-panel').getBoundingClientRect();
+          return [e,...e.querySelectorAll('th,.account-column__action')].map(node=>{
+            const r=node.getBoundingClientRect();
+            if(r.left<card.left-.5||r.right>card.right+.5||r.top<card.top-.5||node.clientWidth&&node.scrollWidth>node.clientWidth+2)throw Error('Account header exceeds panel');
+            return [r.left,r.top+scrollY,r.width,r.height]
+          })
+        }""")
+    stable_headers = 0
+    for width in (320, 390, 681, 760, 901, 1536):
+        page.set_viewport_size({'width': width, 'height': 720})
+        page.get_by_role('button', name=protocol_label, exact=True).click()
+        for protocol in ('Hysteria2', 'VMess'):
+            protocol_filter.get_by_role('button', name=protocol, exact=True).click()
+        expect(names).to_have_text(['Bravo', 'Alpha', 'Charlie'])
+        settled(page)
+        before = headers()
+        protocol_filter.get_by_role('button', name='TUIC', exact=True).click()
+        expect(page.get_by_text(translated('没有符合条件的账号', 'No matching accounts'), exact=True)).to_be_visible()
+        settled(page)
+        after = headers()
+        assert all(abs(a - b) < 1 for prior, current in zip(before, after) for a, b in zip(prior, current)), (engine, width, before, after)
+        protocol_filter.get_by_role('button', name='TUIC', exact=True).click()
+        for protocol in ('Hysteria2', 'VMess'):
+            protocol_filter.get_by_role('button', name=protocol, exact=True).click()
+        page.keyboard.press('Escape')
+        stable_headers += 1
+    traffic_sort.click()
+    settled(page)
+    motion_names = page.evaluate('window.qaAccountMotion')
+    assert 'record-enter' in motion_names and 'control-check-in' in motion_names and any(name.startswith('md-floating-in-') for name in motion_names), motion_names
+    page.emulate_media(reduced_motion='reduce')
+    traffic_sort.click()
+    assert page.locator('.account-results > tr').first.evaluate("e=>getComputedStyle(e).animationName") == 'none'
+    assert traffic_sort.locator('span').evaluate("e=>getComputedStyle(e).animationName") == 'none'
+    page.emulate_media(reduced_motion='no-preference')
+
     # The removed route cannot expose a standalone page. Account details own it.
     dashboard['accounts'] = [account(0)]; dashboard['subscriptions'] = [{'id': 'qa-sub', 'account': 'qa-0', 'protocols': ['AnyTLS'], 'enabled': True}]
     dashboard['traffic']['totalBytes'] = 12_500_000_000
@@ -214,7 +255,7 @@ def run(engine, browser, language):
     assert state['writes'] == [{'auditRetentionDays': 30}]
     assert not errors, errors
     context.close()
-    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'usageCard': True}
+    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'stableEmptyHeaders': stable_headers, 'accountMotion': True, 'usageCard': True}
 
 
 with sync_playwright() as playwright:

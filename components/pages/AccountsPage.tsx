@@ -58,7 +58,9 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
     return matching.sort((left, right) => collator.compare(left.name, right.name) * direction);
   }, [accounts, language, protocols, query, sort, status]);
 
-  const history = useLocalRecordHistory(filtered, JSON.stringify([query, status, protocols, sort]));
+  const criteriaKey = JSON.stringify([query, status, protocols, sort]);
+  const history = useLocalRecordHistory(filtered, criteriaKey);
+  const resultKey = JSON.stringify([criteriaKey, history.expanded, history.page]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const selectedAccount = accounts.find((account) => account.id === selectedId);
@@ -72,10 +74,11 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
   return <div className="page-content page-enter">
     <PageHeader eyebrow={t("账号状态", "Account status")} title={t("账号管理", "Account management")} />
     <IntegrationGate status={integration} name="Hysteria2 账号统计" nameEn="Hysteria2 account statistics" description="连接 Traffic Stats API 并配置身份映射后显示账号用量。" descriptionEn="Connect the Traffic Stats API and configure identity mappings to show account usage." onConfigure={onConfigure} />
-    <Card variant="outlined" className="table-panel">
+    <Card variant="outlined" className="table-panel accounts-panel">
       <AnimatedRecords itemCount={history.items.length} transitionKey="accounts"><div className="responsive-table accounts-table"><table>
+        <colgroup><col /><col /><col /><col /><col /></colgroup>
         <thead><tr>
-          <th scope="col" aria-sort={sortDirection("name")}><span className="account-column">{t("账号", "Account")}
+          <th scope="col" aria-sort={sortDirection("name")}><span className="account-column"><span>{t("账号", "Account")}</span>
             <AccountColumnFilter label={t("搜索与排序账号", "Search and sort accounts")} active={Boolean(query || sortDirection("name"))} open={openFilter === "name"} onToggle={() => toggleFilter("name")} onClose={closeFilter}>
               <div className="search-field">
                 <label className="search-field__label"><Icon name="search" size={20} /><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("搜索账号或邮箱", "Search account or email")} aria-label={t("搜索账号", "Search accounts")} /></label>
@@ -88,12 +91,12 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
               </div>
             </AccountColumnFilter>
           </span></th>
-          <th scope="col"><span className="account-column">{t("账号状态", "Account status")}
+          <th scope="col"><span className="account-column"><span>{t("账号状态", "Account status")}</span>
             <AccountColumnFilter label={t("筛选账号状态", "Filter account status")} active={status !== "all"} open={openFilter === "status"} onToggle={() => toggleFilter("status")} onClose={closeFilter}>
               <div className="filter-chips">{statusOptions.map(({ value, label }) => <Chip key={value} selected={status === value} aria-pressed={status === value} onClick={() => setStatus(value)}>{label}</Chip>)}</div>
             </AccountColumnFilter>
           </span></th>
-          <th scope="col"><span className="account-column">{t("协议", "Protocols")}
+          <th scope="col"><span className="account-column"><span>{t("协议", "Protocols")}</span>
             <AccountColumnFilter label={t("筛选协议", "Filter protocols")} active={protocols.length > 0} open={openFilter === "protocol"} onToggle={() => toggleFilter("protocol")} onClose={closeFilter}>
               <div className="filter-chips">
                 <Chip selected={!protocols.length} aria-pressed={!protocols.length} onClick={() => setProtocols([])}>{t("全部", "All")}</Chip>
@@ -112,6 +115,8 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
             <td data-label={t("累计流量", "Cumulative traffic")}><div className="quota-cell"><div><span>{formatDecimalBytes(unattributedBytes)}</span></div></div></td>
             <td className="account-unattributed__blank" />
           </tr>
+        </tbody>
+        <tbody className="account-results" key={resultKey}>
         {history.items.map((account) => {
           return <tr key={account.id}>
             <td data-label={t("账号", "Account")}><button className="account-cell account-subscription-trigger" onClick={() => { setSelectedId(account.id); setSubscriptionOpen(true); }} aria-label={t(`查看 ${account.name} 的订阅`, `View ${account.name} subscriptions`)} aria-haspopup="dialog"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><span><strong>{account.name}</strong><span>{account.email}</span></span><Icon name="chevron_right" size={20} /></button></td>
@@ -120,7 +125,7 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
             <td data-label={t("累计流量", "Cumulative traffic")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span>{account.usageSource !== "protocolCounter" ? <small>{t("尚未映射协议身份", "No protocol identity mapping")}</small> : null}</div></div></td>
             <td data-label={t("到期时间", "Expires")}><span className={account.expiryStatus === "expiring" || account.expiryStatus === "expired" ? "text-warning" : ""}>{account.expiresAt ? formatDate(account.expiresAt, language) : t("未登记", "Not registered")}</span></td>
           </tr>;
-        })}{filtered.length === 0 ? <tr><td colSpan={5}>{t("没有符合条件的账号。", "No matching accounts.")}</td></tr> : null}</tbody>
+        })}{filtered.length === 0 ? <tr><td colSpan={5}><span role="status">{t("没有符合条件的账号。", "No matching accounts.")}</span></td></tr> : null}</tbody>
       </table></div></AnimatedRecords>
       <RecordHistoryControls kind="accounts" expanded={history.expanded} loading={false} total={filtered.length} page={history.page} totalPages={history.totalPages} onExpandedChange={history.toggleExpanded} />
       {history.expanded ? <RecordPagination page={history.page} totalPages={history.totalPages} onPageChange={history.setPage} label={t("账号分页", "Account pagination")} /> : null}
@@ -132,7 +137,7 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
 function AccountColumnFilter({ label, active, open, onToggle, onClose, children }: { label: string; active: boolean; open: boolean; onToggle: () => void; onClose: () => void; children: ReactNode }) {
   const anchor = useRef<HTMLButtonElement>(null);
   return <>
-    <button ref={anchor} type="button" className={`account-column__action ${active ? "is-active" : ""}`} aria-label={label} title={label} aria-haspopup="dialog" aria-expanded={open} onClick={onToggle}><Icon name={active ? "filter_alt" : "filter_list"} size={18} /></button>
+    <button ref={anchor} type="button" className={`account-column__action ${active ? "is-active" : ""}`} aria-label={label} title={label} aria-haspopup="dialog" aria-expanded={open} onClick={onToggle}><Icon key={String(active)} name={active ? "filter_alt" : "filter_list"} size={18} /></button>
     <AnchoredPopover anchorRef={anchor} open={open} onClose={onClose} ariaLabel={label} preferredWidth={320} placementPreference="vertical" className="account-column-popover" focusOnOpen>
       {children}
     </AnchoredPopover>
@@ -141,8 +146,8 @@ function AccountColumnFilter({ label, active, open, onToggle, onClose, children 
 
 function AccountSortHeader({ label, action, direction, onClick }: { label: string; action: string; direction?: Direction; onClick: () => void }) {
   const icon = direction === "ascending" ? "arrow_upward" : direction === "descending" ? "arrow_downward" : "unfold_more";
-  return <th scope="col" aria-sort={direction}><span className="account-column">{label}
-    <button type="button" className={`account-column__action ${direction ? "is-active" : ""}`} aria-label={action} title={action} onClick={onClick}><Icon name={icon} size={18} /></button>
+  return <th scope="col" aria-sort={direction}><span className="account-column"><span>{label}</span>
+    <button type="button" className={`account-column__action ${direction ? "is-active" : ""}`} aria-label={action} title={action} onClick={onClick}><Icon key={icon} name={icon} size={18} /></button>
   </span></th>;
 }
 

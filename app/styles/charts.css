@@ -1,26 +1,40 @@
 /* Chart accuracy, stable panels, and motion polish. */
-.traffic-analysis { container-type: inline-size; min-width: 0; transition: background-color 160ms var(--motion-standard), border-color 160ms var(--motion-standard); }
-.traffic-analysis:is(:hover, :focus-within) { background-color: var(--surface-container-low); border-color: var(--outline); }
-.traffic-analysis:active { background-color: var(--surface-container); }
-.traffic-analysis__heading { margin: 0; font-size: 1.125rem; border-radius: var(--radius-lg); }
-.traffic-analysis__toggle {
-  width: 100%;
-  min-height: 56px;
-  padding: 12px 18px;
-  border: 0;
-  border-radius: inherit;
+.traffic-section { container-type: inline-size; min-width: 0; transition: background-color 160ms var(--motion-standard), border-color 160ms var(--motion-standard); }
+.traffic-section:is(:hover, :focus-within) { background-color: var(--surface-container-low); border-color: var(--outline); }
+.traffic-section:active { background-color: var(--surface-container); }
+.traffic-analysis__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
+  position: relative;
+  min-height: 56px;
+  padding-inline: 12px 52px;
+  border-radius: var(--radius-lg);
+}
+.traffic-analysis__heading { min-width: 0; margin: 0; font-size: 1.125rem; border-radius: inherit; }
+.traffic-analysis__heading > .traffic-analysis__toggle {
+  position: static;
+  padding: 12px 6px;
+  border: 0;
+  border-radius: inherit;
   text-align: start;
+  overflow-wrap: anywhere;
   background: transparent;
   color: var(--on-surface);
   font: inherit;
   cursor: pointer;
   touch-action: manipulation;
 }
-.traffic-analysis__toggle > span { transition: transform var(--motion-enter-duration) var(--motion-standard); }
+.traffic-analysis__toggle::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.traffic-analysis__toggle > span {
+  position: absolute;
+  inset-inline-end: 18px;
+  top: calc(50% - 11px);
+  transition: transform var(--motion-enter-duration) var(--motion-standard);
+}
 .traffic-analysis__toggle[aria-expanded="true"] > span { transform: rotate(180deg); }
+.traffic-analysis__action { position: relative; flex: 0 0 auto; max-width: 50%; padding-block: 4px; }
+.traffic-analysis__action .md-button { width: 100%; min-width: 0; min-height: 40px; white-space: normal; overflow-wrap: anywhere; }
 .traffic-analysis__grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
@@ -88,6 +102,8 @@
   .traffic-analysis__grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(290px, 1fr)) auto; }
 }
 @container (max-width: 480px) {
+  .traffic-analysis__header { gap: 8px; padding-inline: 6px 40px; }
+  .traffic-analysis__toggle > span { inset-inline-end: 12px; }
   .traffic-analysis__grid { padding: 0 8px 8px; gap: 8px; }
   .traffic-analysis__trend .card-header, .monthly-traffic-panel .card-header, .protocol-panel .card-header { padding-inline: 12px; }
   .protocol-distribution, .monthly-traffic-list { padding-inline: 12px; }
@@ -117,7 +133,7 @@
 @keyframes chart-tooltip-in { from { opacity: 0; transform: translateY(5px) scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes chart-tooltip-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(4px) scale(.97); } }
 @media (prefers-reduced-motion: reduce) {
-  .traffic-analysis, .traffic-analysis__toggle > span, .protocol-distribution__bar > button, .chart-tooltip-position, .chart-inspector, .chart-inspector__point { transition: none; }
+  .traffic-section, .traffic-analysis__toggle > span, .protocol-distribution__bar > button, .chart-tooltip-position, .chart-inspector, .chart-inspector__point { transition: none; }
   .chart-tooltip { animation: none !important; }
 }
 

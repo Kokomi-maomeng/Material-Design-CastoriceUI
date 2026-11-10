@@ -1022,16 +1022,20 @@ class DashboardService:
         with self.lock:
             freshness = self.collection_freshness()
             live = freshness["runtime"]["status"] == "live"
+            sources = [
+                name for name, key in (("hysteria2", "hy2"), ("singbox", "singbox"))
+                if live and freshness[name]["status"] == "live" and self.runtime_cache[key].get("available")
+                and (key != "hy2" or self.runtime_cache[key].get("endpointStatus", {}).get("streams", True))
+            ]
             groups = []
             for group in self.runtime_cache.get("connections", []):
                 source = "hysteria2" if group["protocol"] == "Hysteria2" else "singbox"
-                core = self.runtime_cache["hy2" if source == "hysteria2" else "singbox"]
-                if not live or freshness[source]["status"] != "live" or not core.get("available"):
+                if source not in sources:
                     continue
                 details = [{"id": d["id"], "destination": d["destination"]} for d in group.get("details", []) if d.get("destination")]
                 if details:
                     groups.append({"id": group["id"], "details": details})
-            return {"groups": groups, "sampledAt": self.runtime_cache.get("observedAt"), "available": live and bool(groups)}
+            return {"groups": groups, "sampledAt": self.runtime_cache.get("observedAt"), "available": bool(sources), "sources": sources}
 
     def alerts(self, system: dict[str, Any], services: list[dict[str, Any]], network: list[dict[str, Any]], integrations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []

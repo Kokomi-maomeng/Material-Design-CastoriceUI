@@ -85,20 +85,36 @@ def main():
                 page.get_by_label('Username',exact=True).fill('qa-browser');page.get_by_label('Password',exact=True).fill('Synthetic-Password-123!')
                 page.get_by_role('button',name='Sign in',exact=True).click();page.locator('#main-content').wait_for()
                 open_page(page,'traffic/connections','Traffic analytics')
-                assert not requests and page.locator('.connection-disclosure').count()==0
+                assert not requests and page.locator('.connection-detail-panel').count()==0
                 def geometry():
                     # Inline boxes have clientWidth=0 in Firefox despite painted
                     # text fitting their parent. Measure every real client box,
                     # including inline-flex chips/rates, and retain diagnostics.
-                    return page.evaluate('''()=>{const cards=[...document.querySelectorAll('.connection-card')];const over=[...document.querySelectorAll('.active-connections *')].filter(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return r.width&&r.height&&e.clientWidth>0&&s.display!=='none'&&e.scrollWidth>e.clientWidth+2&&!e.closest('details:not([open])')}).map(e=>({tag:e.tagName,className:String(e.className),clientWidth:e.clientWidth,scrollWidth:e.scrollWidth,display:getComputedStyle(e).display,text:e.textContent.slice(0,80)}));return {width:innerWidth,doc:document.documentElement.scrollWidth,over,gap:cards.length>1?cards[1].getBoundingClientRect().top-cards[0].getBoundingClientRect().bottom:0}}''')
+                    return page.evaluate('''()=>{const cards=[...document.querySelectorAll('.connection-card')];const over=[...document.querySelectorAll('.active-connections *')].filter(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return r.width&&r.height&&e.clientWidth>0&&s.display!=='none'&&e.scrollWidth>e.clientWidth+2&&!e.closest('[inert]')}).map(e=>({tag:e.tagName,className:String(e.className),clientWidth:e.clientWidth,scrollWidth:e.scrollWidth,display:getComputedStyle(e).display,text:e.textContent.slice(0,80)}));return {width:innerWidth,doc:document.documentElement.scrollWidth,over,gap:cards.length>1?cards[1].getBoundingClientRect().top-cards[0].getBoundingClientRect().bottom:0}}''')
                 # Hidden 0/1/50/100 streams must not create spacing or focus targets.
                 for count in (0,1,50,100):
                     refresh(count);page.reload(wait_until='networkidle');open_page(page,'traffic/connections','Traffic analytics')
-                    assert page.locator('.connection-disclosure').count()==0
+                    assert page.locator('.connection-detail-panel').count()==0
                     value=geometry();assert value['doc']<=value['width']+1 and not value['over'],value
-                    if count:assert abs(value['gap']-12)<1,value
-                switch = page.locator('.connection-summary').get_by_role('switch',name='Show live connections',exact=True)
-                assert switch.get_attribute('aria-checked') == 'false'
+                    if count:assert abs(value['gap']-8)<1,value
+                live=page.get_by_role('button',name='Live connections',exact=True)
+                filter_button=page.get_by_role('button',name='Filter',exact=True)
+                section=page.locator('.active-connections > .motion-collapse')
+                close_rows=frames(section,live.click,False)
+                assert len({round(row['height'],1) for row in close_rows})>=3,close_rows
+                expect(filter_button).to_have_count(0)
+                open_rows=frames(section,live.click,False)
+                assert len({round(row['height'],1) for row in open_rows})>=3,open_rows
+                expect(filter_button).to_be_visible()
+                timings=page.locator('.traffic-section > .motion-collapse').evaluate_all('nodes=>nodes.map(e=>getComputedStyle(e).transition)')
+                assert len(timings)==2 and timings[0]==timings[1],timings
+                settled(page)
+                arrow_positions=page.locator('.traffic-section .traffic-analysis__toggle > span').evaluate_all("""arrows=>arrows.map(e=>{
+                  const arrow=e.getBoundingClientRect(),header=e.closest('.traffic-analysis__header').getBoundingClientRect();
+                  return {width:arrow.width,inset:header.right-arrow.right};
+                })""")
+                assert len(arrow_positions)==2 and all(position['width']>10 and 10<=position['inset']<=20 for position in arrow_positions),arrow_positions
+                assert not requests
                 assert page.get_by_text('About these measurements',exact=True).count() == 0
                 filter_motion=page.locator('.connection-filters-collapse')
                 motion_rows=frames(filter_motion,lambda:page.get_by_role('button',name='Filter',exact=True).click(),False)
@@ -112,19 +128,28 @@ def main():
                 assert page.get_by_role('searchbox',name='Destination domain',exact=True).input_value()=='draft-kept'
                 page.get_by_role('button',name='Clear filters',exact=True).first.click()
                 page.get_by_role('button',name='Filter',exact=True).click()
-                switch.click()
-                page.locator('.connection-disclosure').first.wait_for();disclosure=page.locator('.connection-disclosure').first
-                assert switch.get_attribute('aria-checked') == 'true'
-                assert disclosure.get_attribute('open') is None
-                assert page.get_by_text('Reading live destinations…',exact=True).count()==0
-                disclosure.locator('summary').press('Enter');settled(page)
+                toggle=page.get_by_role('button',name='Hysteria2 connection details',exact=True)
+                another=page.get_by_role('button',name='AnyTLS connection details',exact=True)
+                toggle.press('Enter')
+                disclosure=page.locator('.connection-detail-panel').first
+                expect(disclosure.locator('.connection-target')).to_have_count(10)
+                settled(page)
+                expect(toggle).to_have_attribute('aria-expanded','true')
+                expect(another).to_have_attribute('aria-expanded','false')
+                expect(page.locator('.connection-detail-panel')).to_have_count(1)
                 assert all('[' not in value and ']' not in value for value in page.locator('.connection-target code').all_text_contents())
                 assert page.locator('.connection-port').first.inner_text() == 'Port 443'
                 assert page.locator('.connection-target-list').first.locator('li').count()==10
-                assert disclosure.get_attribute('open') is not None
-                disclosure.locator('summary').press('Enter');settled(page)
-                assert disclosure.get_attribute('open') is None
-                disclosure.locator('summary').press('Enter');settled(page)
+                toggle.press('Enter')
+                expect(disclosure).to_have_count(0)
+                another.click()
+                expect(page.locator('.connection-target')).to_have_count(1)
+                expect(toggle).to_have_attribute('aria-expanded','false')
+                another.click()
+                expect(disclosure).to_have_count(0)
+                toggle.press('Enter')
+                expect(disclosure.locator('.connection-target')).to_have_count(10)
+                settled(page)
                 # Keep an observed row through closure even when live rows
                 # would otherwise push it beyond the ten-row page.
                 refresh(99)
@@ -147,7 +172,7 @@ def main():
                 disclosure.get_by_role('searchbox').fill('')
                 assert disclosure.locator('.connection-target').count()==3
                 refresh(100)
-                page.get_by_text('100 TCP connections',exact=True).wait_for()
+                page.get_by_text('100 connections',exact=True).wait_for()
                 disclosure.get_by_role('searchbox').wait_for(state='visible')
                 disclosure.get_by_role('searchbox').fill('')
                 disclosure.get_by_role('button',name='Show 10 more',exact=True).click()
@@ -165,13 +190,22 @@ def main():
                     print(json.dumps({'clipboardFailure':diagnostic,'expected':copied,'pageErrors':errors}),flush=True)
                     raise
                 first_id=page.locator('.connection-card').first.get_attribute('data-connection-id')
+                page.evaluate("""()=>{window.qaFirstFlow=document.querySelector('.connection-target');window.qaFlowOrder=[...document.querySelectorAll('.connection-target code')].map(e=>e.textContent);
+                  window.qaListMotion=[];document.addEventListener('animationstart',e=>{if(e.target.matches('.connection-list,.connection-card,.connection-target-list,.connection-target'))window.qaListMotion.push(e.animationName)})}""")
+                with page.expect_response('**/api/v2/connections/targets',timeout=12000):
+                    with dashboard.lock:
+                        dashboard.runtime_cache['connections'].reverse()
+                        for group in dashboard.runtime_cache['connections']:
+                            for row in group['details']:
+                                row['downloadBps']=10000 if row['downloadBps']==0 else 1
+                expect(disclosure.get_by_text('↓ 1 B/s',exact=True).first).to_be_visible()
+                assert page.locator('.connection-card').first.get_attribute('data-connection-id')==first_id
+                assert page.evaluate("""()=>window.qaFirstFlow===document.querySelector('.connection-target')&&JSON.stringify(window.qaFlowOrder)===JSON.stringify([...document.querySelectorAll('.connection-target code')].map(e=>e.textContent))&&window.qaListMotion.length===0&&document.querySelectorAll('.connection-list .record-transition').length===0""")
+                expect(toggle).to_have_attribute('aria-expanded','true')
                 with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
-                page.wait_for_function('(id)=>document.querySelector(".connection-card").dataset.connectionId!==id',arg=first_id,timeout=8000)
-                assert page.locator(f'[data-connection-id="{first_id}"] details').get_attribute('open') is not None
-                with dashboard.lock:dashboard.runtime_cache['connections'].reverse()
-                page.get_by_role('switch',name='Show live connections',exact=True).click()
-                page.locator('.connection-disclosure').first.wait_for(state='detached')
-                assert page.locator('.connection-disclosure').count()==0 and page.locator('.connection-target').count()==0
+                toggle.click()
+                disclosure.wait_for(state='detached')
+                assert page.locator('.connection-target').count()==0
                 page.get_by_role('button',name='Filter',exact=True).click();page.get_by_role('button',name='Source IP',exact=True).click()
                 page.get_by_role('option',name='IPv4',exact=True).click();settled(page)
                 page.get_by_role('button',name='Protocol',exact=True).click();page.get_by_role('option',name='Hysteria2',exact=True).click();settled(page)
@@ -201,7 +235,7 @@ def main():
                             page.emulate_media(reduced_motion=motion)
                             for width in WIDTHS:
                                 page.set_viewport_size({'width':width,'height':390 if width==844 else 900});settled(page)
-                                value=geometry();assert value['doc']<=width+1 and not value['over'] and abs(value['gap']-12)<1,(engine,language,theme,motion,value)
+                                value=geometry();assert value['doc']<=width+1 and not value['over'] and abs(value['gap']-8)<1,(engine,language,theme,motion,value)
                                 layouts+=1
                 # Full-summary badges, including recovered unconfirmed records.
                 page.evaluate("()=>{localStorage.setItem('castorice-language','en');localStorage.setItem('castorice-theme-mode','light')}")
@@ -233,14 +267,14 @@ def main():
                 open_page(page,'traffic/connections','Traffic analytics')
                 page.evaluate("location.hash='/connections'")
                 page.wait_for_function("location.hash === '#/traffic/connections'")
-                assert page.locator(".active-connections > h2").inner_text() == "Active connections"
-                page.get_by_role('switch',name='Show live connections',exact=True).click();page.locator('.connection-disclosure').first.wait_for()
+                expect(page.get_by_role('heading',name='Live connections',exact=True)).to_be_focused()
+                page.get_by_role('button',name='Hysteria2 connection details',exact=True).click();page.locator('.connection-detail-panel').first.wait_for()
                 open_page(page,'overview','Synthetic QA');open_page(page,'traffic/connections','Traffic analytics')
-                assert page.locator('.connection-disclosure').count()==0
+                assert page.locator('.connection-detail-panel').count()==0
                 output_dir=ROOT/'outputs/browser/v57';output_dir.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output_dir/f'{engine}-connections-390.png'),full_page=True)
                 assert not errors and not server_errors,(errors,server_errors)
-                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':len(routes),'pageErrors':errors}),flush=True)
+                print(json.dumps({'connectionProduct':True,'passed':True,'engine':engine,'apiRoutesMocked':False,'layoutCases':layouts,'badgeCases':badge_cases,'populatedCounts':[0,1,50,100],'targetLifecycle':True,'closedRetentionSeconds':30,'closedRowStaysOnPage':True,'filtersRetainDraft':True,'addressMatchModes':True,'defaultTargetsCollapsed':True,'independentGroups':True,'sharedSectionMotion':True,'searchSurvivesPolling':True,'stableGroupPolling':True,'routesPassed':len(routes),'pageErrors':errors}),flush=True)
                 context.close();browser.close()
 
 

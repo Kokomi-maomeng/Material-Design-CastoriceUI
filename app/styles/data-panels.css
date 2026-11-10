@@ -1,4 +1,10 @@
-.traffic-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }.traffic-kpi { padding: 16px; display: flex; gap: 12px; align-items: center; }.traffic-kpi > span { width: 42px; height: 42px; display: grid; place-items: center; background: var(--secondary-container); color: var(--on-secondary-container); border-radius: 14px; }.traffic-kpi > div { display: flex; flex-direction: column; min-width: 0; }.traffic-kpi small { color: var(--on-surface-variant); }.traffic-kpi strong { font-size: 1.1875rem; white-space: nowrap; }.legend-inline--chart { padding: 12px 22px 0; }.chart--traffic { height: 315px; padding: 0 12px 10px; }
+.traffic-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.traffic-kpi { padding: 16px; display: flex; gap: 12px; align-items: center; }
+.traffic-kpi > span { flex: 0 0 42px; height: 42px; display: grid; place-items: center; background: var(--secondary-container); color: var(--on-secondary-container); border-radius: 14px; }
+.traffic-kpi > div { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.traffic-kpi small { color: var(--on-surface-variant); }
+.traffic-kpi strong { font-size: 1.1875rem; font-variant-numeric: tabular-nums; }
+.legend-inline--chart { padding: 12px 22px 0; }.chart--traffic { height: 315px; padding: 0 12px 10px; }
 
 .traffic-kpi > div > small { display: flex; align-items: center; gap: 4px; }.traffic-coverage-trigger { width: 28px; height: 28px; flex: 0 0 28px; border: 0; border-radius: 50%; display: inline-grid; place-items: center; background: transparent; color: var(--primary); cursor: pointer; transition: background-color 180ms var(--motion-standard), transform 180ms var(--motion-standard); }.traffic-coverage-trigger:hover, .traffic-coverage-trigger:focus-visible { outline: 0; background: var(--secondary-container); }.traffic-coverage-trigger:active { transform: scale(.92); }.traffic-coverage-popover { padding: 16px; }.traffic-coverage-popover strong { display: block; font-size: var(--text-sm); }.traffic-coverage-popover p { margin: 6px 0 0; color: var(--on-surface-variant); font-size: var(--text-xs); line-height: 1.55; }
 
@@ -14,6 +20,7 @@
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
 
 @media (max-width: 1180px) {
+  .traffic-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root { --nav-width: 92px; }
   .navigation-rail { padding-inline: 10px; }
   .brand { justify-content: center; padding: 0; }.brand > div, .navigation-rail nav button span:nth-child(2), .navigation-rail nav button em, .nav-status > div, .nav-footer > button span:last-child { display: none; }
@@ -40,7 +47,7 @@
   .summary-strip { grid-template-columns: 1fr 1fr; }.summary-strip > div { border-right: 0; border-bottom: 1px solid var(--outline-variant); padding: 10px; }.summary-strip > div:nth-last-child(-n+2) { border-bottom: 0; }.summary-strip b { font-size: var(--text-base); }.summary-icon { width: 34px; height: 34px; }
   .table-toolbar { align-items: stretch; flex-direction: column; }.search-field { width: 100%; }.responsive-table { overflow: visible; }.responsive-table table, .responsive-table thead, .responsive-table tbody, .responsive-table tr, .responsive-table td { display: block; }.responsive-table thead { display: none; }.responsive-table tbody { padding: 8px 12px 14px; }.responsive-table tr { border: 1px solid var(--outline-variant); border-radius: 18px; padding: 10px 12px; margin: 8px 0; background: var(--surface-container-lowest); }.responsive-table td { border: 0; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }.responsive-table td::before { content: attr(data-label); color: var(--on-surface-variant); font-size: var(--text-xs); flex-shrink: 0; }.responsive-table td:first-child { padding-top: 3px; }.responsive-table td:first-child::before, .responsive-table td.action-cell::before, .responsive-table td:empty::before { display: none; }.responsive-table .action-cell { position: static; justify-content: flex-end; }.context-menu { right: 20px; top: auto; bottom: 10px; }.quota-cell { width: min(210px, 65%); }.table-footer { flex-direction: column; gap: 3px; }.ip-cell { justify-content: flex-end; }.audit-table td:first-child::before { display: block; }.audit-table code { min-width: 0; max-width: 65%; overflow-wrap: anywhere; text-align: right; }
 .traffic-range-control { width: 100%; justify-content: flex-start; }
-  .traffic-kpis { grid-template-columns: 1fr 1fr; gap: 10px; }.traffic-kpi { padding: 13px; }.traffic-kpi > span { display: none; }.traffic-kpi strong { font-size: 1rem; }.chart--traffic { height: 280px; }
+  .traffic-kpis { gap: 10px; }.traffic-kpi { padding: 12px; }.traffic-kpi > span { display: none; }.traffic-kpi strong { font-size: 1rem; }.chart--traffic { height: 280px; }
   .network-overview { grid-template-columns: 1fr; }.network-score-card { grid-column: auto; }.network-targets-heading { align-items: flex-start; flex-direction: column; }.network-targets-heading .segmented-control { width: 100%; }.network-targets-heading .segmented-control button { flex: 1; }.network-target-card__metrics { gap: 6px; }.network-measure { padding: 8px; }
   .service-card-grid { grid-template-columns: 1fr; }.content-grid--services-bottom, .host-info { grid-template-columns: 1fr; }.status-banner { align-items: flex-start; }.status-banner > .md-chip { display: none; }
   .alert-summary { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }.alert-summary .md-card { flex-direction: column; text-align: center; padding: 12px 6px; gap: 5px; }.alert-count { width: 38px; height: 38px; border-radius: 12px; }.alert-row { grid-template-columns: 38px 1fr; align-items: start; }.alert-row__actions { grid-column: 2; }.alert-row__content > div { align-items: flex-start; flex-direction: column; gap: 4px; }.alert-row__content p { font-size: var(--text-xs); }
@@ -49,7 +56,6 @@
 }
 
 @media (max-width: 480px) {
-  .traffic-kpis { grid-template-columns: 1fr; }.traffic-kpi > span { display: grid; }
 }
 
 @media (prefers-reduced-motion: reduce) {
