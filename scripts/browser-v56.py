@@ -182,7 +182,7 @@ def main():
                     assert result.status == 400 and result.json()['field'] == 'value'
                     assert storage.get_setting('login_background', {}) == original
                 network = network_product(page, context, dashboard, storage, origin, headers, refresh)
-                assert not page_errors and not errors
+                assert not page_errors and not errors, (engine, page_errors, errors)
                 reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'networkProduct': network, 'pageErrors': page_errors})
                 context.close(); browser.close()
     print(json.dumps({'auditFixes': reports, 'apiRoutesMocked': False, 'backendErrors': errors, 'passed': True}), flush=True)

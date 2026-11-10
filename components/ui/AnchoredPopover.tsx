@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useCallback, useLayoutEffect, useRef, useState, type PointerEventHandler, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEventHandler, type ReactNode, type RefObject } from "react";
 import { usePresence } from "./usePresence";
 
 type Placement = "left" | "right" | "top" | "bottom";
@@ -99,9 +99,8 @@ export function AnchoredPopover({
     });
   }, [anchorRef, placementPreference, preferredWidth, surfaceRef]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!present || !open) return;
-    positionPanel();
     const frame = window.requestAnimationFrame(positionPanel);
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -142,7 +141,7 @@ export function AnchoredPopover({
   return createPortal(
     <div
       ref={popupRef}
-      className={`md-anchored-popover md-floating-panel ${className} ${position.ready ? (open ? "is-open" : "is-closing") : ""}`}
+      className={`md-anchored-popover md-floating-panel ${className} ${position.ready || !focusOnOpen ? (open ? "is-open" : "is-closing") : ""}`}
       data-placement={position.placement}
       role="dialog"
       aria-label={ariaLabel}
