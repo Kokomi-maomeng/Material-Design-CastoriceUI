@@ -108,10 +108,12 @@ def main():
                 expect(filter_button).to_be_visible()
                 timings=page.locator('.traffic-section > .motion-collapse').evaluate_all('nodes=>nodes.map(e=>getComputedStyle(e).transition)')
                 assert len(timings)==2 and timings[0]==timings[1],timings
-                assert page.locator('.traffic-section .traffic-analysis__toggle > span').evaluate_all("""arrows=>arrows.length===2&&arrows.every(e=>{
+                settled(page)
+                arrow_positions=page.locator('.traffic-section .traffic-analysis__toggle > span').evaluate_all("""arrows=>arrows.map(e=>{
                   const arrow=e.getBoundingClientRect(),header=e.closest('.traffic-analysis__header').getBoundingClientRect();
-                  return arrow.width>10&&header.right-arrow.right>=10&&header.right-arrow.right<=20;
+                  return {width:arrow.width,inset:header.right-arrow.right};
                 })""")
+                assert len(arrow_positions)==2 and all(position['width']>10 and 10<=position['inset']<=20 for position in arrow_positions),arrow_positions
                 assert not requests
                 assert page.get_by_text('About these measurements',exact=True).count() == 0
                 filter_motion=page.locator('.connection-filters-collapse')
