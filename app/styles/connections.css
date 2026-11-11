@@ -11,6 +11,7 @@ html:has(.active-connections) { scrollbar-gutter: stable; }
 .connection-filter-field .md-select-trigger { min-height: 44px; }
 .connection-address-filter { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .connection-match-toggle.md-button { min-height: 44px; padding-inline: 10px; font-size: var(--text-xs); white-space: nowrap; }
+.connection-match-toggle.md-button--tonal { border: 1px solid transparent; }
 .connection-match-toggle .material-symbols-rounded { transition: opacity 160ms var(--motion-standard), scale 160ms var(--motion-standard); }
 .connection-match-toggle[aria-pressed="false"] .material-symbols-rounded { opacity: 0; scale: .6; }
 .connection-clear-filters.md-button { align-self: end; justify-self: start; min-height: 44px; padding-inline: 10px; font-size: var(--text-xs); }
