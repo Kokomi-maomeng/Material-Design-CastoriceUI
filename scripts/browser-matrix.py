@@ -331,10 +331,18 @@ with sync_playwright() as playwright:
         page.get_by_text("Display mode", exact=True).click()
         page.get_by_text("Theme color", exact=True).click()
         preview = page.locator(".theme-preview--dark i").last
+        preview.wait_for(state="visible")
+        settled(page)
         violet = preview.evaluate("el=>getComputedStyle(el).backgroundColor")
+        assert violet and violet != "rgba(0, 0, 0, 0)"
         page.get_by_role("button", name="Moss", exact=True).click()
         expect(page.locator("html")).to_have_attribute("data-theme-color", "green")
-        assert preview.evaluate("el=>getComputedStyle(el).backgroundColor") != violet
+        page.wait_for_function("""before=>{
+            const accent = document.querySelector('.theme-preview--dark i:last-child');
+            if (!accent?.getBoundingClientRect().width) return false;
+            const color = getComputedStyle(accent).backgroundColor;
+            return color && color !== 'rgba(0, 0, 0, 0)' && color !== before;
+        }""", arg=violet, timeout=8000)
         page.get_by_role("button", name="Light", exact=True).click()
         expect(page.locator("html")).to_have_attribute("data-theme", "light")
         page.get_by_role("button", name="Iris", exact=True).click()
