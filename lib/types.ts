@@ -326,6 +326,7 @@ export interface AuditEvent {
   result: "成功" | "失败";
   detail: string;
   detailEn?: string;
+  detailZh?: string;
 }
 
 export interface AuditPageResponse {

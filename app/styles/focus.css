@@ -1,9 +1,14 @@
 /* Keep the whole keyboard indicator within scrollable and animated surfaces. */
 :root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--primary) 65%, transparent);
+  outline: 3px solid var(--focus-ring, var(--primary));
   outline-offset: -3px;
   scroll-margin: 6px;
 }
+
+:is(.md-button--filled, .md-pagination > .is-current, .md-date-picker button.is-selected) { --focus-ring: var(--on-primary); }
+.auth-card .md-button--filled { --focus-ring: var(--on-primary-container); }
+.md-button--danger { --focus-ring: var(--on-error); }
+.toast button { --focus-ring: var(--inverse-on-surface); }
 
 :root :is(.field, .connection-search, .network-alert-editor, .network-editor-dialog, .md-pagination) :is(input, textarea):focus {
   outline: 2px solid var(--primary);

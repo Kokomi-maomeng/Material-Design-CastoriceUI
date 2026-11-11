@@ -113,14 +113,17 @@
 .chart-inspector.is-open { opacity: 1; }
 .chart-inspector line { stroke: var(--outline); stroke-width: 1; stroke-dasharray: 3 4; }
 .chart-inspector__point { transition: cy 160ms var(--motion-standard); stroke: var(--surface); stroke-width: 2; }
+.native-chart--interactive .chart-line--secondary { stroke-dasharray: 6 4; }
+.chart-point--isolated { opacity: 1; }
 .chart-tooltip-position { position: absolute; inset: 0 auto auto 0; z-index: 3; pointer-events: none; transition: transform 160ms var(--motion-standard); }
 .chart-tooltip {
   display: grid;
   gap: 3px;
   padding: 8px 10px;
   border-radius: 12px;
-  background: var(--inverse-surface);
-  color: var(--inverse-on-surface);
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-container-high);
+  color: var(--on-surface);
   box-shadow: 0 5px 16px rgb(var(--shadow-color) / .18);
   font-size: var(--text-xs);
   line-height: 1.35;

@@ -1,3 +1,5 @@
+import type { TrafficQuotaSettings } from "./types";
+
 export function formatBytes(bytes: number, decimals = 1): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -42,6 +44,12 @@ export function formatTimeSpan(seconds: number): string {
   return `${seconds}s`;
 }
 
+export function formatQuotaInterval(count: number | string, unit: TrafficQuotaSettings["periodUnit"], language: "zh" | "en") {
+  const units = { day: "日", week: "周", month: "月", year: "年" };
+  if (language === "zh") return `${count} ${units[unit]}`;
+  return `${count} ${unit}${Number(count) === 1 ? "" : "s"}`;
+}
+
 export function formatDate(value: string, language: "zh" | "en"): string {
   const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value);
   const date = new Date(value);
@@ -81,10 +89,6 @@ export function formatLocalDateTime(value: string | number | null | undefined, l
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
   }).format(date);
-}
-
-export function localTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 export function percent(value: number, total: number): number {

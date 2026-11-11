@@ -35,7 +35,7 @@ from .collectors import (
 from .config import AppConfig, DEFAULT_INTEGRATIONS, normalize_alert_thresholds
 from .validation import integer, number, boolean
 from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
-from .audit_labels import audit_action_en, audit_detail_en
+from .audit_labels import audit_action_en, audit_detail_en, audit_detail_zh
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
 
@@ -1056,7 +1056,7 @@ class DashboardService:
                 alerts.append({"id": f"certificate-{state}", "severity": "critical" if state == "expired" else "warning", "title": f"TLS certificate is {state}", "titleEn": f"TLS certificate is {state}", "titleZh": "TLS 证书已过期" if state == "expired" else "TLS 证书需要检查", "description": service["detail"], "descriptionEn": service["detail"], "descriptionZh": service.get("detailZh", service["detail"]), "time": "latest check", "timeEn": "latest check", "timeZh": "最近检查", "acknowledged": False, "source": "Certificate monitor", "sourceEn": "Certificate monitor", "sourceZh": "证书监控"})
                 continue
             if service.get("id") == "certificate" and service.get("status") == "warning":
-                alerts.append({"id": "certificate-evidence", "severity": "warning", "title": "TLS certificate evidence requires attention", "titleEn": "TLS certificate evidence requires attention", "titleZh": "TLS 证书证据需要检查", "description": f"Endpoint: {service.get('endpointEvidence', 'unknown')} · renewal: {service.get('renewalEvidence', 'unknown')}", "descriptionEn": f"Endpoint: {service.get('endpointEvidence', 'unknown')} · renewal: {service.get('renewalEvidence', 'unknown')}", "descriptionZh": f"站点证据：{service.get('endpointEvidence', 'unknown')} · 续期证据：{service.get('renewalEvidence', 'unknown')}", "time": "latest check", "timeEn": "latest check", "timeZh": "最近检查", "acknowledged": False, "source": "Certificate monitor", "sourceEn": "Certificate monitor", "sourceZh": "证书监控"})
+                alerts.append({"id": "certificate-evidence", "severity": "warning", "title": "TLS certificate evidence requires attention", "titleEn": "TLS certificate evidence requires attention", "titleZh": "TLS 证书核验需要检查", "description": service["detail"], "descriptionEn": service["detail"], "descriptionZh": service.get("detailZh", service["detail"]), "time": "latest check", "timeEn": "latest check", "timeZh": "最近检查", "acknowledged": False, "source": "Certificate monitor", "sourceEn": "Certificate monitor", "sourceZh": "证书监控"})
                 continue
             if service["status"] == "stopped":
                 if service.get("stateReason") == "core_offline" and service["id"] in PROTOCOLS and any(item["id"] == "singbox" and item["status"] == "stopped" for item in services):
@@ -1168,6 +1168,7 @@ class DashboardService:
                 "result": row["result"],
                 "detail": row["detail"],
                 "detailEn": audit_detail_en(row["detail"]),
+                "detailZh": audit_detail_zh(row["detail"]),
             }
             for row in result["items"]
         ]

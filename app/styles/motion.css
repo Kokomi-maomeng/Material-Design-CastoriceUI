@@ -30,6 +30,8 @@
 
 /* Animate new records and state messages once; numeric polling stays still. */
 :is(.network-target-card, .alert-row, .network-alerts-card__list > div, .table-empty, .record-load-error, .integration-gate) { animation: record-enter 180ms var(--motion-standard) backwards; }
+.service-card, .wizard-overview, .wizard-form, .wizard-success, .wizard-form .dialog-error { animation: record-enter var(--motion-enter-duration) var(--motion-standard) backwards; }
+.wizard-progress > div > span { transition: background-color 180ms var(--motion-standard), color 180ms var(--motion-standard); }
 .connection-target { transition: background-color 180ms var(--motion-standard), color 180ms var(--motion-standard); }
 @keyframes record-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -41,6 +43,8 @@
   .auth-page, .auth-card, .app-shell, .boot-state { animation: none; }
   .motion-collapse { transition: none; }
   :is(.network-target-card, .alert-row, .network-alerts-card__list > div, .table-empty, .record-load-error, .integration-gate) { animation: none; }
+  .service-card, .wizard-overview, .wizard-form, .wizard-success, .wizard-form .dialog-error { animation: none; }
+  .wizard-progress > div > span { transition: none; }
   .connection-target { transition: none; }
   .md-date-picker__body, .md-select-list > button > .material-symbols-rounded, .color-options .is-selected .material-symbols-rounded { animation: none; }
   :is(button.md-chip, .segmented-control button, .md-select-list > button, .md-date-picker button, .theme-mode-grid > button, .color-options button, .md-pagination > button, .md-preset-slider__thumb, .md-preset-slider__track i, .md-preset-slider__labels > span) { transition: none !important; }

@@ -143,8 +143,11 @@ test("network targets are editable and charts use real smooth sample paths", asy
   assert.match(chart, /smoothChartPath/);
   assert.match(networkChart, /smoothChartPath/);
   assert.match(await read("lib/chart-path.ts"), /C \$/);
-  assert.match(chart, /getScreenCTM\(\)/);
-  assert.match(chart, /matrix\.inverse\(\)/);
+  const inspection = await read("components/charts/useChartInspection.ts");
+  assert.match(chart, /useChartInspection\(data, timeline, plot\)/);
+  assert.match(await read("components/charts/ResourceChart.tsx"), /useChartInspection\(data, timeline, plot\)/);
+  assert.match(inspection, /getScreenCTM\(\)/);
+  assert.match(inspection, /matrix\.inverse\(\)/);
   assert.match(networkChart, /getScreenCTM\(\)/);
   assert.match(networkChart, /sparkline-hit-area/);
   assert.match(collector, /"-c", str\(count\)/);

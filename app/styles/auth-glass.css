@@ -36,10 +36,10 @@
 .auth-glass-optics { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 480ms var(--motion-standard); }
 .auth-page[data-background-state="ready"] .auth-glass-optics { opacity: 1; }
 .auth-glass-wash { fill: var(--glass-wash); }
-.auth-card:not([data-glass="solid"]) :is(.auth-heading p, .auth-brand span, .field > span, .auth-input, .auth-input input, .auth-input > .material-symbols-rounded) { color: var(--auth-ink); }
+.auth-card:not([data-glass="solid"]) :is(.auth-heading p, .auth-brand > div > span, .field > span, .auth-input, .auth-input input, .auth-input > .material-symbols-rounded) { color: var(--auth-ink); }
 .auth-card:not([data-glass="solid"]) :is(.auth-brand, .auth-heading, .field > span) { text-shadow: 0 1px 6px rgb(0 0 0 / .22); }
 .auth-card[data-glass-tone="light"]:not([data-glass="solid"]) :is(.auth-brand, .auth-heading, .field > span) { text-shadow: 0 1px 5px rgb(255 255 255 / .4); }
-.auth-card .auth-heading p, .auth-card .auth-brand span, .auth-card .field > span { color: var(--on-surface); }
+.auth-card .auth-heading p, .auth-card .auth-brand > div > span, .auth-card .field > span { color: var(--on-surface); }
 .auth-card .auth-heading p { opacity: .85; }
 .auth-card .auth-brand > .brand-mark, .auth-card .md-button--filled { background: var(--primary-container); color: var(--on-primary-container); }
 .auth-card .auth-input {

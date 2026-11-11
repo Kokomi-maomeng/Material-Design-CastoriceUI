@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
 from qa_browser import open_page as open_ready_page, settled
 
@@ -32,6 +32,58 @@ def check_typography(page, case):
       });
     }''')
     assert not problems, (case, 'inconsistent typography', problems)
+
+
+def check_target_disclosure(page):
+    for width in (1440, 390):
+        page.set_viewport_size({"width": width, "height": 900})
+        open_page(page, "network")
+        columns = page.locator(".network-target-column")
+        first_column = columns.first.locator(".network-target-card")
+        first, second = first_column.nth(0), first_column.nth(1)
+        toggle = first.locator(".network-target-card__header")
+        details = first.locator(".motion-collapse").first
+        other_column = columns.nth(1)
+        position = lambda locator: locator.evaluate("e=>e.getBoundingClientRect().top+scrollY")
+        next_before, other_before = position(second), position(other_column)
+        toggle.press("Space")
+        expect(toggle).to_have_attribute("aria-expanded", "false")
+        expect(details).to_have_attribute("inert", "")
+        settled(page)
+        assert position(second) < next_before - 200, (width, "next target did not move up")
+        if width == 1440:
+            assert abs(position(other_column) - other_before) < 1
+        else:
+            assert position(other_column) < other_before - 200
+        toggle.click()
+        expect(toggle).to_have_attribute("aria-expanded", "true")
+        settled(page)
+        assert abs(position(second) - next_before) < 1
+
+
+def check_resource_inspector(page, dashboard):
+    open_page(page, "services")
+    chart = page.locator(".resource-chart svg")
+    inspector = chart.locator(".chart-inspector")
+    tooltip = page.get_by_role("tooltip")
+    chart.press("Home")
+    expect(tooltip).to_contain_text("8.0%")
+    expect(tooltip).to_contain_text("42.0%")
+    expect(tooltip.locator("time")).to_have_attribute("datetime", dashboard["resourceHistory"]["1h"][0]["capturedAt"])
+    expect(inspector).to_have_class("chart-inspector is-open")
+    first_position = inspector.get_attribute("style")
+    chart.press("End")
+    expect(tooltip.locator("time")).to_have_attribute("datetime", dashboard["resourceHistory"]["1h"][-1]["capturedAt"])
+    assert inspector.get_attribute("style") != first_position
+    settled(page)
+    plot, popup = chart.bounding_box(), tooltip.bounding_box()
+    assert plot["x"] <= popup["x"] and popup["x"] + popup["width"] <= plot["x"] + plot["width"] + 1
+    chart.press("Escape")
+    expect(tooltip).to_have_count(0)
+    chart.hover(position={"x": 120, "y": 90})
+    expect(tooltip).to_be_visible()
+    page.mouse.move(0, 0)
+    expect(tooltip).to_have_count(0)
 
 
 def synthetic_dashboard(page) -> dict[str, object]:
@@ -120,8 +172,8 @@ def synthetic_dashboard(page) -> dict[str, object]:
     dashboard["services"].extend(
         [
             {"id": "nginx", "kind": "core", "name": "Nginx", "detail": "active", "status": "running", "version": "1.26.3", "uptimeSeconds": 654321, "icon": "language"},
-            {"id": "kernel", "kind": "core", "name": "Linux kernel", "detail": "2 CPU", "status": "running", "version": "6.12.0-qa", "uptimeSeconds": 654321, "icon": "memory"},
-            {"id": "certificate", "kind": "core", "name": "TLS certificate", "detail": "65 days remaining", "status": "running", "version": "TLS", "icon": "verified_user"},
+            {"id": "kernel", "kind": "core", "name": "Linux kernel", "nameZh": "Linux 内核", "detail": "2 CPU", "status": "running", "version": "6.12.0-qa", "uptimeSeconds": 654321, "icon": "memory"},
+            {"id": "certificate", "kind": "monitor", "name": "TLS certificate", "nameZh": "TLS 证书", "detail": "65 days remaining", "detailZh": "证书剩余 65 天", "status": "running", "version": "TLS", "icon": "verified_user"},
         ]
     )
     dashboard["traffic"].update(
@@ -276,7 +328,23 @@ with sync_playwright() as playwright:
         page.get_by_role("button", name="Settings", exact=True).click()
         page.locator(".settings-dialog").wait_for()
         assert "Material-Design-CastoriceUI" in page.locator(".settings-about-section").inner_text()
+        page.get_by_text("Display mode", exact=True).click()
+        page.get_by_text("Theme color", exact=True).click()
+        preview = page.locator(".theme-preview--dark i").last
+        violet = preview.evaluate("el=>getComputedStyle(el).backgroundColor")
+        page.get_by_role("button", name="Moss", exact=True).click()
+        expect(page.locator("html")).to_have_attribute("data-theme-color", "green")
+        assert preview.evaluate("el=>getComputedStyle(el).backgroundColor") != violet
+        page.get_by_role("button", name="Light", exact=True).click()
+        expect(page.locator("html")).to_have_attribute("data-theme", "light")
+        page.get_by_role("button", name="Iris", exact=True).click()
+        page.get_by_role("button", name="Dark", exact=True).click()
         page.get_by_role("button", name="Close", exact=True).click()
+        assert page.locator(".brand > .brand-mark").evaluate("e=>getComputedStyle(e).color === getComputedStyle(e.firstElementChild).color")
+
+        check_target_disclosure(page)
+        check_resource_inspector(page, dashboard)
+        page.set_viewport_size({"width": 1440, "height": 1000})
 
         # F06: a real browser keeps the chart alive across 24 -> 1 -> 0 -> 24
         # refreshes and supports both pointer and keyboard inspection.

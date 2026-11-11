@@ -658,7 +658,6 @@ export function CastoriceApp() {
           <OverviewPage
             mode={dashboard.mode}
             metrics={dashboard.overview}
-            connections={connections}
             services={dashboard.services}
             networkTargets={dashboard.networkTargets}
             traffic={dashboard.traffic}

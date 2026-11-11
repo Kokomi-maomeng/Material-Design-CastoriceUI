@@ -25,3 +25,17 @@
 .settings-dialog .glass-toggle-row { min-height: 60px; padding-block: 10px; }
 .settings-dialog .glass-slider { padding: 4px 2px 12px; }
 .settings-dialog .glass-slider > div { font-size: var(--text-xs); line-height: 18px; }
+.theme-preview {
+  --preview-light: #fdf7ff;
+  --preview-dark: #171319;
+  --preview-light-accent: color-mix(in srgb, var(--primary) 32%, var(--preview-light));
+  --preview-dark-accent: color-mix(in srgb, var(--primary) 45%, var(--preview-dark));
+}
+.theme-preview--light { background: var(--preview-light); }
+.theme-preview--dark { background: var(--preview-dark); }
+.theme-preview--system { background: linear-gradient(90deg, var(--preview-light) 50%, var(--preview-dark) 50%); }
+.theme-preview--light i { background: color-mix(in srgb, var(--preview-light) 85%, var(--preview-dark)); }
+.theme-preview--dark i { background: color-mix(in srgb, var(--preview-dark) 84%, var(--preview-light)); }
+.theme-preview--light i:last-child { background: var(--preview-light-accent); }
+.theme-preview--dark i:last-child { background: var(--preview-dark-accent); }
+.theme-preview--system i { background: color-mix(in srgb, var(--preview-light-accent) 50%, var(--preview-dark-accent)); }
