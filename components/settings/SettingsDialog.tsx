@@ -232,7 +232,7 @@ export function SettingsDialog({
         <AnimatedDetails className="settings-disclosure general-setting-item">
           <summary><span><Icon name="history" /><span><strong>{t("日志审计时长", "Audit log retention")}</strong><small>{formatTimeSpan(draftUiSettings.auditRetentionDays * 86400)}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
-            <div className="field"><span>{t("日志审计时长", "Audit log retention")}</span><MaterialSelect disabled={uiSaving} ariaLabel={t("日志审计时长", "Audit log retention")} value={String(draftUiSettings.auditRetentionDays)} options={[30, 60, 90, 120, 150, 180, 365].map((days) => ({ value: String(days), label: formatTimeSpan(days * 86400) }))} onChange={(value) => void saveUiSettings({ auditRetentionDays: Number(value) as UiSettings["auditRetentionDays"] })} /><small className="field-hint">{t("默认保留 180d。修改后立即清理超期记录，此后每 1h 清理一次。", "The default is 180d. Changing retention removes expired records immediately, and cleanup runs every 1h.")}</small></div>
+            <div className="field"><MaterialSelect disabled={uiSaving} ariaLabel={t("日志审计时长", "Audit log retention")} value={String(draftUiSettings.auditRetentionDays)} options={[30, 60, 90, 120, 150, 180, 365].map((days) => ({ value: String(days), label: formatTimeSpan(days * 86400) }))} onChange={(value) => void saveUiSettings({ auditRetentionDays: Number(value) as UiSettings["auditRetentionDays"] })} /></div>
           </div>
         </AnimatedDetails>
       <AnimatedDetails className="settings-disclosure security-settings">
@@ -258,8 +258,8 @@ export function SettingsDialog({
           </summary>
           <div className="theme-mode-grid disclosure-content">
             {THEME_MODES.map((item) => (
-              <button key={item} className={mode === item ? "is-selected" : ""} onClick={() => onMode(item)}>
-                <span className={`theme-preview theme-preview--${item}`}><i /><i /><i /></span>
+              <button type="button" key={item} className={mode === item ? "is-selected" : ""} aria-pressed={mode === item} onClick={() => onMode(item)}>
+                <span className={`theme-preview theme-preview--${item}`} aria-hidden="true"><i /><i /><i /></span>
                 <div><Icon name={item === "light" ? "light_mode" : item === "dark" ? "dark_mode" : "desktop_windows"} size={19} />{item === "light" ? t("浅色", "Light") : item === "dark" ? t("深色", "Dark") : t("跟随系统", "System")}</div>
               </button>
             ))}
@@ -271,7 +271,7 @@ export function SettingsDialog({
             <span className="disclosure-status"><i className="selected-color-dot" style={{ background: colors.find((item) => item.id === color)?.value }} /><Icon name="expand_more" /></span>
           </summary>
           <div className="color-options disclosure-content">
-            {colors.map((item) => <button key={item.id} className={color === item.id ? "is-selected" : ""} onClick={() => onColor(item.id)}><span style={{ background: item.value }}>{color === item.id ? <Icon name="check" size={18} /> : null}</span><small>{t(item.zh, item.en)}</small></button>)}
+            {colors.map((item) => <button type="button" key={item.id} className={color === item.id ? "is-selected" : ""} aria-pressed={color === item.id} onClick={() => onColor(item.id)}><span style={{ background: item.value }}>{color === item.id ? <Icon name="check" size={18} /> : null}</span><small>{t(item.zh, item.en)}</small></button>)}
           </div>
         </AnimatedDetails>
       <AnimatedDetails className="settings-disclosure theme-style-item">

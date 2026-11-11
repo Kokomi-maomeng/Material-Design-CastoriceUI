@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { AlertItem, IntegrationStatus, NetworkTarget } from "../../lib/types";
 import { networkProbeSamples } from "../../lib/network-chart";
@@ -12,6 +12,7 @@ import { AlertTimes } from "../ui/AlertTimes";
 import { AnimatedRecords } from "../ui/RecordHistory";
 import { Card } from "../ui/Card";
 import { Chip } from "../ui/Chip";
+import { Collapse } from "../ui/Collapse";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 import { NetworkHistory } from "./NetworkHistory";
@@ -48,13 +49,19 @@ export function NetworkPage({
   const targets = useNetworkTargets(initialTargets);
   const [version, setVersion] = useState<"all" | 4 | 6>("all");
   const [editorOpen, setEditorOpen] = useState(false);
-  const filtered = useMemo(
-    () =>
-      targets.filter(
-        (target) => version === "all" || (target.resolvedIpVersion ?? target.ipVersion) === version,
-      ),
-    [targets, version],
-  );
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const columns = useMemo(() => {
+    const midpoint = Math.ceil(targets.length / 2);
+    const matchesVersion = (target: NetworkTarget) => version === "all" || (target.resolvedIpVersion ?? target.ipVersion) === version;
+    return [targets.slice(0, midpoint).filter(matchesVersion), targets.slice(midpoint).filter(matchesVersion)];
+  }, [targets, version]);
+  const filtered = columns.flat();
+  const toggleTarget = (id: string) => setCollapsed((previous) => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
   const measuredLatency = filtered.flatMap((item) => item.latency === null ? [] : [item.latency]);
   const measuredJitter = filtered.flatMap((item) => item.jitter === null ? [] : [item.jitter]);
   const avgLatency = measuredLatency.length ? measuredLatency.reduce((sum, value) => sum + value, 0) / measuredLatency.length : null;
@@ -135,20 +142,26 @@ export function NetworkPage({
       <section className="network-targets-section">
         <div className="network-targets-heading">
           <h2>{t("目标节点", "Targets")}</h2>
-          <div className="segmented-control">
+          <div className="segmented-control" role="group" aria-label={t("目标地址类型", "Target address family")}>
             <button
+              type="button"
+              aria-pressed={version === "all"}
               className={version === "all" ? "is-selected" : ""}
               onClick={() => setVersion("all")}
             >
               {t("全部", "All")}
             </button>
             <button
+              type="button"
+              aria-pressed={version === 4}
               className={version === 4 ? "is-selected" : ""}
               onClick={() => setVersion(4)}
             >
               IPv4
             </button>
             <button
+              type="button"
+              aria-pressed={version === 6}
               className={version === 6 ? "is-selected" : ""}
               onClick={() => setVersion(6)}
             >
@@ -157,37 +170,48 @@ export function NetworkPage({
           </div>
         </div>
         <AnimatedRecords itemCount={filtered.length} transitionKey={`${version}:${filtered.map((target) => target.id).join("|")}`}><div className="network-target-grid">
-          {filtered.map((target) => (
-            <Card variant="outlined" className="network-target-card" key={target.id}>
-              <div className="network-target-card__header">
-                <div className="provider-mark">{target.name.slice(0, 1)}</div>
-                <div className="network-target__identity"><strong title={target.name}>{target.name}</strong><span title={target.address}>{target.address} · {(target.resolvedIpVersion ?? target.ipVersion) === 0 ? t("自动解析", "Automatic") : `IPv${target.resolvedIpVersion ?? target.ipVersion}`}</span></div>
-                <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "down" ? "danger" : "warning"}>
-                  {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
-                </Chip>
-              </div>
-              <div className="network-target-card__content">
-              <div className="network-target-card__metrics">
-                <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{target.latency === null ? "—" : `${target.latency.toFixed(1)} ms`}</b></div>
-                <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter === null ? "—" : `${target.jitter.toFixed(1)} ms`}</b></div>
-                <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.status === "degraded" || target.status === "down" ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
-              </div>
-              <div className="network-target-card__evidence">
-              <div className="network-target-card__chart">
-                <div className="network-target-card__chart-title"><strong>{t("网络探测", "Network probe")}</strong><b>{target.latency === null ? "—" : `${target.latency.toFixed(1)} ms`}</b></div>
-                <NetworkChart samples={networkProbeSamples(target)} seconds step={target.sampleIntervalSeconds ?? 1} label={t(`${target.name} 网络探测`, `${target.name} network probe`)} />
-              </div>
-              <NetworkHistory key={target.id} target={target} />
-              <ProbeReadings target={target} />
-              </div>
-              </div>
-            </Card>
-          ))}
+          {columns.map((column, index) => <div className="network-target-column" key={index}>
+            {column.map((target) => <NetworkTargetCard key={target.id} target={target} expanded={!collapsed.has(target.id)} onToggle={() => toggleTarget(target.id)} />)}
+          </div>)}
         </div></AnimatedRecords>
       </section>
       {!onCustomize ? <NetworkProbeDialog open={editorOpen} onClose={() => setEditorOpen(false)} targets={targets} alertIntegration={alertIntegration} onSaved={onSaved} onToast={onToast} /> : null}
     </div>
   );
+}
+
+function NetworkTargetCard({ target, expanded, onToggle }: { target: NetworkTarget; expanded: boolean; onToggle: () => void }) {
+  const { t } = useI18n();
+  const detailsId = useId();
+  const family = target.resolvedIpVersion ?? target.ipVersion;
+  const latency = target.latency === null ? "—" : `${target.latency.toFixed(1)} ms`;
+  return <Card variant="outlined" className="network-target-card">
+    <button type="button" className="network-target-card__header" aria-expanded={expanded} aria-controls={detailsId} onClick={onToggle}>
+      <span className="provider-mark" aria-hidden="true">{target.name.slice(0, 1)}</span>
+      <span className="network-target__identity"><strong title={target.name}>{target.name}</strong><span title={target.address}>{target.address} · {family === 0 ? t("自动解析", "Automatic") : `IPv${family}`}</span></span>
+      <Chip staticChip tone={target.status === "healthy" ? "success" : target.status === "down" ? "danger" : "warning"}>
+        {target.status === "healthy" ? t("正常", "Healthy") : target.status === "degraded" ? t("波动", "Degraded") : target.status === "unavailable" ? t("探测不可用", "Probe unavailable") : t("不可达", "Down")}
+      </Chip>
+      <Icon name="expand_more" size={22} />
+    </button>
+    <Collapse id={detailsId} expanded={expanded}>
+      <div className="network-target-card__content">
+        <div className="network-target-card__metrics">
+          <div className="network-measure"><span>{t("延迟", "Latency")}</span><b>{latency}</b></div>
+          <div className="network-measure"><span>{t("抖动", "Jitter")}</span><b>{target.jitter === null ? "—" : `${target.jitter.toFixed(1)} ms`}</b></div>
+          <div className="network-measure"><span>{t("丢包", "Loss")}</span><b className={target.status === "degraded" || target.status === "down" ? "text-warning" : ""}>{target.loss === null ? "—" : `${target.loss.toFixed(1)}%`}</b></div>
+        </div>
+        <div className="network-target-card__evidence">
+          <div className="network-target-card__chart">
+            <div className="network-target-card__chart-title"><strong>{t("网络探测", "Network probe")}</strong><b>{latency}</b></div>
+            <NetworkChart samples={networkProbeSamples(target)} seconds step={target.sampleIntervalSeconds ?? 1} label={t(`${target.name} 网络探测`, `${target.name} network probe`)} />
+          </div>
+          <NetworkHistory target={target} />
+          <ProbeReadings target={target} />
+        </div>
+      </div>
+    </Collapse>
+  </Card>;
 }
 
 function ProbeReadings({ target }: { target: NetworkTarget }) {

@@ -175,7 +175,10 @@ def run(engine, timezone, browser):
     page.locator(".mono-time").first.wait_for()
     expected = page.evaluate("value=>new Intl.DateTimeFormat('en',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(value))", TIME)
     assert page.locator(".mono-time").first.inner_text() == expected
-    assert timezone in page.locator("#main-content").inner_text()
+    assert page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone") == timezone
+    assert page.locator(".snapshot-time time").evaluate("""clock => clock.textContent ===
+        new Intl.DateTimeFormat('en',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(clock.dateTime))""")
+    assert "Times are shown in your local time zone" not in page.locator("#main-content").inner_text()
     page.get_by_role("button", name="Show all logs").click()
     page.locator(".audit-table tbody tr").nth(49).wait_for()
     audit_controls = page.locator(".md-pagination").inner_text()

@@ -1,10 +1,20 @@
 .active-connections .traffic-analysis__heading { scroll-margin-top: calc(var(--topbar-height) + 16px); }
 .connection-section-content { padding: 0 12px 12px; }
 .connection-section-body { display: grid; gap: 10px; }
-.connection-filters { display: flex; flex-wrap: wrap; align-items: start; gap: 12px; margin-bottom: 10px; padding: 12px; background: var(--surface-container-low); border-radius: var(--radius-md); }
-.connection-filters > .md-button { align-self: end; }
+html:has(.active-connections) { scrollbar-gutter: stable; }
+@supports not (scrollbar-gutter: stable) {
+  html:has(.active-connections) { overflow-y: scroll; }
+}
+.connection-filters { display: grid; grid-template-columns: minmax(128px, 1fr) minmax(0, 3fr) minmax(114px, .85fr); align-items: start; gap: 12px; margin-bottom: 10px; padding: 12px; background: var(--surface-container-low); border-radius: var(--radius-md); }
+.connection-filter-column { display: grid; min-width: 0; gap: 10px; }
 .connection-filter-field, .connection-search { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: var(--text-xs); }
-.connection-filter-field { flex: 1 1 140px; }
+.connection-filter-field .md-select-trigger { min-height: 44px; }
+.connection-address-filter { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.connection-match-toggle.md-button { min-height: 44px; padding-inline: 10px; font-size: var(--text-xs); white-space: nowrap; }
+.connection-match-toggle.md-button--tonal { border: 1px solid transparent; }
+.connection-match-toggle .material-symbols-rounded { transition: opacity 160ms var(--motion-standard), scale 160ms var(--motion-standard); }
+.connection-match-toggle[aria-pressed="false"] .material-symbols-rounded { opacity: 0; scale: .6; }
+.connection-clear-filters.md-button { align-self: end; justify-self: start; min-height: 44px; padding-inline: 10px; font-size: var(--text-xs); }
 .connection-search input { min-width: 0; width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--outline-variant); border-radius: 10px; background: var(--surface-container-lowest); color: var(--on-surface); font: inherit; }
 .connection-list { display: grid; gap: 8px; }
 .connection-list:empty { display: none; }
@@ -15,7 +25,7 @@
 .connection-card-info .md-chip { white-space: normal; overflow-wrap: anywhere; }
 .connection-card-meta, .connection-target-meta { font-size: var(--text-xs); color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
 .connection-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 4px 8px; min-width: 0; }
-.connection-rates { display: grid; grid-template-columns: repeat(2, minmax(9ch, auto)); gap: 4px 8px; font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
+.connection-rates { display: grid; grid-template-columns: repeat(2, minmax(9ch, auto)); gap: 4px 8px; min-width: 0; font-variant-numeric: tabular-nums; font-size: var(--text-xs); }
 .connection-rates .rate { display: block; text-align: end; }
 .connection-row-toggle.md-button--icon { flex: 0 0 44px; width: 44px; min-height: 44px; }
 .connection-row-toggle .material-symbols-rounded { transition: transform var(--motion-enter-duration) var(--motion-standard); }
@@ -35,18 +45,26 @@
 .connection-status { font-size: var(--text-xs); color: var(--on-surface-variant); margin: 0; overflow-wrap: anywhere; }
 .connection-detail-panel .connection-status { padding: 8px 4px; }
 
+@container (max-width: 680px) {
+  .connection-filters { grid-template-columns: minmax(0, 1fr); }
+}
 @container (max-width: 620px) {
   .connection-card-header, .connection-target { grid-template-columns: minmax(0, 1fr); }
   .connection-card-header { padding-block-start: 8px; }
   .connection-target-meta { justify-content: start; padding-block-end: 4px; }
-  .connection-rates .rate { text-align: start; }
+  .connection-rates { grid-template-columns: repeat(2, minmax(0, max-content)); }
+  .connection-rates .rate { text-align: start; white-space: normal; overflow-wrap: anywhere; }
 }
 @container (max-width: 480px) {
   .connection-section-content { padding: 0 8px 8px; }
+}
+@container (max-width: 380px) {
+  .connection-address-filter { grid-template-columns: minmax(0, 1fr); }
+  .connection-match-toggle.md-button { justify-self: end; }
 }
 @media (pointer: coarse) {
   .connection-address .copy-ip-button { flex-basis: 44px; width: 44px; height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .connection-row-toggle .material-symbols-rounded { transition: none; }
+  .connection-row-toggle .material-symbols-rounded, .connection-match-toggle .material-symbols-rounded { transition: none; }
 }

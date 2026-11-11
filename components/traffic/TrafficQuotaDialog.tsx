@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../lib/api";
+import { formatQuotaInterval } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import type { TrafficQuotaSettings } from "../../lib/types";
 import { SettingsSwitch } from "../settings/SettingsDialog";
@@ -124,7 +125,7 @@ export function TrafficQuotaDialog({
         <div className="field"><span>{t("重置基准日期", "Reset anchor date")}</span><MaterialDatePicker ariaLabel={t("重置基准日期", "Reset anchor date")} value={resetAnchor} onChange={setResetAnchor} /></div>
         <div className="field"><span>{t("重置时间", "Reset time")}</span><div className="quota-time-selects"><MaterialSelect ariaLabel={t("重置小时", "Reset hour")} value={resetTime.slice(0, 2)} options={RESET_HOURS.map((value) => ({ value, label: value }))} onChange={(value) => setResetTime(`${value}:${resetTime.slice(3, 5)}`)} /><span>:</span><MaterialSelect ariaLabel={t("重置分钟", "Reset minute")} value={resetTime.slice(3, 5)} options={RESET_MINUTES.map((value) => ({ value, label: value }))} onChange={(value) => setResetTime(`${resetTime.slice(0, 2)}:${value}`)} /></div></div>
         <div className="field field--wide"><span>{t("时区设定", "Timezone")}</span><MaterialSelect ariaLabel={t("时区设定", "Timezone")} value={timezone} searchable options={TIMEZONE_NAMES.map((value) => ({ value, label: value, secondary: value === "UTC" ? t("协调世界时", "Coordinated Universal Time") : undefined }))} onChange={setTimezone} /></div>
-        <p className="field-hint quota-schedule-summary">{t(`每 ${periodCount || "?"} ${periodUnit === "day" ? "日" : periodUnit === "week" ? "周" : periodUnit === "month" ? "月" : "年"}重置；基准 ${resetAnchor || "—"} ${resetTime}，时区 ${timezone || "UTC"}`, `Reset every ${periodCount || "?"} ${periodUnit}(s), anchored on ${resetAnchor || "—"} ${resetTime} in ${timezone || "UTC"}`)}</p>
+        <p className="field-hint quota-schedule-summary">{t(`每 ${formatQuotaInterval(periodCount || "?", periodUnit, "zh")}重置，基准为 ${resetAnchor || "—"} ${resetTime}（${timezone || "UTC"}）`, `Reset every ${formatQuotaInterval(periodCount || "?", periodUnit, "en")}, anchored on ${resetAnchor || "—"} ${resetTime} in ${timezone || "UTC"}`)}</p>
       </div></Collapse>
       {error ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{error}</span></div> : null}
     </Dialog>

@@ -54,7 +54,7 @@ beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
 describe("v4.1 navigation and protocol inspection", () => {
-  const overview = (onNavigate = vi.fn(), onEditQuota = vi.fn()) => <OverviewPage mode="live" metrics={metrics} connections={[]} services={[]} networkTargets={[]} traffic={emptyDashboard.traffic} onEditQuota={onEditQuota} onRefresh={vi.fn()} onNavigate={onNavigate} />;
+  const overview = (onNavigate = vi.fn(), onEditQuota = vi.fn()) => <OverviewPage mode="live" metrics={metrics} services={[]} networkTargets={[]} traffic={emptyDashboard.traffic} onEditQuota={onEditQuota} onRefresh={vi.fn()} onNavigate={onNavigate} />;
   it("routes every overview shortcut and isolates the account destination", () => {
     const navigate = vi.fn();
     renderEnglish(overview(navigate));
@@ -144,7 +144,7 @@ describe("v4.1 navigation and protocol inspection", () => {
     ];
     const { container } = renderEnglish(<ServicesPage services={services} metrics={metrics} onRefresh={vi.fn()} />);
     expect(screen.getByText("Memory usage").nextElementSibling?.textContent).toContain("20.0%");
-    expect(screen.getByText("1 of 2 data sources online")).toBeTruthy();
+    expect(screen.getByText("1 of 2 online")).toBeTruthy();
     const socks = screen.getByText("SOCKS5").closest('.service-card')!;
     expect(socks.querySelector('.is-error')?.textContent).toBe("Offline");
     expect(socks.textContent).toContain("Unavailable");
@@ -314,8 +314,8 @@ describe("v3.3 runtime behavior", () => {
         onRefresh={vi.fn()}
       />,
     );
-    expect(screen.getByText(/Sample write succeeded/)).toBeTruthy();
-    expect(screen.getByText("1 of 1 data sources online")).toBeTruthy();
+    expect(screen.getByText(/Writable ·/)).toBeTruthy();
+    expect(screen.getByText("1 of 1 online")).toBeTruthy();
   });
 
   it("renders exact calendar-month bars and collapsible traffic cards", () => {

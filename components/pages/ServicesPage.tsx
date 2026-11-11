@@ -73,7 +73,7 @@ export function ServicesPage({ services, metrics, resourceHistory, onRefresh }: 
         </Card>
     <ServiceCards services={services} metrics={metrics} />
     <Card variant="outlined" className="resource-history-panel">
-      <CardHeader title={t("CPU 与内存记录", "CPU and memory history")} description={t("每分钟采样；曲线按所选范围聚合", "Sampled every minute; the selected range uses aggregated values")} action={<div className="segmented-control resource-range-control" aria-label={t("资源记录时间范围", "Resource history range")}>{(["1h", "6h", "24h"] as const).map((item) => <button type="button" key={item} className={range === item ? "is-selected" : ""} aria-pressed={range === item} onClick={() => setRange(item)}>{item}</button>)}</div>} />
+      <CardHeader title={t("CPU 与内存记录", "CPU and memory history")} action={<div className="segmented-control resource-range-control" role="group" aria-label={t("资源记录时间范围", "Resource history range")}>{(["1h", "6h", "24h"] as const).map((item) => <button type="button" key={item} className={range === item ? "is-selected" : ""} aria-pressed={range === item} onClick={() => setRange(item)}>{item}</button>)}</div>} />
       <div className="legend-inline resource-chart-legend"><span className="dot dot--primary" />CPU<span className="dot dot--secondary" />{t("内存", "Memory")}</div>
       <ResourceChart data={resourceHistory?.[range] ?? []} />
     </Card>

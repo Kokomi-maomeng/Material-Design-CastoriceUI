@@ -206,10 +206,12 @@ export function ActiveConnections({ connections, sampledAt, now, onToast, integr
     return next;
   });
   const clearFilters = () => { setProtocol("all"); setIpVersion("all"); setAddressFilters(emptyFilters); };
+  const updateQuery = (field: "ip" | "domain" | "port", query: string) => setAddressFilters((value) => ({ ...value, [field]: query }));
   const copy = (value: string) => void copyText(value).then(() => onToast(t("已复制", "Copied"))).catch(() => onToast(t("复制失败", "Copy failed")));
   const targetsUnavailable = stale || targets.failed || targets.snapshot?.available === false;
   const filterPending = addressFiltered && !targetsUnavailable && !targets.snapshot;
-  const filterButton = <Button type="button" variant="tonal" compact icon="filter_list" aria-expanded={filtersOpen} aria-controls={filtersId} onClick={() => setFiltersOpen((value) => !value)}>{hasFilter ? t("筛选中", "Filters applied") : t("筛选", "Filter")}</Button>;
+  const filterLabel = hasFilter ? t("筛选中", "Filters applied") : t("筛选", "Filter");
+  const filterButton = <Button type="button" variant={hasFilter ? "filled" : "tonal"} compact icon="filter_list" aria-label={filterLabel} title={filterLabel} aria-expanded={filtersOpen} aria-controls={filtersId} onClick={() => setFiltersOpen((value) => !value)}>{t("筛选", "Filter")}</Button>;
 
   return <TrafficSection className="active-connections" title={t("实时连接", "Live connections")} expanded={expanded} headingRef={heading} action={filterButton} onToggle={() => {
     setSection({ focusSection, expanded: !expanded });
@@ -217,11 +219,26 @@ export function ActiveConnections({ connections, sampledAt, now, onToast, integr
   }}>
     <div className="connection-section-content">
       <Collapse id={filtersId} expanded={expanded && filtersOpen} className="connection-filters-collapse"><div className="connection-filters">
-        <div className="connection-filter-field"><span>{t("协议", "Protocol")}</span><MaterialSelect ariaLabel={t("协议", "Protocol")} value={protocol} onChange={setProtocol} searchable={protocols.length > 6} options={[{ value: "all", label: t("全部协议", "All protocols") }, ...Array.from(new Set([...protocols, ...(protocol === "all" ? [] : [protocol])])).map((item) => ({ value: item, label: item }))]} /></div>
-        <div className="connection-filter-field"><span>{t("来源 IP", "Source IP")}</span><MaterialSelect ariaLabel={t("来源 IP", "Source IP")} value={ipVersion} onChange={setIpVersion} options={[{ value: "all", label: t("全部来源", "All sources") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }, { value: "null", label: t("未提供来源", "Source not provided") }]} /></div>
-        {(["ip", "domain"] as const).map((field) => <div className="connection-filter-field" key={field}><label className="connection-search">{field === "ip" ? t("IP 地址", "IP address") : t("目标域名", "Destination domain")}<input type="search" value={addressFilters[field]} placeholder={field === "ip" ? t("来源或目标 IP", "Source or destination IP") : "example.test"} onChange={(event) => setAddressFilters({ ...addressFilters, [field]: event.target.value })} /></label><MaterialSelect ariaLabel={field === "ip" ? t("IP 匹配方式", "IP match mode") : t("域名匹配方式", "Domain match mode")} value={addressFilters[`${field}Mode`]} onChange={(mode) => setAddressFilters((value) => ({ ...value, [`${field}Mode`]: mode as "contains" | "exact" }))} options={[{ value: "contains", label: t("关键词匹配", "Keyword match") }, { value: "exact", label: t("精确匹配", "Exact match") }]} /></div>)}
-        <label className="connection-filter-field connection-search">{t("目标端口", "Destination port")}<input type="search" inputMode="numeric" value={addressFilters.port} placeholder="443" onChange={(event) => setAddressFilters({ ...addressFilters, port: event.target.value })} /></label>
-        {hasFilter ? <Button type="button" variant="text" onClick={clearFilters}>{t("清除筛选", "Clear filters")}</Button> : null}
+        <div className="connection-filter-column">
+          <div className="connection-filter-field"><span>{t("协议", "Protocol")}</span><MaterialSelect ariaLabel={t("协议", "Protocol")} value={protocol} onChange={setProtocol} searchable={protocols.length > 6} options={[{ value: "all", label: t("全部协议", "All protocols") }, ...Array.from(new Set([...protocols, ...(protocol === "all" ? [] : [protocol])])).map((item) => ({ value: item, label: item }))]} /></div>
+          <div className="connection-filter-field"><span>{t("来源 IP", "Source IP")}</span><MaterialSelect ariaLabel={t("来源 IP", "Source IP")} value={ipVersion} onChange={setIpVersion} options={[{ value: "all", label: t("全部来源", "All sources") }, { value: "4", label: "IPv4" }, { value: "6", label: "IPv6" }, { value: "null", label: t("未提供来源", "Source not provided") }]} /></div>
+        </div>
+        <div className="connection-filter-column">
+          {(["ip", "domain"] as const).map((field) => {
+            const mode = `${field}Mode` as const;
+            const exact = addressFilters[mode] === "exact";
+            const label = field === "ip" ? t("IP 地址", "IP address") : t("目标域名", "Destination domain");
+            const matchLabel = field === "ip" ? t("精准匹配 IP 地址", "Exact match for IP address") : t("精准匹配目标域名", "Exact match for destination domain");
+            return <div className="connection-address-filter" key={field}>
+              <label className="connection-search">{label}<input type="search" value={addressFilters[field]} placeholder={field === "ip" ? t("来源或目标 IP", "Source or destination IP") : "example.test"} onChange={(event) => updateQuery(field, event.currentTarget.value)} /></label>
+              <Button type="button" variant={exact ? "tonal" : "outlined"} className="connection-match-toggle" icon="check" aria-pressed={exact} aria-label={matchLabel} title={exact ? t("切换为关键词匹配", "Switch to keyword match") : matchLabel} onClick={() => setAddressFilters((value) => ({ ...value, [mode]: value[mode] === "exact" ? "contains" : "exact" }))}>{t("精准匹配", "Exact match")}</Button>
+            </div>;
+          })}
+        </div>
+        <div className="connection-filter-column">
+          <label className="connection-search">{t("目标端口", "Destination port")}<input type="search" inputMode="numeric" value={addressFilters.port} placeholder="443" onChange={(event) => updateQuery("port", event.currentTarget.value)} /></label>
+          <Button type="button" variant="text" className="connection-clear-filters" disabled={!hasFilter && addressFilters.ipMode === "contains" && addressFilters.domainMode === "contains"} onClick={clearFilters}>{t("清除筛选", "Clear filters")}</Button>
+        </div>
       </div></Collapse>
       <div className="connection-section-body">
       <IntegrationGate status={integration} name="连接快照采集" nameEn="Connection snapshots" description="接入协议统计后即可查看实时连接。" descriptionEn="Connect protocol statistics to view live connections." onConfigure={onConfigure} />

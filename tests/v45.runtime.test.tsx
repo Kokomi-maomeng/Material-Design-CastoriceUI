@@ -61,8 +61,9 @@ it.each([0, 1, 3, 4])("never grades %i of 4 measured targets as complete excelle
   english(<NetworkPage targets={targets} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={async () => {}} />);
   expect(screen.queryAllByText("Excellent").length > 0).toBe(measured === 4);
   cleanup();
-  english(<OverviewPage mode="live" metrics={emptyDashboard.overview} traffic={emptyDashboard.traffic} networkTargets={targets} services={[]} connections={[]} onEditQuota={vi.fn()} onRefresh={vi.fn()} onNavigate={vi.fn()} />);
-  expect(screen.queryAllByText("Excellent").length > 0).toBe(measured === 4);
+  english(<OverviewPage mode="live" metrics={emptyDashboard.overview} traffic={emptyDashboard.traffic} networkTargets={targets} services={[]} onEditQuota={vi.fn()} onRefresh={vi.fn()} onNavigate={vi.fn()} />);
+  expect(screen.queryByText("Excellent")).toBeNull();
+  expect(document.querySelector(".quality-bars b")?.textContent).toBe(measured ? "10.0 ms" : "Waiting");
 });
 
 it("contains a render failure and recovers after a new payload", () => {

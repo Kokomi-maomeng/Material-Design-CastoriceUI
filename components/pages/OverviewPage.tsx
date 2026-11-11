@@ -4,9 +4,8 @@ import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { PageRoute } from "../../lib/navigation";
 
-import { formatBytes, formatDecimalBytes, percent } from "../../lib/format";
+import { formatBytes, formatDecimalBytes, formatQuotaInterval, percent } from "../../lib/format";
 import type {
-  Connection,
   DashboardPayload,
   NetworkTarget,
   OverviewMetrics,
@@ -14,7 +13,6 @@ import type {
   TrafficRange,
 } from "../../lib/types";
 import { storageIsHealthy } from "../../lib/service-health";
-import { networkQuality, qualityLabels } from "../../lib/network-quality";
 import { TrafficChart } from "../charts/TrafficChart";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
@@ -27,7 +25,6 @@ import { useNavigationSurface } from "../ui/NavigationSurface";
 export function OverviewPage({
   mode,
   metrics,
-  connections,
   services,
   networkTargets,
   traffic,
@@ -37,7 +34,6 @@ export function OverviewPage({
 }: {
   mode: "loading" | "live" | "stale" | "error";
   metrics: OverviewMetrics;
-  connections: Connection[];
   services: ServiceStatus[];
   networkTargets: NetworkTarget[];
   traffic: DashboardPayload["traffic"];
@@ -60,20 +56,19 @@ export function OverviewPage({
     metrics.trafficLimitBytes - metrics.trafficUsedBytes,
   );
   const quota = metrics.trafficQuota;
+  const quotaInterval = quota ? formatQuotaInterval(quota.periodCount, quota.periodUnit, language) : "";
   const nextResetInBillingZone = quota?.nextReset ? new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { timeZone: quota.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(quota.nextReset)) : "";
   const quotaCycleText = quota?.autoReset && quota.nextReset
     ? t(
-        `每 ${quota.periodCount} ${quota.periodUnit === "day" ? "日" : quota.periodUnit === "week" ? "周" : quota.periodUnit === "month" ? "月" : "年"}重置 · 下次 ${nextResetInBillingZone}（${quota.timezone}）`,
-        `Resets every ${quota.periodCount} ${quota.periodUnit}(s) · next ${nextResetInBillingZone} (${quota.timezone})`,
+        `每 ${quotaInterval}重置 · 下次 ${nextResetInBillingZone}（${quota.timezone}）`,
+        `Resets every ${quotaInterval} · next ${nextResetInBillingZone} (${quota.timezone})`,
       )
     : "";
-  const reachableTargets = networkTargets.filter((target) => target.status === "healthy" || target.status === "degraded").length;
   const measuredLatency = networkTargets.flatMap((target) => target.latency === null ? [] : [target.latency]);
   const measuredLoss = networkTargets.flatMap((target) => target.loss === null ? [] : [target.loss]);
   const averageLatency = measuredLatency.length ? measuredLatency.reduce((sum, value) => sum + value, 0) / measuredLatency.length : null;
   const averageLoss = measuredLoss.length ? measuredLoss.reduce((sum, value) => sum + value, 0) / measuredLoss.length : null;
-  const networkLabel = qualityLabels[networkQuality(networkTargets)];
-  const networkGrade = t(networkLabel[0], networkLabel[1]);
+  const serviceCount = services.length + 1;
 
   return (
     <div className="page-content page-enter">
@@ -232,34 +227,11 @@ export function OverviewPage({
               </strong>
             </div>
           </div>
-          <div className="live-meta">
-            <span>
-              <b>
-                {connections.reduce((sum, item) => sum + item.connections, 0)}
-              </b>{" "}
-              {t("条已列出连接", "listed connections")}
-            </span>
-            <span>{t("查看来源与实时目标", "View sources and live destinations")}</span>
-          </div>
         </Card>
         <Card variant="filled" className="quality-card navigation-surface" {...networkLink}>
           <CardHeader
             title={t("网络质量", "Network quality")}
           />
-          <div className="quality-summary">
-            <span>
-              <Icon name="verified" size={26} />
-            </span>
-            <div>
-              <strong>{networkGrade}</strong>
-              <em>
-                {t(
-                  `${reachableTargets} / ${networkTargets.length} 个目标可达`,
-                  `${reachableTargets} of ${networkTargets.length} targets reachable`,
-                )}
-              </em>
-            </div>
-          </div>
           <div className="quality-bars">
             <div>
               <span>{t("平均延迟", "Average latency")}</span>
@@ -306,7 +278,7 @@ export function OverviewPage({
       </section>
 
       <Card variant="filled" className="overview-service-health">
-        <CardHeader title={t("服务健康度", "Service health")} description={t("点击项目查看服务详情", "Select an item to view service details")} action={<Chip staticChip icon="dns">{t(`${services.length + 1} 项`, `${services.length + 1} items`)}</Chip>} />
+        <CardHeader title={t("服务健康度", "Service health")} action={<Chip staticChip icon="dns">{t(`${serviceCount} 项`, serviceCount === 1 ? "1 item" : `${serviceCount} items`)}</Chip>} />
         <div className="overview-health-list">
           {services.map((service) => <button type="button" key={service.id} onClick={() => onNavigate("services")} aria-label={t(`查看${service.nameZh || service.name}服务详情`, `View ${service.nameEn || service.name} service details`)}>
             <Icon name={service.icon} size={21} />

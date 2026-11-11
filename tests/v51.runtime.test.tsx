@@ -19,10 +19,11 @@ const target = (index: number, degraded = false): NetworkTarget => ({ id: `qa-${
 const times = ["2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z", "2026-01-01T00:59:00Z"];
 
 describe("v5.1 audit regressions", () => {
-  it("gives both pages the same grade without averaging away a bad target", () => {
+  it("grades individual targets on the network page and keeps measured averages on the overview", () => {
     const targets = Array.from({ length: 5 }, (_, index) => target(index, index === 0));
-    render(<I18nProvider><OverviewPage mode="live" metrics={emptyDashboard.overview} connections={[]} services={[]} networkTargets={targets} traffic={emptyDashboard.traffic} onEditQuota={vi.fn()} onRefresh={vi.fn()} onNavigate={vi.fn()} /></I18nProvider>);
-    expect(screen.getByText("Poor")).toBeTruthy();
+    render(<I18nProvider><OverviewPage mode="live" metrics={emptyDashboard.overview} services={[]} networkTargets={targets} traffic={emptyDashboard.traffic} onEditQuota={vi.fn()} onRefresh={vi.fn()} onNavigate={vi.fn()} /></I18nProvider>);
+    expect(screen.queryByText("Poor")).toBeNull();
+    expect(screen.getByText("40.8 ms")).toBeTruthy();
     cleanup();
     render(<I18nProvider><NetworkPage targets={targets} onToast={vi.fn()} onConfigure={vi.fn()} onSaved={vi.fn()} /></I18nProvider>);
     expect(screen.getAllByText("Poor").length).toBeGreaterThan(0);
@@ -33,7 +34,7 @@ describe("v5.1 audit regressions", () => {
   });
 
   it("shows actual overuse while keeping the progress bar within its bounds", () => {
-    render(<I18nProvider><OverviewPage mode="live" metrics={{ ...emptyDashboard.overview, trafficLimitBytes: 1e12, trafficUsedBytes: 1.5e12 }} connections={[]} services={[]} networkTargets={[]} traffic={emptyDashboard.traffic} onEditQuota={vi.fn()} onRefresh={vi.fn()} onNavigate={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><OverviewPage mode="live" metrics={{ ...emptyDashboard.overview, trafficLimitBytes: 1e12, trafficUsedBytes: 1.5e12 }} services={[]} networkTargets={[]} traffic={emptyDashboard.traffic} onEditQuota={vi.fn()} onRefresh={vi.fn()} onNavigate={vi.fn()} /></I18nProvider>);
     expect(screen.getByText("150% used")).toBeTruthy();
     expect(screen.getByText("500.0 GB over quota")).toBeTruthy();
     const bar = screen.getByRole("progressbar", { name: "Current-cycle traffic usage" });

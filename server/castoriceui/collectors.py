@@ -478,9 +478,9 @@ def service_state(unit: str) -> tuple[str, int]:
 
 def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: int = 443) -> dict[str, Any]:
     if not path:
-        return {"status": "warning", "state": "unconfigured", "detail": "Certificate path is not configured; endpoint and renewal evidence are unconfigured", "days": None, "renewalEvidence": "unconfigured", "endpointEvidence": "unconfigured"}
+        return {"status": "warning", "state": "unconfigured", "summary": "Certificate path is not configured", "detail": "Certificate path is not configured; endpoint and renewal evidence are unconfigured", "days": None, "renewalEvidence": "unconfigured", "endpointEvidence": "unconfigured"}
     if not Path(path).exists():
-        return {"status": "warning", "state": "unreadable", "detail": "Configured certificate file does not exist; endpoint and renewal evidence are unknown", "days": None, "renewalEvidence": "unknown", "endpointEvidence": "unknown"}
+        return {"status": "warning", "state": "unreadable", "summary": "Configured certificate file does not exist", "detail": "Configured certificate file does not exist; endpoint and renewal evidence are unknown", "days": None, "renewalEvidence": "unknown", "endpointEvidence": "unknown"}
     try:
         decoded = ssl._ssl._test_decode_cert(path)  # type: ignore[attr-defined]
         expires = datetime.strptime(decoded["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
@@ -506,12 +506,12 @@ def certificate_info(path: str, renewal_unit: str = "", host: str = "", port: in
             except (OSError, ssl.SSLError, ValueError):
                 endpoint_evidence = "unavailable"
         evidence_ok = endpoint_evidence in {"verified", "unconfigured"} and renewal in {"active", "unconfigured"}
-        expiry_detail = "Certificate is expired" if state == "expired" else f"{days} days remaining"
+        expiry_detail = "Certificate has expired" if state == "expired" else f"{days} {'day' if days == 1 else 'days'} remaining"
         return {"status": "running" if state == "valid" and evidence_ok else "warning", "state": state,
-                "detail": f"{expiry_detail}; endpoint evidence {endpoint_evidence}; renewal evidence {renewal}",
+                "summary": expiry_detail, "detail": f"{expiry_detail}; endpoint evidence {endpoint_evidence}; renewal evidence {renewal}",
                 "days": days, "renewalEvidence": renewal, "endpointEvidence": endpoint_evidence}
     except (OSError, ValueError, KeyError):
-        return {"status": "warning", "state": "unreadable", "detail": "Unable to read certificate; endpoint and renewal evidence are unknown", "days": None, "renewalEvidence": "unknown", "endpointEvidence": "unknown"}
+        return {"status": "warning", "state": "unreadable", "summary": "Unable to read certificate", "detail": "Unable to read certificate; endpoint and renewal evidence are unknown", "days": None, "renewalEvidence": "unknown", "endpointEvidence": "unknown"}
 
 
 def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, Any], sb: dict[str, Any]) -> list[dict[str, Any]]:
@@ -580,11 +580,25 @@ def service_snapshots(config: AppConfig, system: dict[str, Any], hy2: dict[str, 
                            lambda: certificate_info(config.certificate_path, config.certificate_renewal_unit, config.certificate_host, config.certificate_port))
     certificate_state = str(cert.get("state", "unreadable"))
     certificate_zh = "未配置证书路径" if certificate_state == "unconfigured" else "证书已过期" if certificate_state == "expired" else f"证书剩余 {cert['days']} 天" if cert.get("days") is not None else "无法读取证书"
-    evidence_zh = {"verified": "已核验", "different-certificate": "实际端点使用其他证书", "unavailable": "无法连接或验证", "active": "运行中", "inactive": "未运行", "failed": "失败", "unconfigured": "未配置", "unknown": "未知"}
-    certificate_zh += f"；端点证据：{evidence_zh.get(str(cert.get('endpointEvidence')), str(cert.get('endpointEvidence', '未知')))}；续期证据：{evidence_zh.get(str(cert.get('renewalEvidence')), str(cert.get('renewalEvidence', '未知')))}"
+    certificate_en = cert.get("summary", cert["detail"])
+    evidence_labels = {
+        "verified": ("已核验", "verified"),
+        "different-certificate": ("证书不一致", "certificate mismatch"),
+        "unavailable": ("无法核验", "unable to verify"),
+        "active": ("运行中", "active"),
+        "inactive": ("未运行", "inactive"),
+        "failed": ("失败", "failed"),
+    }
+    if certificate_state not in {"unconfigured", "unreadable"}:
+        for key, label_zh, label_en in (("endpointEvidence", "端点", "Endpoint"), ("renewalEvidence", "续期", "Renewal")):
+            if cert.get(key) == "unconfigured":
+                continue
+            status_zh, status_en = evidence_labels.get(cert.get(key), ("未知", "unknown"))
+            certificate_zh += f" · {label_zh} {status_zh}"
+            certificate_en += f" · {label_en} {status_en}"
     services.extend([
         {"id": "kernel", "name": "Linux kernel", "nameZh": "Linux 内核", "nameEn": "Linux kernel", "detail": f"{system['cpuCores']} CPU · load {system['load'][0]}", "detailZh": f"{system['cpuCores']} 核 CPU · 负载 {system['load'][0]}", "detailEn": f"{system['cpuCores']} CPU · load {system['load'][0]}", "status": "running", "version": system["kernel"], "uptimeSeconds": int(system["uptimeSeconds"]), "icon": "memory"},
-        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": cert["detail"], "detailZh": certificate_zh, "detailEn": cert["detail"], "status": cert["status"], "certificateState": certificate_state, "renewalEvidence": cert.get("renewalEvidence", "unknown"), "endpointEvidence": cert.get("endpointEvidence", "unknown"), "version": "TLS", "icon": "verified_user"},
+        {"id": "certificate", "name": "TLS certificate", "nameZh": "TLS 证书", "nameEn": "TLS certificate", "detail": certificate_en, "detailZh": certificate_zh, "detailEn": certificate_en, "status": cert["status"], "certificateState": certificate_state, "renewalEvidence": cert.get("renewalEvidence", "unknown"), "endpointEvidence": cert.get("endpointEvidence", "unknown"), "version": "TLS", "icon": "verified_user"},
     ])
     return services
 

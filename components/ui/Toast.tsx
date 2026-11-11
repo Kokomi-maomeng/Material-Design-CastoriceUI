@@ -27,7 +27,7 @@ export function Toast({
   if (!message) return null;
   return (
     <div className={`toast ${leaving ? "is-leaving" : ""}`} role="status">
-      <Icon name="check_circle" size={20} filled />
+      <Icon name="info" size={20} filled />
       <span>{message}</span>
       <button type="button" onClick={close} aria-label={t("关闭提示", "Dismiss notification")}>
         <Icon name="close" size={18} />

@@ -41,6 +41,12 @@ DETAIL_PATTERNS = (
     (re.compile(r"^告警 (.+) 已确认$"), r"Alert \1 was acknowledged"),
     (re.compile(r"^已确认 (\d+) 条告警$"), r"\1 alerts were acknowledged"),
 )
+BACKGROUND_CHANGE = re.compile(r"^登录背景类型已设为 (default|server|url)$")
+BACKGROUND_NAMES = {
+    "default": ("默认 Material 背景", "default Material background"),
+    "server": ("服务器图片", "server image"),
+    "url": ("图库 API", "image API"),
+}
 
 
 def audit_action_en(action: str) -> str:
@@ -49,11 +55,19 @@ def audit_action_en(action: str) -> str:
 
 def audit_detail_en(detail: str) -> str:
     text = detail.rstrip("。.")
+    if background := BACKGROUND_CHANGE.fullmatch(text):
+        return f"Sign-in background changed to {BACKGROUND_NAMES[background[1]][1]}"
     if text in DETAILS_EN:
         return DETAILS_EN[text]
     for pattern, replacement in DETAIL_PATTERNS:
         if pattern.fullmatch(text):
             return pattern.sub(replacement, text)
+    return detail
+
+
+def audit_detail_zh(detail: str) -> str:
+    if background := BACKGROUND_CHANGE.fullmatch(detail.rstrip("。.")):
+        return f"登录背景已改为{BACKGROUND_NAMES[background[1]][0]}"
     return detail
 
 
@@ -63,5 +77,5 @@ def normalize_audit_search(text: str) -> str:
 
 def audit_matches(search: str, action: str, actor: str, source_ip: str, detail: str) -> bool:
     return any(search in normalize_audit_search(value) for value in (
-        action, actor, source_ip, detail, audit_action_en(action), audit_detail_en(detail),
+        action, actor, source_ip, detail, audit_action_en(action), audit_detail_en(detail), audit_detail_zh(detail),
     ))
