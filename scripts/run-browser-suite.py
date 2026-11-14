@@ -26,7 +26,7 @@ def valid_reports(name, reports):
         final = [r for r in reports if key in r]
         return len(final) == 1 and check(final[0])
     if name == "browser-v61.py":
-        return one("accountAuditCenter", lambda r: r.get("passed") and len(r.get("languages", [])) == 2 and all(len(c["cases"]) == 18 and c["focusIndicators"] > 0 and c.get("stableEmptyHeaders") == 6 and all(c.get(key) for key in ("clientLinks", "securitySettings", "stableQrLoading", "searchRing", "pinnedUsage", "accountColumns", "accountMotion", "usageCard")) for c in r["languages"]))
+        return one("accountAuditCenter", lambda r: r.get("passed") and len(r.get("languages", [])) == 2 and all(len(c["cases"]) == 18 and c["focusIndicators"] > 0 and c.get("stableEmptyHeaders") == 6 and c.get("resizeFrames") == 12 and all(c.get(key) for key in ("clientLinks", "securitySettings", "stableQrLoading", "searchRing", "pinnedUsage", "accountColumns", "accountMotion", "usageCard")) for c in r["languages"]))
     if name == "browser-v57.py":
         return one("connectionProduct", lambda r: r.get("passed") and r.get("apiRoutesMocked") is False and r.get("layoutCases", 0) >= 152 and r.get("badgeCases") == 28 and r.get("populatedCounts") == [0, 1, 50, 100] and all(r.get(key) for key in ("targetLifecycle", "searchSurvivesPolling", "stableGroupPolling", "independentGroups", "sharedSectionMotion")) and r.get("routesPassed") == 9 and not r.get("pageErrors"))
     if name == "browser-v56.py":

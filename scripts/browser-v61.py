@@ -76,6 +76,21 @@ def run(engine, browser, language):
         page.evaluate("location.hash='/overview'")
         overview.wait_for()
 
+    # A real resize through the desktop breakpoint must never keep the old
+    # sidebar offset on the mobile view, even during the transition.
+    page.evaluate("location.hash='/alerts'")
+    page.locator('.alert-row').first.wait_for()
+    page.evaluate("""window.qaShellFrames=[];
+      const sample=()=>{if(innerWidth!==320){requestAnimationFrame(sample);return;}
+        const shell=document.querySelector('.app-main');
+        window.qaShellFrames.push([shell.getBoundingClientRect().left,document.documentElement.scrollWidth]);
+        if(window.qaShellFrames.length<12)requestAnimationFrame(sample);}; requestAnimationFrame(sample);""")
+    page.set_viewport_size({'width': 320, 'height': 700})
+    page.wait_for_function('window.qaShellFrames.length===12')
+    shell_frames = page.evaluate('window.qaShellFrames')
+    assert all(abs(left) < 1 and scroll_width <= 321 for left, scroll_width in shell_frames), shell_frames
+    leave_history()
+
     cases = []; animations = []; focus_count = 0
     titles = {'accounts': ('账号管理', 'Account management'), 'alerts': ('告警中心', 'Alerts'), 'audit': ('审计中心', 'Audit center')}
     for section in titles:
@@ -83,6 +98,9 @@ def run(engine, browser, language):
             width, height = ((1536, 960), (901, 420), (390, 844), (320, 700))[index % 4]
             leave_history()
             page.set_viewport_size({'width': width, 'height': height})
+            # Wait for the responsive shell's width/margin transition before
+            # measuring the destination at this breakpoint.
+            settled(page)
             state['count'] = total; dashboard['accounts'] = [account(i) for i in range(total)]
             page.evaluate("name=>location.hash='/'+name", section)
             page.get_by_role('heading', name=titles[section][language == 'en'], exact=True).wait_for()
@@ -100,7 +118,7 @@ def run(engine, browser, language):
                     assert len({round(row['height'], 1) for row in sampled}) >= 3, (section, sampled)
                     footer.locator('button').click(); settled(page)
             if not page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'):
-                print(json.dumps({'overflow': page.evaluate("()=>[...document.querySelectorAll('#main-content *')].filter(e=>{const r=e.getBoundingClientRect();return r.right>innerWidth+1&&r.width>0}).slice(0,16).map(e=>({tag:e.tagName,cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right,text:e.textContent.slice(0,80)}))")}), flush=True)
+                print(json.dumps({'viewport': width, 'overflow': page.evaluate("()=>{const shell=document.querySelector('.app-main'), bounds=shell.getBoundingClientRect();return {viewport:innerWidth, scrollWidth:document.documentElement.scrollWidth, shellLeft:bounds.left, shellWidth:bounds.width, elements:[...document.querySelectorAll('#main-content *')].filter(e=>{const r=e.getBoundingClientRect();return r.right>innerWidth+1&&r.width>0}).slice(0,16).map(e=>({tag:e.tagName,cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right,text:e.textContent.slice(0,80)}))}}")}), flush=True)
                 page.screenshot(path='outputs/v61-overflow.png')
                 raise AssertionError((section, total, width, 'document overflow'))
             page.keyboard.press('Tab')
@@ -279,7 +297,7 @@ def run(engine, browser, language):
     assert state['writes'] == [{'auditRetentionDays': 30}]
     assert not errors, errors
     context.close()
-    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'stableEmptyHeaders': stable_headers, 'accountMotion': True, 'usageCard': True}
+    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'stableEmptyHeaders': stable_headers, 'accountMotion': True, 'usageCard': True, 'resizeFrames': len(shell_frames)}
 
 
 with sync_playwright() as playwright:
