@@ -6,6 +6,7 @@ import copy
 import hashlib
 import ipaddress
 import re
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from .collectors import (
     connection_snapshots,
     http_json,
     hysteria_snapshot,
+    hysteria_endpoints,
     network_snapshots,
     PROTOCOLS,
     protocol_requested,
@@ -32,9 +34,9 @@ from .collectors import (
     service_snapshots,
     singbox_snapshot,
 )
-from .config import AppConfig, DEFAULT_INTEGRATIONS, normalize_alert_thresholds
+from .config import AppConfig, DEFAULT_INTEGRATIONS, PUBLIC_INTEGRATION_VALUES, normalize_alert_thresholds, validate_hysteria_identities
 from .validation import integer, number, boolean
-from .security import normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
+from .security import PublicFetchBusy, normalize_loopback_endpoint, normalize_subscription_url, probe_subscription_url, validate_interface_name, validate_probe_target
 from .audit_labels import audit_action_en, audit_detail_en, audit_detail_zh
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period, utc_cycle_id, validate_timezone
@@ -79,6 +81,8 @@ class DashboardService:
         self.storage = storage
         self.system_collector = SystemCollector(config, storage)
         self.lock = threading.RLock()
+        self.settings_lock = threading.RLock()
+        self.subscription_check_slot = threading.BoundedSemaphore(1)
         self.snapshot_lock = threading.Lock()
         self.network_generation = 0
         self.collection_state: dict[str, dict[str, Any]] = {}
@@ -113,6 +117,7 @@ class DashboardService:
         overrides = storage.get_setting("integration_overrides", {})
         overrides = self._migrate_traffic_quota(overrides)
         sanitized_legacy_secrets = False
+        sanitized_legacy_mappings = False
         if isinstance(overrides, dict):
             for integration_id, value in overrides.items():
                 if integration_id in config.integrations and isinstance(value, dict):
@@ -134,12 +139,25 @@ class DashboardService:
                             sanitized_legacy_secrets = True
                     config.integrations[integration_id].update(value)
                     if isinstance(values, dict) and not (integration_id == "network" and has_saved_targets):
-                        self._apply_integration_values(integration_id, {key: str(item) for key, item in values.items()})
+                        try:
+                            self._apply_integration_values(integration_id, {key: str(item) for key, item in values.items()})
+                        except ValueError:
+                            if integration_id != "hysteria2":
+                                raise
+                            # Ignore only obsolete/ambiguous saved mappings; the
+                            # validated protected configuration still supplies identities.
+                            value = {**value, "values": {key: item for key, item in values.items() if key != "identityMappings"}}
+                            overrides[integration_id] = value
+                            config.integrations[integration_id].update(value)
+                            sanitized_legacy_mappings = True
                         if integration_id == "network" and self.config.network_targets:
                             storage.set_setting("network_targets", self.config.network_targets)
-        if sanitized_legacy_secrets:
+        if sanitized_legacy_secrets or sanitized_legacy_mappings:
             storage.set_setting("integration_overrides", overrides)
+        if sanitized_legacy_secrets:
             storage.add_audit("清理旧版接入密钥", "配置", "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret")
+        if sanitized_legacy_mappings:
+            storage.add_audit("清理无效身份映射", "配置", "已停用无效的旧覆盖项，使用受保护配置中的 Hysteria2 身份映射")
         if has_saved_targets:
             self._persist_network_targets(config.network_targets)
         for alert in storage.active_alerts():
@@ -240,7 +258,17 @@ class DashboardService:
             legacy_count_mode=self.config.traffic_count_mode,
         )
 
-    def update_traffic_quota(self, values: dict[str, Any], *, wizard: bool = False) -> dict[str, Any]:
+    def update_traffic_quota(self, values: dict[str, Any], *, wizard: bool = False, audit=None) -> dict[str, Any]:
+        with self.settings_lock:
+            normalized = self._candidate_traffic_quota(values, wizard=wizard)
+            self.storage.edit_settings({"integration_overrides": {}}, lambda current: {
+                "traffic_quota": normalized, "traffic_quota_confirmed": True,
+                "integration_overrides": self._without_legacy_quota_values(current["integration_overrides"]),
+            }, audit=audit)
+            self._publish_quota(normalized)
+            return normalized
+
+    def _candidate_traffic_quota(self, values: dict[str, Any], *, wizard: bool = False) -> dict[str, Any]:
         state = self.traffic_quota_state()
         candidate = dict(state)
         if "bytes" in values:
@@ -304,15 +332,32 @@ class DashboardService:
                 raise ValueError("Initial traffic usage must be between 0 and 1 PB")
             cycle_start, _, _ = traffic_quota_period(datetime.now(timezone.utc), normalized)
             normalized["baseline"] = {"bytes": initial_bytes, "cycleStart": utc_cycle_id(cycle_start)}
-        self.storage.set_setting("traffic_quota", normalized)
-        self.storage.set_setting("traffic_quota_confirmed", True)
-        overrides = self._without_legacy_quota_values(self.storage.get_setting("integration_overrides", {}))
-        self.storage.set_setting("integration_overrides", overrides)
+        return normalized
+
+    def _publish_quota(self, normalized: dict[str, Any]) -> None:
         self._apply_quota_state_to_config(normalized)
         with self.lock:
             self.system_cache = None
         self.monthly_traffic_cache = None
-        return normalized
+
+    def _save_traffic_integration(self, values, state, audit):
+        quota_keys = {"quotaGb", "billingDay", "billingTimezone", "initialUsedGb", "countMode"}
+        confirmed = self.storage.get_setting("traffic_quota_confirmed", False)
+        quota_values = {key: value for key, value in values.items() if key in quota_keys and (not confirmed or key == "countMode")}
+        normalized = self._candidate_traffic_quota(quota_values, wizard=True) if quota_values else None
+        def edit(current):
+            overrides = current["integration_overrides"]
+            updates = {}
+            if normalized is not None:
+                overrides = self._without_legacy_quota_values(overrides)
+                updates.update(traffic_quota=normalized, traffic_quota_confirmed=True)
+            updates["integration_overrides"] = {**overrides, "traffic": state}
+            return updates
+        self.storage.edit_settings({"integration_overrides": {}}, edit, audit=audit)
+        if "interface" in values:
+            self.system_collector.configure_interface(values["interface"].strip())
+        if normalized is not None:
+            self._publish_quota(normalized)
 
     def _apply_integration_values(self, integration_id: str, values: dict[str, str]) -> None:
         if integration_id == "system":
@@ -322,10 +367,10 @@ class DashboardService:
                     raise ValueError("Node name must be at most 80 characters")
                 self.config.node_name = node_name
         elif integration_id == "hysteria2":
-            if values.get("endpoint", "").strip():
-                self.config.hysteria_api.update({"url": values["endpoint"]})
             if "identityMappings" in values:
                 self._apply_hysteria_identity_mappings(values.get("identityMappings", ""))
+            if values.get("endpoint", "").strip():
+                self.config.hysteria_api.update({"url": values["endpoint"]})
         elif integration_id in {"anytls", "vless", "socks5", "shadowsocks", "vmess", "trojan", "tuic"}:
             if values.get("endpoint", "").strip():
                 self.config.singbox_api.update({"url": values["endpoint"]})
@@ -350,20 +395,25 @@ class DashboardService:
             # browser value is accepted only as a one-time live probe.
             pass
         elif integration_id == "network" and values.get("targets", "").strip():
-            targets: list[dict[str, Any]] = []
-            for index, line in enumerate(self._network_target_lines(values["targets"])):
-                name, address = self._network_target_parts(line)
-                address, version = validate_probe_target(address)
-                previous = next((item for item in self.config.network_targets if item.get("address") == address), {})
-                targets.append({**previous, "name": name or address, "provider": "Custom", "address": address, "ipVersion": previous.get("ipVersion", version), "order": index + 1})
-            if not targets:
-                raise ValueError("At least one valid network target is required")
-            self.config.network_targets = self._normalize_network_targets(targets)
+            self.config.network_targets = self._network_targets_from_text(values["targets"])
             self._invalidate_network()
         elif integration_id == "alerts":
             self.config.alert_thresholds = self._alert_thresholds_from_values(values)
 
     def configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str = "127.0.0.1", actor: str = "system") -> dict[str, Any]:
+        # Serializes validation against shared live config (endpoint/tag ownership)
+        # and publishing the corresponding SQLite/in-memory changes.
+        # Subscription probes can wait on the public network. Do not hold the
+        # settings lock during that wait or block unrelated editors.
+        if integration_id == "subscriptions" and not self.subscription_check_slot.acquire(blocking=False):
+            raise PublicFetchBusy("Another subscription validation is in progress")
+        try:
+            return self._configure_integration(integration_id, payload, source_ip, actor)
+        finally:
+            if integration_id == "subscriptions":
+                self.subscription_check_slot.release()
+
+    def _configure_integration(self, integration_id: str, payload: dict[str, Any], source_ip: str, actor: str) -> dict[str, Any]:
         allowed_fields = {
             "hysteria2": {"endpoint", "identityMappings"},
             "anytls": {"endpoint", "inboundTags"},
@@ -409,6 +459,18 @@ class DashboardService:
             "tuic": {"endpoint", "inboundTags"},
             "subscriptions": {"baseUrl"},
         }
+        if integration_id == "subscriptions":
+            probe_evidence = self._validate_integration(integration_id, clean_values)
+        else:
+            probe_evidence = None
+        with self.settings_lock:
+            return self._save_integration(integration_id, clean_values, required, enabled, source_ip, actor, probe_evidence)
+
+    def _save_integration(self, integration_id, clean_values, required, enabled, source_ip, actor, probe_evidence):
+        if integration_id != "subscriptions":
+            previous = self.config.integrations.get(integration_id, {}).get("values", {})
+            if isinstance(previous, dict):
+                clean_values = {**{key: previous[key] for key in previous if key in PUBLIC_INTEGRATION_VALUES.get(integration_id, set())}, **clean_values}
         configured = required.get(integration_id, set()).issubset({key for key, value in clean_values.items() if value.strip()})
         if integration_id == "subscriptions":
             configured = bool(clean_values.get("baseUrl", "").strip() or self.config.subscription_base_url or self.config.subscriptions)
@@ -417,15 +479,16 @@ class DashboardService:
         try:
             if not configured:
                 raise ValueError("Complete the required fields")
-            self._validate_integration(integration_id, clean_values)
+            if integration_id != "subscriptions":
+                self._validate_integration(integration_id, clean_values)
         except ValueError:
             # Keep a failed first setup visible without applying unverified
             # values or changing the shared core endpoint for other protocols.
             if integration_id in {"hysteria2", *PROTOCOLS} and not self.config.integrations.get(integration_id, {}).get("configured"):
                 state = {"enabled": enabled, "configured": False, "attempted": True, "status": "error", "values": {}}
-                overrides = self.storage.get_setting("integration_overrides", {})
-                overrides[integration_id] = state
-                self.storage.set_setting("integration_overrides", overrides)
+                self.storage.edit_settings({"integration_overrides": {}}, lambda current: {
+                    "integration_overrides": {**current["integration_overrides"], integration_id: state},
+                })
                 self.config.integrations.setdefault(integration_id, {}).update(state)
             raise
         summaries = {
@@ -449,32 +512,44 @@ class DashboardService:
         persisted_values = {} if integration_id == "subscriptions" else clean_values
         if integration_id == "traffic":
             persisted_values = {key: value for key, value in clean_values.items() if key == "interface"}
-        self._apply_integration_values(integration_id, clean_values)
-        if integration_id == "network":
-            persisted_values = {"targets": self._network_targets_text(self.config.network_targets)}
+        # Network targets need canonicalize-and-persist before replacing runtime
+        # state. Core probes and pure validations above do not write settings.
+        if integration_id == "network" and clean_values.get("targets", "").strip():
+            targets = self._network_targets_from_text(clean_values["targets"])
+            persisted_values = {"targets": self._network_targets_text(targets)}
+        else:
+            targets = self.config.network_targets
         state = {"enabled": enabled, "configured": configured, "status": "ready" if configured else "pending", "summary": summary, "values": persisted_values}
-        overrides = self.storage.get_setting("integration_overrides", {})
-        overrides[integration_id] = state
-        self.storage.set_setting("integration_overrides", overrides)
-        self.config.integrations[integration_id].update(state)
+        audit = ("更新数据接入", "配置", f"{integration_id} 接入配置已更新", source_ip, actor)
         if integration_id == "network":
-            self._persist_network_targets(self.config.network_targets, state)
-        self.storage.add_audit("更新数据接入", "配置", f"{integration_id} 接入配置已更新", source_ip, actor=actor)
-        return next(item for item in self.config.public_integrations() if item["id"] == integration_id)
+            self._persist_network_targets(targets, state, audit=audit)
+            self.config.network_targets = targets
+            self._invalidate_network()
+        elif integration_id == "traffic":
+            self._save_traffic_integration(clean_values, state, audit)
+        else:
+            self.storage.edit_settings({"integration_overrides": {}}, lambda current: {
+                "integration_overrides": {**current["integration_overrides"], integration_id: state},
+            }, audit=audit)
+            self._apply_integration_values(integration_id, clean_values)
+        self.config.integrations[integration_id].update(state)
+        response = next(item for item in self.config.public_integrations() if item["id"] == integration_id)
+        if probe_evidence is not None:
+            response["subscriptionValidation"] = probe_evidence
+        return response
 
-    def _validate_integration(self, integration_id: str, values: dict[str, str]) -> None:
+    def _validate_integration(self, integration_id: str, values: dict[str, str]) -> dict[str, Any] | None:
         if integration_id == "hysteria2":
             endpoint = normalize_loopback_endpoint(values["endpoint"])
             secret = str(self.config.hysteria_api.get("secret", "")).strip()
             if not secret or secret == "replace-on-server":
                 raise ValueError("Configure the Hysteria2 Secret in the protected server config first")
-            traffic = http_json(endpoint + "/traffic", secret, strict=True)
-            online = http_json(endpoint + "/online", secret, strict=True)
-            streams = http_json(endpoint + "/dump/streams", secret, strict=True)
-            if not isinstance(traffic, dict) or not isinstance(online, dict) or not isinstance(streams, dict):
-                raise ValueError("Hysteria2 validation endpoints returned an invalid response")
+            evidence = hysteria_endpoints(endpoint, secret, fetch=http_json)
+            unavailable = [name for name, ready in evidence["endpointStatus"].items() if not ready]
+            if unavailable:
+                raise ValueError("Hysteria2 invalid response or unreachable endpoint: " + ", ".join(unavailable))
             mappings = self._parse_hysteria_identity_mappings(values.get("identityMappings", ""))
-            reported = {str(value) for value in set(traffic) | set(online)}
+            reported = set(evidence["traffic"]) | set(evidence["online"])
             unknown = sorted({identity for identities in mappings.values() for identity in identities} - reported)
             if unknown:
                 raise ValueError("One or more mapped Hysteria2 identities are not reported by the live API")
@@ -510,9 +585,17 @@ class DashboardService:
                 raise ValueError(reason)
         elif integration_id == "subscriptions":
             candidate = values.get("baseUrl", "").strip()
+            deadline = time.monotonic() + 7
+            temporary = None
             if candidate:
-                probe_subscription_url(normalize_subscription_url(candidate))
-            self.subscription_probe(self.config.subscription_base_url, force=True)
+                try:
+                    temporary = probe_subscription_url(normalize_subscription_url(candidate), timeout=3)
+                except PublicFetchBusy:
+                    raise
+                except ValueError as error:
+                    raise ValueError("Temporary subscription URL validation failed") from error
+            protected = self.subscription_probe(self.config.subscription_base_url, force=True, deadline=deadline)
+            return {"temporary": temporary, "protected": protected}
         elif integration_id == "network" and values.get("targets", "").strip():
             for line in self._network_target_lines(values["targets"]):
                 _name, address = self._network_target_parts(line)
@@ -588,15 +671,22 @@ class DashboardService:
                 return name, address
         return "", text
 
+    def _network_targets_from_text(self, value: str) -> list[dict[str, Any]]:
+        targets: list[dict[str, Any]] = []
+        for index, line in enumerate(self._network_target_lines(value)):
+            name, address = self._network_target_parts(line)
+            address, version = validate_probe_target(address)
+            previous = next((item for item in self.config.network_targets if item.get("address") == address), {})
+            targets.append({**previous, "name": name or address, "provider": "Custom", "address": address,
+                            "ipVersion": previous.get("ipVersion", version), "order": index + 1})
+        return self._normalize_network_targets(targets)
+
     def _parse_hysteria_identity_mappings(self, value: str) -> dict[str, list[str]]:
         mappings: dict[str, list[str]] = {}
-        known_accounts = {
-            candidate: str(account.get("id", ""))
-            for account in self.config.managed_accounts
-            for candidate in (str(account.get("id", "")).strip(), str(account.get("name", "")).strip())
-            if candidate
-        }
-        assigned: set[str] = set()
+        known_ids = {str(account.get("id", "")).strip() for account in self.config.managed_accounts}
+        names: dict[str, set[str]] = {}
+        for account in self.config.managed_accounts:
+            names.setdefault(str(account.get("name", "")).strip(), set()).add(str(account.get("id", "")))
         for raw_line in value.splitlines():
             line = raw_line.strip()
             if not line:
@@ -604,16 +694,13 @@ class DashboardService:
             if "=" not in line:
                 raise ValueError("Identity mappings must use 'managed account=protocol identity'")
             account_key, raw_identities = (part.strip() for part in line.split("=", 1))
-            account_id = known_accounts.get(account_key)
+            aliases = names.get(account_key, set())
+            account_id = account_key if account_key in known_ids else next(iter(aliases)) if len(aliases) == 1 else ""
             identities = [item.strip() for item in raw_identities.split(",") if item.strip()]
             if not account_id or not identities:
                 raise ValueError("Identity mapping references an unknown account or has no protocol identity")
-            if len(identities) > 20 or any(len(item) > 160 for item in identities):
-                raise ValueError("Each account can map 1-20 protocol identities of at most 160 characters")
-            if any(identity in assigned for identity in identities):
-                raise ValueError("A protocol identity can map to only one managed account")
-            assigned.update(identities)
             mappings.setdefault(account_id, []).extend(identities)
+        validate_hysteria_identities(mappings)
         return mappings
 
     def _apply_hysteria_identity_mappings(self, value: str) -> None:
@@ -630,7 +717,7 @@ class DashboardService:
                 current.pop("hysteria2", None)
             account["trafficIdentities"] = current
 
-    def subscription_probe(self, candidate_base_url: str | None = None, *, force: bool = False) -> dict[str, Any]:
+    def subscription_probe(self, candidate_base_url: str | None = None, *, force: bool = False, deadline: float | None = None) -> dict[str, Any]:
         protected_urls = [
             str(item.get("url", "")).strip()
             for item in self.config.subscriptions
@@ -644,9 +731,8 @@ class DashboardService:
             result = {"configured": False, "ready": False, "count": 0, "reachable": 0, "parseable": 0, "formats": [], "validationLevel": "not-configured"}
         else:
             outcomes: list[dict[str, Any]] = []
-            deadline = time.monotonic() + 8
+            deadline = deadline if deadline is not None else time.monotonic() + 7
             def inspect(url: str) -> dict[str, Any]:
-                from .security import PublicFetchBusy
                 try:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -667,14 +753,15 @@ class DashboardService:
                       "checkedCount": checked, "unverifiedCount": len(urls) - checked,
                       "partial": checked < len(urls), "reason": "local_budget_or_limit" if checked < len(urls) else "checked",
                       "reachable": sum(1 for item in outcomes if item["reachable"]), "parseable": len(parsed),
+                      "nodeCount": sum(int(item.get("nodeCount", 0)) for item in parsed),
+                      "invalidNodeCount": sum(int(item.get("invalidNodeCount", 0)) for item in parsed),
                       "formats": sorted({str(item["format"]) for item in parsed}),
                       "validationLevel": "reachability-and-format-only"}
         self.subscription_probe_cache = (fingerprint, time.monotonic() + 60, dict(result))
         if force and result["configured"] and not result["ready"]:
             if result.get("partial"):
-                from .security import PublicFetchBusy
                 raise PublicFetchBusy("Subscription checks incomplete due to local capacity or limit")
-            raise ValueError("Subscription publisher validation failed")
+            raise ValueError("Protected subscription records validation failed")
         return result
 
     def _invalidate_network(self) -> None:
@@ -693,17 +780,17 @@ class DashboardService:
             self.collection_state["network"] = {"observedAt": None, "error": "pending"}
 
     def update_network_targets(self, payload: Any, source_ip: str, actor: str, global_thresholds: Any = None) -> list[dict[str, Any]]:
-        targets = self._normalize_network_targets(payload)
-        with self.lock:
+        with self.settings_lock, self.lock:
+            targets = self._normalize_network_targets(payload)
             thresholds = None
             if global_thresholds is not None:
                 if not isinstance(global_thresholds, dict) or set(global_thresholds) != {"latencyMs", "lossPercent"}:
                     raise ValueError("Global network rules require latencyMs and lossPercent")
                 thresholds = self._alert_thresholds_from_values({key: str(number(value, key)) for key, value in global_thresholds.items()})
-            self._persist_network_targets(targets, global_thresholds=thresholds)
+            self._persist_network_targets(targets, global_thresholds=thresholds,
+                audit=("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor))
             self.config.network_targets = targets
             self._invalidate_network()
-        self.storage.add_audit("更新网络探测目标", "配置", f"已保存 {len(targets)} 个探测目标", source_ip, actor=actor)
         return targets
 
     def _normalize_network_targets(self, payload: Any, *, restore: bool = False) -> list[dict[str, Any]]:
@@ -793,27 +880,28 @@ class DashboardService:
     def _network_targets_text(targets: list[dict[str, Any]]) -> str:
         return "\n".join(f"{item['name']},{item['address']}" for item in targets)
 
-    def _persist_network_targets(self, targets: list[dict[str, Any]], state: dict[str, Any] | None = None, global_thresholds: dict[str, float] | None = None) -> None:
+    def _persist_network_targets(self, targets: list[dict[str, Any]], state: dict[str, Any] | None = None, global_thresholds: dict[str, float] | None = None, *, audit=None) -> None:
         """Keep the editor, wizard and runtime configuration on one canonical value."""
-        overrides = self.storage.get_setting("integration_overrides", {})
-        if not isinstance(overrides, dict):
-            overrides = {}
-        current = dict(overrides.get("network", {})) if isinstance(overrides.get("network"), dict) else {}
-        current.update(state or {})
-        current.update({
-            "enabled": bool(current.get("enabled", True)),
-            "configured": bool(targets),
-            "status": "ready" if targets else "pending",
-            "summary": "Probe targets saved; runtime reachability is reported separately" if targets else "Complete the required fields",
-            "values": {"targets": self._network_targets_text(targets)},
-        })
-        overrides["network"] = current
-        if global_thresholds is not None:
-            alert_state = {**self.config.integrations.get("alerts", {}), **overrides.get("alerts", {}),
-                           "configured": True, "values": {key: str(value) for key, value in global_thresholds.items()}}
-            overrides["alerts"] = alert_state
-        self.storage.set_settings({"network_targets": targets, "integration_overrides": overrides})
-        self.config.integrations.setdefault("network", {}).update(current)
+        def edit(settings):
+            overrides = settings["integration_overrides"]
+            if not isinstance(overrides, dict):
+                overrides = {}
+            current = dict(overrides.get("network", {})) if isinstance(overrides.get("network"), dict) else {}
+            current.update(state or {})
+            current.update({
+                "enabled": bool(current.get("enabled", True)),
+                "configured": bool(targets),
+                "status": "ready" if targets else "pending",
+                "summary": "Probe targets saved; runtime reachability is reported separately" if targets else "Complete the required fields",
+                "values": {"targets": self._network_targets_text(targets)},
+            })
+            overrides["network"] = current
+            if global_thresholds is not None:
+                overrides["alerts"] = {**self.config.integrations.get("alerts", {}), **overrides.get("alerts", {}),
+                                       "configured": True, "values": {key: str(value) for key, value in global_thresholds.items()}}
+            return {"network_targets": targets, "integration_overrides": overrides}
+        overrides = self.storage.edit_settings({"integration_overrides": {}}, edit, audit=audit)["integration_overrides"]
+        self.config.integrations.setdefault("network", {}).update(overrides["network"])
         if global_thresholds is not None:
             self.config.alert_thresholds = global_thresholds
             self.config.integrations.setdefault("alerts", {}).update(overrides["alerts"])
@@ -908,20 +996,29 @@ class DashboardService:
         traffic = hy2.get("traffic", {}) if isinstance(hy2.get("traffic"), dict) else {}
         online = hy2.get("online", {}) if isinstance(hy2.get("online"), dict) else {}
         identities = set(traffic) | set(online)
-        assigned: set[str] = set()
-        mappings: list[list[str]] = []
+        endpoints = hy2.get("endpointStatus", {})
+        traffic_available = bool(endpoints.get("traffic", hy2.get("available") or traffic))
+        online_available = bool(endpoints.get("online", hy2.get("available") or online))
+        mappings: list[set[str]] = []
+        owners: dict[str, int] = {}
         for account in accounts:
             configured = account.get("trafficIdentities", [])
             if isinstance(configured, dict):
                 configured = configured.get("hysteria2", [])
             if not isinstance(configured, list):
                 configured = []
-            candidates = [str(value) for value in configured]
-            matches = [candidate for candidate in candidates if candidate and candidate in identities and candidate not in assigned]
-            assigned.update(matches)
-            mappings.append(matches)
+            candidates = {str(value).strip() for value in configured if str(value).strip()}
+            mappings.append(candidates)
+            for candidate in candidates:
+                owners[candidate] = owners.get(candidate, 0) + 1
         public_accounts: list[dict[str, Any]] = []
-        for account, mapped_identities in zip(accounts, mappings):
+        try:
+            quota = int(self.traffic_quota_state()["bytes"])
+        except (ValueError, TypeError, OverflowError, sqlite3.Error):
+            quota = self.config.traffic_limit_bytes
+        for account, candidates in zip(accounts, mappings):
+            unique = {candidate for candidate in candidates if owners[candidate] == 1}
+            mapped_identities = unique & identities
             core_used = sum(int(traffic.get(identity, {}).get("tx", 0)) + int(traffic.get(identity, {}).get("rx", 0)) for identity in mapped_identities)
             configured_status = str(account.get("status", "")).strip().lower()
             if configured_status not in {"active", "disabled"}:
@@ -937,8 +1034,7 @@ class DashboardService:
                     expiry_status = "expired" if remaining <= 0 else "expiring" if remaining <= 30 * 86400 else "valid"
                 except ValueError:
                     expiry_status = "unknown"
-            core_available = bool(hy2.get("available") or traffic or online)
-            core_evidence = "observed" if mapped_identities else "notObserved" if candidates and core_available else "unavailable" if candidates else "unknown"
+            core_evidence = "observed" if mapped_identities else "notObserved" if unique and (traffic_available or online_available) else "unavailable" if candidates else "unknown"
             status = "disabled" if configured_status == "disabled" else "expired" if expiry_status == "expired" else "expiring" if expiry_status == "expiring" else "registered" if configured_status == "active" else "unknown"
             public_accounts.append({
                 "id": str(account.get("id", ""))[:160],
@@ -951,9 +1047,10 @@ class DashboardService:
                 "protocols": [str(value)[:80] for value in account.get("protocols", [])[:20]] if isinstance(account.get("protocols", []), list) else [],
                 "expiresAt": expires_at,
                 "usedBytes": core_used,
-                "usageSource": "protocolCounter" if mapped_identities else "unmapped",
+                "usageSource": "protocolCounter" if traffic_available and unique.intersection(traffic) else "notObserved" if traffic_available and unique else "unavailable" if candidates else "unmapped",
                 "onlineDevices": sum(int(online.get(identity, 0)) for identity in mapped_identities),
-                "quotaBytes": int(self.traffic_quota_state()["bytes"]),
+                "onlineEvidence": online_available and bool(mapped_identities),
+                "quotaBytes": quota,
             })
         return public_accounts
 
@@ -1024,8 +1121,9 @@ class DashboardService:
             live = freshness["runtime"]["status"] == "live"
             sources = [
                 name for name, key in (("hysteria2", "hy2"), ("singbox", "singbox"))
-                if live and freshness[name]["status"] == "live" and self.runtime_cache[key].get("available")
-                and (key != "hy2" or self.runtime_cache[key].get("endpointStatus", {}).get("streams", True))
+                if live and freshness[name]["status"] == "live"
+                and (self.runtime_cache[key].get("endpointStatus", {}).get("streams", self.runtime_cache[key].get("available"))
+                     if key == "hy2" else self.runtime_cache[key].get("available"))
             ]
             groups = []
             for group in self.runtime_cache.get("connections", []):
@@ -1045,7 +1143,10 @@ class DashboardService:
         traffic_threshold = float(self.config.alert_thresholds.get("trafficPercent", 80))
         latency_threshold = float(self.config.alert_thresholds.get("latencyMs", 150))
         loss_threshold = float(self.config.alert_thresholds.get("lossPercent", 5))
-        if usage >= traffic_threshold:
+        if not system.get("trafficQuotaAvailable", True):
+            # A failed calculation cannot prove that an active alert recovered.
+            alerts.extend(item for item in previous_alerts if item["id"] == "traffic-threshold")
+        elif usage >= traffic_threshold:
             alerts.append({"id": "traffic-threshold", "severity": "critical" if usage >= max(95, traffic_threshold + 10) else "warning", "title": f"Traffic usage reached {usage:.0f}%", "titleEn": f"Traffic usage reached {usage:.0f}%", "titleZh": f"流量使用已达到 {usage:.0f}%", "description": "Review the remaining quota for the configured billing cycle.", "descriptionEn": "Review the remaining quota for the configured billing cycle.", "descriptionZh": "请检查当前自定义计费周期的剩余额度。", "time": "now", "timeEn": "now", "timeZh": "刚刚", "acknowledged": False, "source": "Traffic quota", "sourceEn": "Traffic quota", "sourceZh": "流量额度"})
             alerts[-1]["evidence"] = {"observedAt": system.get("observedAt"), "usedPercent": usage, "usedBytes": system["trafficUsedBytes"], "limitBytes": system["trafficLimitBytes"], "thresholdPercent": traffic_threshold, "comparison": "quota-percentage"}
         if system.get("alertCapacity", {}).get("requiresAttention") or system.get("diskPercent", 0) >= 90:
@@ -1243,8 +1344,14 @@ class DashboardService:
                 mapped_identities.update(str(value) for value in configured_identities)
         unmapped_identities = reported_identities - mapped_identities
         hy2_api_ready = bool(hy2.get("available"))
-        hy2_ready = bool(hy2_api_ready and (not self.config.managed_accounts or not unmapped_identities))
-        if hy2_ready:
+        endpoint_status = hy2.get("endpointStatus", {})
+        failed_endpoints = [name for name, available in endpoint_status.items() if not available]
+        hy2_ready = bool(hy2_api_ready and not failed_endpoints and (not self.config.managed_accounts or not unmapped_identities))
+        if hy2_api_ready and failed_endpoints:
+            labels = {"traffic": "流量", "online": "在线数", "streams": "实时连接"}
+            hy2_summary = "Stats endpoints unavailable: " + ", ".join(failed_endpoints)
+            hy2_summary_zh = "部分统计不可用：" + "、".join(labels[key] for key in failed_endpoints)
+        elif hy2_ready:
             hy2_summary = "Traffic Stats API is responding and reported identities are mapped"
             hy2_summary_zh = "Traffic Stats API 响应正常，已报告协议身份均有明确映射"
         elif hy2_api_ready and unmapped_identities:
@@ -1255,7 +1362,7 @@ class DashboardService:
             hy2_summary_zh = "Traffic Stats API 未配置或当前无响应"
         update("hysteria2", configured=hy2_configured, ready=hy2_ready, summary=hy2_summary, summary_zh=hy2_summary_zh)
         if protocol_requested(self.config, "hysteria2") and not hy2_ready:
-            states["hysteria2"]["status"] = "error"
+            states["hysteria2"]["status"] = "partial" if hy2_api_ready else "error"
         for integration_id in PROTOCOLS:
             adapter = self.config.protocol_adapters.get(integration_id, {})
             configured = bool(sb_configured and adapter.get("inboundTags"))
@@ -1287,6 +1394,10 @@ class DashboardService:
         if subscriptions_configured:
             subscription_summary = f"Configured {subscription_count}; HTTPS reachable {subscription_reachable}/{subscription_count}; node format parseable {subscription_parseable}/{subscription_count}; client import unverified; proxy connectivity unverified"
             subscription_summary_zh = f"已配置 {subscription_count} 条；HTTPS 可达 {subscription_reachable}/{subscription_count}；节点格式可解析 {subscription_parseable}/{subscription_count}；客户端导入未验证；代理连通性未验证"
+            if subscription_state.get("invalidNodeCount"):
+                valid, invalid = subscription_state["nodeCount"], subscription_state["invalidNodeCount"]
+                subscription_summary += f"; {valid} valid nodes, {invalid} skipped records"
+                subscription_summary_zh += f"；有效节点 {valid} 个，跳过异常记录 {invalid} 条"
             if subscription_state.get("partial"):
                 unchecked = subscription_state.get("unverifiedCount", 0)
                 subscription_summary += f"; {unchecked} unchecked due to local budget or limit"
@@ -1613,14 +1724,25 @@ class DashboardService:
             {"name": "Hysteria2", "value": sum(int(v.get("tx", 0)) + int(v.get("rx", 0)) for v in hy2.get("traffic", {}).values())},
             {"name": singbox_label, "nameZh": "sing-box 合计" if singbox_label == "sing-box combined" else singbox_label, "nameEn": singbox_label, "value": int(singbox.get("traffic", {}).get("up", 0)) + int(singbox.get("traffic", {}).get("down", 0))},
         ]
-        protocol = self.reconcile_breakdown(raw_protocol, authoritative_total, "Unattributed")
-        for item in protocol:
-            if item.get("name") == "Unattributed":
-                item.update({"nameZh": "未归属", "nameEn": "Unattributed"})
+        protocol = [item for item, available in zip(raw_protocol, (
+            hy2.get("endpointStatus", {}).get("traffic", hy2.get("available")) and freshness["hysteria2"]["status"] == "live",
+            singbox.get("available") and freshness["singbox"]["status"] == "live",
+        )) if available]
         account_breakdown = [{"name": item.get("name", "account"), "value": item.get("usedBytes", 0)} for item in accounts]
-        attributed_accounts = sum(int(item["value"]) for item in account_breakdown)
-        if authoritative_total > attributed_accounts:
-            account_breakdown.append({"name": "Unattributed", "nameZh": "未归属", "nameEn": "Unattributed", "value": authoritative_total - attributed_accounts})
+        owned = {identity for account in self.config.managed_accounts
+                 for identity in (account.get("trafficIdentities", {}).get("hysteria2", []) if isinstance(account.get("trafficIdentities"), dict) else account.get("trafficIdentities") or [])}
+        unassigned = (sum(int(counter["tx"]) + int(counter["rx"]) for identity, counter in hy2.get("traffic", {}).items() if identity not in owned)
+                      if hy2.get("endpointStatus", {}).get("traffic", hy2.get("available")) else None)
+        if unassigned is not None:
+            account_breakdown.append({"name": "Unattributed", "nameZh": "未归属", "nameEn": "Unattributed", "value": unassigned})
+        try:
+            count_mode = system.get("trafficCountMode", self.config.traffic_count_mode)
+            now = int(time.time()) + 1
+            recent = self.storage.traffic_usage_between(now - 86400, now, count_mode)
+            months = self.monthly_traffic_usage()
+        except (ValueError, TypeError, OverflowError, sqlite3.Error) as error:
+            event("traffic", "ledger-unavailable", exceptionType=type(error).__name__)
+            recent, months = None, []
         saved_ui_settings = self.storage.get_setting("ui_settings", {})
         if not isinstance(saved_ui_settings, dict):
             saved_ui_settings = {}
@@ -1640,7 +1762,10 @@ class DashboardService:
             "connections": connections,
             "traffic": {
                 **traffic,
-                "monthly": self.monthly_traffic_usage(),
+                "monthly": months,
+                "recentUsage": recent,
+                "countMode": count_mode,
+                "unassignedAccountBytes": unassigned,
                 "totalBytes": authoritative_total,
                 "protocolTotalBytes": sum(int(item["value"]) for item in protocol),
                 "accountTotalBytes": sum(int(item["value"]) for item in account_breakdown),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import ipaddress
 import math
 import re
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .migrations import retired_config
 from .security import normalize_https_base_url, normalize_loopback_endpoint, validate_interface_name
+from .storage import AUDIT_RETENTION, valid_retention_days
 
 
 DEFAULT_INTEGRATIONS = {
@@ -71,6 +73,46 @@ def normalize_alert_thresholds(value: Any) -> dict[str, float]:
     return normalized
 
 
+def normalize_record_ids(records: list[dict[str, Any]], collection: str) -> dict[str, str]:
+    """Keep valid IDs; derive deterministic IDs for older unsafe or absent IDs."""
+    existing = set()
+    aliases: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for index, item in enumerate(records):
+        raw = item.get("id")
+        if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,160}", raw):
+            if raw in existing:
+                raise ValueError(f"{collection}[{index}].id must be unique")
+            existing.add(raw)
+    for index, item in enumerate(records):
+        raw = item.get("id")
+        if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,160}", raw):
+            continue
+        # Do not derive the public identifier from subscription credentials.
+        stable = item.get("name") if collection == "managed_accounts" else item.get("account")
+        digest = hashlib.sha256(json.dumps([collection, raw, stable], sort_keys=True, ensure_ascii=True).encode()).hexdigest()[:24]
+        new = "legacy-" + digest
+        if new in existing:
+            raise ValueError(f"{collection}[{index}].id is ambiguous; assign unique IDs in the protected config")
+        item["id"] = new
+        existing.add(new)
+        if isinstance(raw, str) and raw:
+            if raw in aliases:
+                ambiguous.add(raw)
+            aliases[raw] = new
+    return {old: new for old, new in aliases.items() if old not in ambiguous}
+
+
+def validate_hysteria_identities(mappings: dict[str, list[str]]) -> None:
+    assigned: set[str] = set()
+    for values in mappings.values():
+        if len(values) > 20 or any(not isinstance(value, str) or not value.strip() or len(value) > 160 for value in values):
+            raise ValueError("Each account can map at most 20 non-empty identities of at most 160 characters")
+        if len(set(values)) != len(values) or assigned.intersection(values):
+            raise ValueError("Each Hysteria2 identity must appear once across all managed accounts")
+        assigned.update(values)
+
+
 @dataclass(slots=True)
 class AppConfig:
     listen_host: str = "127.0.0.1"
@@ -90,7 +132,7 @@ class AppConfig:
     network_targets: list[dict[str, Any]] = field(default_factory=list)
     managed_accounts: list[dict[str, Any]] = field(default_factory=list)
     subscriptions: list[dict[str, Any]] = field(default_factory=list)
-    redact_live_data: bool = True
+    redact_live_data: bool = True  # Accepted for compatibility; destinations are always isolated.
     alert_thresholds: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_ALERT_THRESHOLDS))
     protocol_adapters: dict[str, dict[str, Any]] = field(default_factory=dict)
     bootstrap_token_path: str = "/var/lib/castoriceui/bootstrap-token"
@@ -102,7 +144,7 @@ class AppConfig:
     traffic_initial_used_bytes: int = 0
     traffic_initial_used_cycle: str = ""
     traffic_count_mode: str = "sum"
-    audit_retention_days: int = 180
+    audit_retention_days: int = AUDIT_RETENTION["default"]
     alert_retention_days: int = 180
     alert_history_limit: int = 10000
     external_background_hosts: list[str] = field(default_factory=list)
@@ -166,7 +208,7 @@ class AppConfig:
                 raise ValueError("traffic_initial_used_cycle must use YYYY-MM-DD") from error
         if self.traffic_count_mode not in {"sum", "max"}:
             raise ValueError("traffic_count_mode must be sum or max")
-        if not isinstance(self.audit_retention_days, int) or not 7 <= self.audit_retention_days <= 3650:
+        if not valid_retention_days(self.audit_retention_days):
             raise ValueError("audit_retention_days must be between 7 and 3650")
         for field_name in ("database_path", "bootstrap_token_path", "login_background_directory"):
             value = str(getattr(self, field_name))
@@ -187,6 +229,8 @@ class AppConfig:
             value = str(getattr(self, field_name))
             if not (PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()):
                 raise ValueError(f"{field_name} must be an absolute path")
+            if any(ord(character) < 32 for character in value):
+                raise ValueError(f"{field_name} must not contain control characters")
         if self.interface:
             self.interface = validate_interface_name(self.interface)
         for field_name in ("hysteria_api", "singbox_api"):
@@ -264,6 +308,13 @@ class AppConfig:
                 name = target.get("dnsName", "example.com")
                 if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", name) or any(not 1 <= len(part) <= 63 for part in name.split(".")):
                     raise ValueError("Invalid DNS probe name")
+        account_aliases = normalize_record_ids(self.managed_accounts, "managed_accounts")
+        normalize_record_ids(self.subscriptions, "subscriptions")
+        for subscription in self.subscriptions:
+            account = subscription.get("account")
+            if isinstance(account, str) and account in account_aliases:
+                subscription["account"] = account_aliases[account]
+        mappings: dict[str, list[str]] = {}
         for index, account in enumerate(self.managed_accounts):
             identities = account.get("trafficIdentities", {})
             if identities in (None, []):
@@ -274,8 +325,12 @@ class AppConfig:
             if not isinstance(identities, dict) or set(identities) - {"hysteria2"}:
                 raise ValueError(f"managed_accounts[{index}].trafficIdentities must contain only hysteria2")
             values = identities.get("hysteria2", [])
-            if not isinstance(values, list) or len(values) > 20 or any(not str(value).strip() or len(str(value)) > 160 for value in values):
+            if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
                 raise ValueError(f"managed_accounts[{index}].trafficIdentities.hysteria2 is invalid")
+            normalized = [value.strip() for value in values]
+            identities["hysteria2"] = normalized
+            mappings[account["id"]] = normalized
+        validate_hysteria_identities(mappings)
         if not isinstance(self.external_background_hosts, list):
             raise ValueError("external_background_hosts must be a list")
         normalized_hosts: list[str] = []

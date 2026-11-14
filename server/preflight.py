@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import shutil
 try:
@@ -12,6 +13,7 @@ except ImportError:
     pwd = grp = None
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -19,9 +21,9 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from castoriceui.config import AppConfig  # noqa: E402
 from castoriceui.protocol_probe import owned_listeners  # noqa: E402
 from castoriceui.nginx_site import panel_site  # noqa: E402
+from castoriceui.host_permissions import check_config, check_state  # noqa: E402
 
 
 def command(*arguments: str, timeout: float = 8) -> tuple[bool, str]:
@@ -30,6 +32,36 @@ def command(*arguments: str, timeout: float = 8) -> tuple[bool, str]:
         return result.returncode == 0, (result.stdout or result.stderr).strip()[:65536]
     except (OSError, subprocess.TimeoutExpired) as error:
         return False, type(error).__name__
+
+
+def loaded_nginx() -> tuple[bool, str]:
+    """Bound the parsed dump independently of short human-facing logs."""
+    try:
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(("nginx", "-T"), stdout=output, stderr=subprocess.DEVNULL, timeout=15, check=False)
+            if result.returncode:
+                return False, "Nginx configuration is unavailable"
+            output.seek(0)
+            data = output.read(16 * 1024 * 1024 + 1)
+        if len(data) > 16 * 1024 * 1024:
+            return False, "Loaded Nginx configuration exceeds the 16 MiB inspection limit"
+        return True, data.decode("utf-8", errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "Nginx configuration could not be read in 15 seconds"
+
+
+def report_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    failed = {item["name"] for item in checks if item["status"] == "fail"}
+    if not failed:
+        return {"ok": True, "mutationFree": True, "checks": checks, "exitCode": 0}
+    category, code = ("preflight_failed", 2)
+    if any(name.startswith("command-") for name in failed) or failed & {"yaml-parser", "python-version"}:
+        category, code = ("missing_dependency", 69)
+    elif "backend-port" in failed:
+        category, code = ("port_conflict", 73)
+    elif failed & {"protected-config", "protected-config-permissions", "data-permissions", "service-permissions"}:
+        category, code = ("unsafe_configuration", 78)
+    return {"ok": False, "mutationFree": True, "checks": checks, "errorCategory": category, "exitCode": code}
 
 
 def listening_ports() -> dict[str, set[int]]:
@@ -61,21 +93,14 @@ def inspect(config_path: str) -> dict[str, Any]:
     add("operating-system", "pass" if os_id == "debian" and os_version in {"12", "13"} else "warning", f"{os_id or 'unknown'} {os_version or 'unknown'}")
     add("independent-fresh-host-acceptance", "info", "Host-local preflight cannot replace independent Debian VM installation and reboot acceptance; retain the corresponding CI evidence")
 
-    for executable in ("python3", "nginx", "systemctl", "ping", "ip"):
+    for executable in ("python3", "nginx", "systemctl", "ping", "ip", "openssl", "runuser"):
         resolved = shutil.which(executable)
         add(f"command-{executable}", "pass" if resolved else "fail", resolved or "not found")
     add("python-version", "pass" if sys.version_info >= (3, 11) else "fail", "Python 3.11 or newer is required")
-    try:
-        import yaml
-        add("yaml-parser", "pass", yaml.__version__)
-    except ImportError:
+    if importlib.util.find_spec("yaml") is None:
         add("yaml-parser", "fail", "Install python3-yaml before deployment")
-    try:
-        config = AppConfig.load(config_path)
-        add("protected-config", "pass", f"valid configuration at {config_path}")
-    except (OSError, ValueError, json.JSONDecodeError) as error:
-        add("protected-config", "fail", str(error))
-        return {"ok": False, "mutationFree": True, "checks": checks}
+        return report_checks(checks)
+    add("yaml-parser", "pass", "PyYAML is available")
 
     try:
         if pwd is None or grp is None:
@@ -84,15 +109,33 @@ def inspect(config_path: str) -> dict[str, Any]:
         grp.getgrnam("proxycert")
         add("service-account", "pass", "castoriceui and proxycert exist")
     except KeyError:
-        account = None
         add("service-account", "fail", "Create castoriceui and proxycert before installing")
-    if account is not None:
-        permission_code = "import os,sys; raise SystemExit(0 if os.access(sys.argv[1],os.R_OK) and os.access(sys.argv[2],os.W_OK|os.X_OK) else 1)"
-        permitted, _ = command("runuser", "-u", "castoriceui", "--", "python3", "-c", permission_code, config_path, str(Path(config.database_path).parent))
-        add("service-permissions", "pass" if permitted else "fail", "Protected config must be readable and data directory writable by castoriceui")
-    config_file = Path(config_path).resolve()
-    permitted_layout = config_file.is_relative_to("/etc/castoriceui") and all(Path(str(getattr(config, key))).resolve().is_relative_to("/var/lib/castoriceui") for key in ("database_path", "bootstrap_token_path", "login_background_directory"))
-    add("installer-layout", "pass" if permitted_layout else "fail", "Installer requires config under /etc/castoriceui and writable data under /var/lib/castoriceui")
+        return report_checks(checks)
+    try:
+        check_config(Path(config_path), account.pw_gid)
+    except (OSError, ValueError):
+        add("protected-config-permissions", "fail", "Use a real root:castoriceui config file (0640) in protected directories (0750), without ACLs")
+        return report_checks(checks)
+    from castoriceui.config import AppConfig
+    try:
+        config = AppConfig.load(config_path)
+    except (OSError, ValueError, TypeError):
+        add("protected-config", "fail", "Invalid protected configuration; check the schema and configured paths")
+        return report_checks(checks)
+    add("protected-config", "pass", "Configuration and ownership validated")
+    for label, path, directory, optional in (
+        ("database", config.database_path, False, True), ("database-wal", config.database_path + "-wal", False, True),
+        ("database-shm", config.database_path + "-shm", False, True), ("bootstrap", config.bootstrap_token_path, False, True),
+        ("background", config.login_background_directory, True, False),
+    ):
+        try:
+            check_state(Path(path), account.pw_uid, account.pw_gid, directory=directory, optional=optional)
+            add("data-permissions", "pass", label)
+        except (OSError, ValueError):
+            add("data-permissions", "fail", f"{label}: use real paths under /var/lib/castoriceui, owned by castoriceui, mode 0600 for files and 0700 for private directories, without ACLs")
+    permission_code = "import os,sys; raise SystemExit(0 if os.access(sys.argv[1],os.R_OK) and os.access(sys.argv[2],os.W_OK|os.X_OK) else 1)"
+    permitted, _ = command("runuser", "-u", "castoriceui", "--", "python3", "-c", permission_code, config_path, str(Path(config.database_path).parent))
+    add("service-permissions", "pass" if permitted else "fail", "Protected config must be readable and data directory writable by castoriceui")
     add("protocol-status-layout", "pass" if Path(config.protocol_status_path).resolve().is_relative_to("/run/castoriceui") else "fail", "Read-only probe output must stay under /run/castoriceui")
 
     for label, value in (("database-parent", Path(config.database_path).parent), ("frontend-root", Path("/var/www/castorice-ui/current"))):
@@ -121,9 +164,9 @@ def inspect(config_path: str) -> dict[str, Any]:
         active = properties.get("ActiveState") == "active"
         add(f"unit-{unit}", "pass" if present and active else "fail" if required else "info", "loaded and active" if present and active else "Required unit is missing or inactive" if required else "Optional unconfigured core")
     nginx_ok, nginx_output = command("nginx", "-t")
-    add("nginx-configuration", "pass" if nginx_ok else "fail", nginx_output or "no output")
-    nginx_dump_ok, nginx_dump = command("nginx", "-T")
-    site = panel_site(nginx_dump, config.listen_host, config.listen_port) if nginx_dump_ok else {"ok": False, "reason": "Nginx configuration is unavailable"}
+    add("nginx-configuration", "pass" if nginx_ok else "fail", "Run nginx -t on the host for detailed diagnostics" if not nginx_ok else "syntax valid")
+    nginx_dump_ok, nginx_dump = loaded_nginx()
+    site = panel_site(nginx_dump, config.listen_host, config.listen_port) if nginx_dump_ok else {"ok": False, "reason": nginx_dump}
     add("panel-site", "pass" if site["ok"] else "fail", site["reason"])
     if site["ok"]:
         cert_ok, _ = command("openssl", "x509", "-in", site["certificate"], "-noout", "-checkend", "0")
@@ -139,8 +182,7 @@ def inspect(config_path: str) -> dict[str, Any]:
             # Require its affirmative result as well as successful execution.
             cert_ok = cert_ok and matches and "does match certificate" in match_output
         add("panel-certificate", "pass" if cert_ok and Path(site["key"]).is_file() else "fail", "Panel certificate must be readable, unexpired, match the panel names, and have its key")
-    failed = [item for item in checks if item["status"] == "fail"]
-    return {"ok": not failed, "mutationFree": True, "checks": checks}
+    return report_checks(checks)
 
 
 def main() -> None:
@@ -153,8 +195,10 @@ def main() -> None:
         public = inspect_public(arguments.public_url)
         report["public"] = public
         report["ok"] = report["ok"] and public["ok"]
+        if not public["ok"] and report["exitCode"] == 0:
+            report.update(errorCategory="public_https_failed", exitCode=2)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    raise SystemExit(0 if report["ok"] else 1)
+    raise SystemExit(report["exitCode"])
 
 
 def inspect_public(url: str) -> dict:

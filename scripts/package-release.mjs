@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,21 +120,17 @@ const sourceDateEpoch = Number(sourceDateEpochValue);
 if (!Number.isSafeInteger(sourceDateEpoch) || sourceDateEpoch > 253402300799) {
   throw new Error("SOURCE_DATE_EPOCH is outside the supported range");
 }
-const normalizedTimestamp = new Date(sourceDateEpoch * 1000);
-for (const entry of [stageDirectory, ...stagedEntries].reverse()) {
-  await utimes(entry, normalizedTimestamp, normalizedTimestamp);
-}
-
+// Preorder ensures every explicit parent entry exists before its children.
 const archiveEntries = [stageDirectory, ...stagedEntries]
-  .map((entry) => path.relative(releaseDirectory, entry).split(path.sep).join("/"))
-  .sort((left, right) => left.localeCompare(right, "en"));
+  .map((entry) => path.relative(releaseDirectory, entry).split(path.sep).join("/"));
 const archiveManifest = path.join(buildDirectory, "archive-manifest.txt");
 await writeFile(archiveManifest, `${archiveEntries.join("\n")}\n`, "utf8");
 const uncompressedArchive = path.join(buildDirectory, "release.tar");
 execFileSync(
-  "tar",
-  ["--no-recursion", "-cf", uncompressedArchive, "-C", releaseDirectory, "-T", archiveManifest],
-  { env: { ...process.env, COPYFILE_DISABLE: "1", TZ: "UTC" }, stdio: "inherit" },
+  process.execPath,
+  [path.join(root, "scripts", "python-run.mjs"), path.join(root, "scripts", "write-release-tar.py"),
+    releaseDirectory, archiveManifest, uncompressedArchive, String(sourceDateEpoch)],
+  { cwd: root, stdio: "inherit" },
 );
 await writeFile(archivePath, gzipSync(await readFile(uncompressedArchive), { level: 9, mtime: 0 }));
 try {

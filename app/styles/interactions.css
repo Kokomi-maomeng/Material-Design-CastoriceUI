@@ -58,7 +58,6 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 4px s
   .md-pagination form { width: 100%; justify-content: center; margin: 6px 0 0; }
 }
 
-.sparkline-tooltip { position: absolute; z-index: 3; top: -22px; transform: translateX(-50%); padding: 5px 8px; border-radius: 999px; background: var(--inverse-surface); color: var(--inverse-on-surface); box-shadow: 0 4px 12px rgb(var(--shadow-color) / .2); font-size: var(--text-xs); font-weight: 700; white-space: nowrap; pointer-events: none; }
 .sparkline path { transition: d .35s cubic-bezier(.2,0,0,1), opacity .25s cubic-bezier(.2,0,0,1); }
 .sparkline circle { transition: r .18s cubic-bezier(.2,0,0,1), opacity .18s cubic-bezier(.2,0,0,1); }
 

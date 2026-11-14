@@ -128,12 +128,18 @@ def main():
                                             page.evaluate('scrollTo(0,0)')
                                             page.screenshot(path=str(shots/f'chart-{engine}-{section}-{width}.png'),full_page=True)
                                 # Initial empty data and one-point data must mount and resize correctly.
+                                # Use a fresh document for each fixture so its dashboard poll cannot
+                                # overlap navigation away from the preceding fixture in WebKit.
+                                page.close()
                                 for count in [0,1,24]:
                                     data['traffic']['ranges']={key:points[:count] for key,points in original_ranges.items()}
-                                    page.goto(origin+f'/?qa_chart_count={count}#/overview',wait_until='domcontentloaded')
+                                    page=context.new_page()
+                                    page.on('pageerror',lambda error: errors.append(str(error)))
+                                    page.goto(origin+'/#/overview',wait_until='domcontentloaded')
                                     page.locator('.traffic-hero').wait_for()
                                     if count: check_chart(page,{'engine':engine,'count':count})
                                     else: page.locator('.chart-empty').wait_for()
+                                    page.close()
                                 assert not errors, errors
                                 context.close()
                         finally: browser.close()

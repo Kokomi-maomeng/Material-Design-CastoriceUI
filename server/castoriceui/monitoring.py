@@ -34,9 +34,13 @@ def event(module: str, reason: str, **fields: Any) -> None:
                       "suppressed": count, **safe}, ensure_ascii=True), flush=True)
 
 
-def periodic(stop: threading.Event, name: str, period: float, function: Callable[[], Any]) -> threading.Thread:
+def periodic(stop: threading.Event, name: str, period: float, function: Callable[[], Any], *,
+             start_when: Callable[[], bool] | None = None) -> threading.Thread:
     """One thread per domain; fixed deadlines, no overlap or catch-up storms."""
     def loop() -> None:
+        while start_when is not None and not start_when():
+            if stop.wait(0.1):
+                return
         deadline = time.monotonic()
         while not stop.is_set():
             started = time.monotonic()

@@ -8,7 +8,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .alert_policy import present, sql_level
 from .audit_labels import audit_matches, normalize_audit_search
@@ -21,7 +21,13 @@ DELTA_RETENTION_SECONDS = 400 * 86400
 TRAFFIC_BUCKET_SECONDS = 3600
 MAX_CONTINUOUS_SAMPLE_GAP_SECONDS = 300
 TRAFFIC_LEDGER_SCHEMA = "4"
-AUDIT_RETENTION_DAYS = (30, 60, 90, 120, 150, 180, 365)
+AUDIT_RETENTION = json.loads(Path(__file__).with_name("audit_retention.json").read_text(encoding="utf-8"))
+AUDIT_RETENTION_DAYS = tuple(AUDIT_RETENTION["presets"])
+NETWORK_ALERT_SQL = "substr(alert_id,1,8)='network-'"
+
+
+def valid_retention_days(days: object) -> bool:
+    return type(days) is int and AUDIT_RETENTION["minimum"] <= days <= AUDIT_RETENTION["maximum"]
 
 
 def utc_now() -> str:
@@ -29,10 +35,12 @@ def utc_now() -> str:
 
 
 class Storage:
-    def __init__(self, path: str, audit_retention_days: int = 180) -> None:
+    def __init__(self, path: str, audit_retention_days: int = AUDIT_RETENTION["default"]) -> None:
+        if not valid_retention_days(audit_retention_days):
+            raise ValueError("Invalid audit retention period")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = path
-        self.audit_retention_days = audit_retention_days if type(audit_retention_days) is int and audit_retention_days in AUDIT_RETENTION_DAYS else 180
+        self.audit_retention_days = audit_retention_days
         self.lock = threading.RLock()
         self.monitoring_writes: dict[tuple[str, str], tuple[int, str]] = {}
         self.monitoring_write_count = 0
@@ -162,7 +170,7 @@ class Storage:
         row = connection.execute("SELECT value FROM settings WHERE key='ui_settings'").fetchone()
         saved = json.loads(row[0]) if row else {}
         value = saved.get("auditRetentionDays", self.audit_retention_days) if isinstance(saved, dict) else self.audit_retention_days
-        return value if type(value) is int and value in AUDIT_RETENTION_DAYS else 180
+        return value if valid_retention_days(value) else self.audit_retention_days
 
     def audit_retention(self) -> int:
         with self.connect() as connection:
@@ -376,9 +384,7 @@ class Storage:
         return result
 
     def traffic_usage_since(self, timestamp: int, count_mode: str = "sum", initial_used_bytes: int = 0) -> dict[str, Any]:
-        with self.connect() as connection:
-            newest = connection.execute("SELECT MAX(bucket_start) FROM traffic_hourly").fetchone()[0]
-        end_timestamp = int(newest) + TRAFFIC_BUCKET_SECONDS if newest is not None else int(timestamp) + 1
+        end_timestamp = max(int(timestamp) + 1, int(time.time()) + 1)
         usage = self.traffic_usage_between(timestamp, end_timestamp, count_mode)
         received = int(usage["receivedBytes"])
         transmitted = int(usage["transmittedBytes"])
@@ -479,8 +485,24 @@ class Storage:
 
     def get_setting(self, key: str, default: Any) -> Any:
         with self.connect() as connection:
-            row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            return self._read_setting(connection, key, default)
+
+    @staticmethod
+    def _read_setting(connection: sqlite3.Connection, key: str, default: Any) -> Any:
+        row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         return default if row is None else json.loads(row["value"])
+
+    def edit_settings(self, defaults: dict[str, Any], edit: Callable[[dict[str, Any]], dict[str, Any]], *, audit: tuple[str, str, str, str, str] | None = None) -> dict[str, Any]:
+        """Read, validate, merge and audit small settings in one SQLite write transaction."""
+        with self.lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = {key: self._read_setting(connection, key, default) for key, default in defaults.items()}
+            values = edit(current)
+            connection.executemany("INSERT INTO settings VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                                   [(key, json.dumps(value, ensure_ascii=False, allow_nan=False), utc_now()) for key, value in values.items()])
+            if audit is not None:
+                self._insert_audit(connection, *audit)
+        return values
 
     def set_setting(self, key: str, value: Any) -> None:
         with self.lock, self.connect() as connection:
@@ -501,11 +523,14 @@ class Storage:
 
     def add_audit(self, action: str, category: str, detail: str, source_ip: str = "127.0.0.1", result: str = "成功", actor: str = "system") -> None:
         with self.lock, self.connect() as connection:
-            connection.execute(
-                "INSERT INTO audits(action,category,actor,source_ip,result,detail,created_at) VALUES(?,?,?,?,?,?,?)",
-                (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
-            )
-            self._prune_audits(connection)
+            self._insert_audit(connection, action, category, detail, source_ip, actor, result)
+
+    def _insert_audit(self, connection: sqlite3.Connection, action: str, category: str, detail: str, source_ip: str, actor: str, result: str = "成功") -> None:
+        connection.execute(
+            "INSERT INTO audits(action,category,actor,source_ip,result,detail,created_at) VALUES(?,?,?,?,?,?,?)",
+            (action, category, actor[:64], source_ip, result, detail[:500], utc_now()),
+        )
+        self._prune_audits(connection)
 
     def audit_page(self, page: int = 1, page_size: int = 30, search: str = "", category: str = "") -> dict[str, Any]:
         page = max(1, int(page))
@@ -709,12 +734,16 @@ class Storage:
         summary["total"] = int(connection.execute("SELECT COUNT(*) FROM alert_history").fetchone()[0])
         return summary
 
-    def acknowledge_all(self) -> int:
+    def acknowledge_all(self, *, network_only: bool = False, source_ip: str = "", actor: str = "") -> int:
         now = utc_now()
+        scope = f" AND {NETWORK_ALERT_SQL}" if network_only else ""
         with self.lock, self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            cursor = connection.execute("UPDATE alert_history SET acknowledged_at=? WHERE acknowledged_at IS NULL", (now,))
-            connection.execute("UPDATE alert_state SET acknowledged_at=? WHERE acknowledged_at IS NULL", (now,))
+            cursor = connection.execute(f"UPDATE alert_history SET acknowledged_at=? WHERE acknowledged_at IS NULL{scope}", (now,))
+            connection.execute(f"UPDATE alert_state SET acknowledged_at=? WHERE acknowledged_at IS NULL{scope}", (now,))
+            if actor:
+                self._insert_audit(connection, "确认网络告警" if network_only else "确认全部告警", "系统",
+                                   f"已确认 {cursor.rowcount} 条告警", source_ip, actor)
         return cursor.rowcount
 
     def alert_summary(self) -> dict[str, int]:
@@ -725,7 +754,7 @@ class Storage:
         """Bounded preview with a complete count, including recovered pending episodes."""
         with self.connect() as connection:
             connection.execute("BEGIN")
-            where = "acknowledged_at IS NULL AND substr(alert_id,1,8)='network-'"
+            where = f"acknowledged_at IS NULL AND {NETWORK_ALERT_SQL}"
             count = int(connection.execute(f"SELECT COUNT(*) FROM alert_history WHERE {where}").fetchone()[0])
             rows = connection.execute(f"SELECT * FROM alert_history WHERE {where} ORDER BY started_at DESC,episode_id DESC LIMIT 10").fetchall()
         return {"items": [self.alert_payload(row) for row in rows], "pending": count}
@@ -981,7 +1010,7 @@ class Storage:
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
 
-    def login_allowed(self, source_ip: str, limit: int = 5, window_seconds: int = 600, global_limit: int = 30) -> bool:
+    def login_allowed(self, source_ip: str, limit: int = 5, window_seconds: int = 600) -> bool:
         cutoff = int(time.time()) - window_seconds
         with self.lock, self.connect() as connection:
             connection.execute("DELETE FROM login_failures WHERE failed_at<?", (cutoff,))

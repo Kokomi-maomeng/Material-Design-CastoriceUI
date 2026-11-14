@@ -5,11 +5,13 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from debian_images import pinned_images
 
 
 def run(*args: str, check: bool = True, timeout: int = 600) -> subprocess.CompletedProcess:
@@ -31,16 +33,21 @@ def main() -> None:
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="castorice-vm-") as directory:
         work = Path(directory)
-        suite = "bookworm" if args.debian == "12" else "trixie"
-        base = f"https://cloud.debian.org/images/cloud/{suite}/latest/"
-        name = f"debian-{args.debian}-genericcloud-amd64.qcow2"
-        with urllib.request.urlopen(base + "SHA512SUMS", timeout=30) as response:
-            sums = response.read().decode()
-        expected = next(line.split()[0] for line in sums.splitlines() if line.split()[-1].lstrip("*") == name)
+        pinned = pinned_images()[args.debian]
+        name, expected = pinned["file"], pinned["sha512"]
+        base = f"https://cloud.debian.org/images/cloud/{pinned['suite']}/{pinned['build']}/"
         if args.expected_image_sha512 and expected != args.expected_image_sha512:
             raise RuntimeError("Official VM image changed after CI planning")
         image = work / name
-        urllib.request.urlretrieve(base + name, image)
+        try:
+            with urllib.request.urlopen(base + "SHA512SUMS", timeout=30) as response:
+                entries = dict((fields[1].lstrip("*"), fields[0]) for line in response.read(1_048_576).decode().splitlines() if len(fields := line.split()) == 2)
+            if entries.get(name) != expected:
+                raise ValueError(f"Pinned checksum does not match {base}SHA512SUMS ({name})")
+            with urllib.request.urlopen(base + name, timeout=60) as response, image.open("wb") as output:
+                shutil.copyfileobj(response, output)
+        except OSError as error:
+            raise RuntimeError(f"Could not download {base}{name} or its checksum: {error}") from error
         digest = hashlib.sha512()
         with image.open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -105,7 +112,7 @@ def main() -> None:
                 # Only the isolated VM has synthetic configuration and test data.
                 # The production installer keeps these logs private in its backup.
                 try:
-                    diagnostics = run(*ssh, "python3 -c \"from pathlib import Path; assert Path('/etc/hostname').read_text().strip() == 'castorice-ci'; logs=sorted(Path('/var/backups').glob('castoriceui-v*/backend-tests.log'), key=lambda p:p.stat().st_mtime_ns); print(logs[-1].read_text(errors='replace')[-16000:] if logs else 'No staged backend test log')\"", check=False, timeout=20)
+                    diagnostics = run(*ssh, "python3 -c \"from pathlib import Path; assert Path('/etc/hostname').read_text().strip() == 'castorice-ci'; logs=sorted(Path('/var/backups').glob('castoriceui-v*/transaction.json'), key=lambda p:p.stat().st_mtime_ns); print(logs[-1].read_text(errors='replace') if logs else 'No installer transaction')\"", check=False, timeout=20)
                     print(diagnostics.stdout, flush=True)
                 except (OSError, subprocess.SubprocessError):
                     print("Isolated VM diagnostics unavailable", flush=True)

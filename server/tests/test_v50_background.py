@@ -352,13 +352,22 @@ class BackgroundHttpTests(unittest.TestCase):
     def test_decode_retry_bypasses_ttl_but_keeps_global_burst_budget(self):
         self.storage.set_setting("login_background", {"type": "url", "value": URL, "cacheSeconds": 600})
         with patch("castoriceui.background.fetch_https_image_api", return_value=(PNG, "image/png", URL)) as fetch:
-            self.assertEqual(self.request("/api/v2/auth/background")[0], 200)
+            status, initial, _ = self.request("/api/v2/auth/background")
+            self.assertEqual(status, 200)
             self.server.backgrounds.next_fetch = 0
             self.assertEqual(self.request("/api/v2/auth/background")[0], 200)
             self.assertEqual(fetch.call_count, 1)
-            self.assertEqual(self.request("/api/v2/auth/background?retry=1")[0], 200)
-            self.assertEqual(fetch.call_count, 2)
-            for _ in range(10): self.assertEqual(self.request("/api/v2/auth/background?retry=1")[0], 200)
+            retry = "/api/v2/auth/background?retry=1"
+            self.assertEqual(self.request(retry)[0], 200)
+            self.assertEqual(fetch.call_count, 1)
+            header = "X-CastoriceUI-Background-Version"
+            status, refreshed, _ = self.request(retry, {header: initial["X-Background-Version"]})
+            self.assertEqual(status, 200)
+            self.assertNotEqual(initial["X-Background-Version"], refreshed["X-Background-Version"])
+            self.server.backgrounds.next_fetch = 0
+            for version in (initial["X-Background-Version"], refreshed["X-Background-Version"]):
+                for _ in range(5):
+                    self.assertEqual(self.request(retry, {header: version})[0], 200)
             self.assertEqual(fetch.call_count, 2)
 
 

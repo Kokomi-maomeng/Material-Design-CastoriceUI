@@ -40,7 +40,7 @@ Hysteria2 and sing-box Secrets belong only in `/etc/castoriceui/config.json`. Th
 
 Dashboard account and subscription payloads are constructed from explicit field allowlists. They exclude password hashes, session values, CSRF values other than the current authenticated session response, upstream Secrets, unknown config fields, raw configs, private keys, and full subscription URLs. Complete subscription URLs are returned only by a separate authenticated endpoint after an explicit copy/QR action.
 
-Authenticated administrators see real configured account names, account email fields, connection source IPs, subscription account labels, audit actors, and audit source IPs so multi-account operations remain identifiable. `redact_live_data` continues to suppress connection destinations in the shared dashboard payload, while complete subscription URLs remain isolated behind the explicit authenticated copy/QR endpoint. Access control, not cosmetic masking, protects operator-only identity data.
+Authenticated administrators see real configured account names, account email fields, connection source IPs, subscription account labels, audit actors, and audit source IPs so multi-account operations remain identifiable. The legacy `redact_live_data` key is accepted for compatibility and has no effect. Connection destinations and complete subscription URLs each require an explicit authenticated request. Access control, not cosmetic masking, protects operator-only identity data.
 
 ## URL, SSRF, command, and file boundaries
 

@@ -16,11 +16,11 @@ Supported server baseline: Debian 12/13, Python 3.11+, Nginx with TLS, systemd, 
 
 ## 1. Obtain and verify the release
 
-Download `CastoriceUI-v6.5.0.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v6.5.0), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
+Download `CastoriceUI-v6.6.0.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v6.6.0), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
 
 ```sh
-tar -xzf CastoriceUI-v6.5.0.tar.gz
-cd CastoriceUI-v6.5.0
+tar -xzf CastoriceUI-v6.6.0.tar.gz
+cd CastoriceUI-v6.6.0
 ```
 
 A source checkout uses an isolated environment. Debian marks its system Python as externally managed; keep pip installation inside the environment ([Debian guidance](https://wiki.debian.org/Python)).
@@ -41,19 +41,15 @@ On Windows PowerShell use `python -m venv ../.castoriceui-venv` and omit apt. Th
 ```sh
 sudo apt-get update
 sudo apt-get install -y python3 python3-yaml nginx openssl iproute2 iputils-ping
-sudo groupadd --system -f proxycert
-getent passwd castoriceui >/dev/null || sudo useradd --system --user-group --home-dir /var/lib/castoriceui --shell /usr/sbin/nologin castoriceui
-sudo usermod -a -G proxycert castoriceui
-sudo install -d -m 0750 -o root -g castoriceui /etc/castoriceui
-sudo install -d -m 0700 -o castoriceui -g castoriceui /var/lib/castoriceui
-sudo install -d -m 0700 -o castoriceui -g castoriceui /var/lib/castoriceui/login-backgrounds
-sudo install -d -m 0755 /opt/castoriceui/releases /var/www/castorice-ui/releases
-sudo install -m 0640 -o root -g castoriceui server/config.example.json /etc/castoriceui/config.json
+python3 -B deploy/prepare-host.py
+sudo python3 -I -B deploy/prepare-host.py --apply
 ```
+
+The preparation command preserves an existing config and verifies its layout. Its default mode prints a read-only JSON plan. Once the site is enabled, run `sudo python3 -I -B deploy/prepare-host.py --check-site` for the combined plan and preflight.
 
 The Debian package supplies a supported PyYAML 6.x parser. Isolated source development can use the pinned `server/requirements.txt`. Install the parser before preflight; the installer does not change system packages.
 
-The protected config must stay under `/etc/castoriceui`. Database, bootstrap and image state must stay under `/var/lib/castoriceui`; paths outside this layout are rejected before switching. Root owns immutable release code. Do not run the backend as root or make the source tree service-writable.
+The protected config must stay under `/etc/castoriceui` with root:castoriceui ownership and modes 0750 for directories and 0640 for the file. The database, sidecars and bootstrap token use mode 0600, and the background directory uses 0700. The state root may be 0750 for the service group. These checks reject symlinks, unexpected ownership and extended ACLs. Database, bootstrap and image state must stay under `/var/lib/castoriceui`; paths outside this layout are rejected before switching. Root owns immutable release code. Do not run the backend as root or make the source tree service-writable.
 
 ## 3. Edit protected configuration
 
@@ -75,7 +71,7 @@ sudo python3 deploy/configure-site.py --config /etc/castoriceui/config.json \
   --output /etc/nginx/sites-available/castoriceui
 ```
 
-Use your actual domain and certificate files locally. The generator refuses overwrites and never enables a site or reloads Nginx. Review the file, link it in `sites-enabled`, and use `https://panel.example.com:2087`. If another site owns HTTP/80, add `--no-http-redirect` and use the HTTPS URL directly. Manually edited sites must update both TLS listeners and HTTP redirect consistently. Verify certificate renewal separately.
+Use your actual domain and certificate files locally. The generator refuses overwrites and never enables a site or reloads Nginx. Review the file, link it in `sites-enabled`, and use `https://panel.example.com:2087`. If another site owns HTTP/80, add `--no-http-redirect` and use the HTTPS URL directly. Use `--listen-family ipv4` or `--listen-family ipv6` for a single address family. Manually edited sites must update the TLS listeners and HTTP redirect consistently. Verify certificate renewal separately.
 
 Give the backend read access to only the intended certificate evidence, for example a root-owned copy of the public leaf certificate under `/etc/castoriceui/tls` with a narrowly scoped renewal hook. Do not broadly change existing proxy key permissions. Nginx certificate access and panel certificate evidence are separate checks.
 
@@ -92,17 +88,19 @@ Preflight is read-only. It checks actual loaded/active required units, optional 
 
 ## 5. Install or upgrade
 
-Before upgrading, record public/loopback health, enabled/active units, live symlink targets and HY2/sing-box/Nginx PIDs. Verify config and SQLite rollback media. The database backup uses SQLite's online backup API rather than copying a live `state.db` independently of WAL/SHM.
+Before upgrading, record public/loopback health, enabled/active units, live symlink targets and HY2/sing-box/Nginx PIDs. Verify config and SQLite rollback media. The SQLite backup runs after the old backend has stopped and includes committed WAL data.
+
+For older release directories, compare both active and rollback files with the corresponding verified archives before changing any permissions. Investigate byte mismatches before trusting the rollback copy. Secure release parents and directories as root with mode 0755, files with mode 0644, and the install wrapper with mode 0755. Preserve unexpected files for inspection outside the release tree. The installer rejects unsafe existing release paths before switching.
 
 ```sh
-sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v6.5.0.tar.gz --config /etc/castoriceui/config.json
+sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v6.6.0.tar.gz --config /etc/castoriceui/config.json
 ```
 
-The installer validates the archive, runs staged backend regressions and preflight, records config/units/site/links and a consistent SQLite backup, then installs into paired unique release directories. It atomically replaces each frontend/backend link. These are separate filesystem operations, so a brief panel-only mismatch can occur during the switch. It restarts only `castoriceui-backend`; proxy-core continuity is checked through PIDs. The probe timer is installed/enabled and runs a read-only inventory probe. Its custom unit/output settings are read from `/etc/castoriceui/protocol-probe.env`; start with [`protocol-probe.env.example`](../deploy/protocol-probe.env.example) when needed.
+The installer verifies archive ownership and modes, performs a staged Python dependency and SQLite check, runs preflight, and prepares paired release directories. During the panel maintenance window it stops and drains the old backend, takes the final rollback snapshot, switches versions and checks new health. Keep the CI acceptance for the candidate source tree and the SHA-256 of the exact archive used in installation tests. It atomically replaces each frontend/backend link. These are separate filesystem operations, so a brief panel-only mismatch can occur during the switch. It restarts only `castoriceui-backend`; proxy-core continuity is checked through PIDs. The probe timer is installed/enabled and runs a read-only inventory probe. Its custom executable, unit and output settings are read from `/etc/castoriceui/protocol-probe.env`; start with [`protocol-probe.env.example`](../deploy/protocol-probe.env.example) when needed.
 
 A fresh backend is enabled for boot. An upgrade preserves the existing backend enable policy; an intentionally disabled service stays disabled. The upgrade starts the panel for acceptance but does not promise it will start after reboot if the operator intentionally disabled it.
 
-Failure produces a retained `/var/backups/castoriceui-v6.5.0-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
+Failure produces a retained `/var/backups/castoriceui-v6.6.0-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
 
 ## 6. Bootstrap and complete first use
 
@@ -126,7 +124,7 @@ Login image recovery uses decoded `blob:` object URLs. The v5.0 template permits
 
 ## 8. Recover and retain evidence
 
-If automatic recovery fails, use the retained `transaction.json`, previous-target files, unit copies, `config.json`, `nginx-site.conf`, consistent `state.db`, staged test log and preflight report. Stop only the panel backend before database restoration. Restore a complete compatible backend/frontend/config/database/unit/site set, reload systemd, restore enable state, validate Nginx and old health, and compare proxy PIDs. Use the SQLite backup API to restore rather than ignoring WAL/SHM or writing into an actively served database.
+If automatic recovery fails, use the retained `transaction.json`, previous-target files, unit copies, `config.json`, `nginx-site.conf`, consistent `state.db`, runtime-check report and preflight report. Stop only the panel backend before database restoration. Restore a complete compatible backend/frontend/config/database/unit/site set, reload systemd, restore enable state, validate Nginx and old health, and compare proxy PIDs. Use the SQLite backup API to restore rather than ignoring WAL/SHM or writing into an actively served database.
 
 Retain the prior release, checksums and rollback directory until acceptance is complete. This panel does not automatically repair operating-system networking, firewall rules, proxy services or external certificates.
 
@@ -135,9 +133,13 @@ Retain the prior release, checksums and rollback directory until acceptance is c
 Deterministic archives normalize file times. Nginx default ETags use timestamp and size, which can collide across different HTML builds. The installer applies `etag off`, `if_modified_since off` and `Cache-Control: no-store` to the HTML fallback location. Hashed assets retain immutable caching. Verify an ordinary existing-browser reload and requests carrying the old ETag or Last-Modified value: each must return the current HTML with HTTP 200. A successful health API response alone does not verify the frontend version.
 
 
+## Audit access logs
+
+The UI sends search text as a POST body. The API logs only the method, path, status and duration. New Nginx sites use the supplied query-free access log format. Custom reverse proxies should log the method and path separately and avoid request bodies, raw request lines and verbose logging for authenticated requests. Review any previously retained logs under your local retention policy.
+
 ## Installer coordination and custom units
 
-The root-owned `/run/lock/castoriceui-install.lock` covers baseline capture, staging, switching, acceptance and rollback. A competing process exits without entering the transaction. Interrupted processes release the kernel lock; review their transaction record before retrying. A unique staging link avoids sharing `current.next`.
+The root-owned `/run/lock/castoriceui-install.lock` covers baseline capture, staging, switching, acceptance and rollback. A competing process exits with `installer_locked` (75). The CLI emits a final JSON result. Common categories include `missing_dependency` (69), `port_conflict` (73), `unsafe_configuration` (78), `installation_failed` (3) and `rollback_failed` (4). Interrupted processes release the kernel lock; review their transaction record before retrying. A unique staging link avoids sharing `current.next`.
 
 `hysteria_unit`, `singbox_unit` and `nginx_unit` supply continuity checks and the Nginx reload target. Configured loaded core units receive read-only lifecycle hooks for their next natural start. The event helper accepts only units in root-protected `/etc/castoriceui/core-event-units.json`. Do not restart cores just to populate evidence.
 

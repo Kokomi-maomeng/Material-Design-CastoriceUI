@@ -156,7 +156,7 @@ class NetworkSamplingTests(unittest.TestCase):
         target = {"name": "Test", "address": "1.1.1.1"}
         with self.assertRaises(ValueError):
             self.dashboard.update_network_targets([target], "127.0.0.1", "qa", {"latencyMs": float("nan"), "lossPercent": 8})
-        with patch.object(self.storage, "set_settings", side_effect=OSError("synthetic write failure")):
+        with patch.object(self.storage, "edit_settings", side_effect=OSError("synthetic write failure")):
             with self.assertRaises(OSError):
                 self.dashboard.update_network_targets([target], "127.0.0.1", "qa", {"latencyMs": 200, "lossPercent": 8})
         self.assertEqual((self.config.network_targets, self.config.alert_thresholds), original)

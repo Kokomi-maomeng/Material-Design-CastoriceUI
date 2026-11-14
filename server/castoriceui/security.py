@@ -4,7 +4,6 @@ import http.client
 import base64
 import binascii
 import ipaddress
-import json
 import re
 import secrets
 import socket
@@ -18,6 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from . import __version__
+from .bounded_json import loads as load_json
 
 
 _HOST_LABEL = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$")
@@ -54,6 +54,11 @@ def normalize_loopback_endpoint(value: str) -> str:
         raise ValueError("Endpoint must be an http(s) URL")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("Endpoint must not contain credentials, a query, or a fragment")
+    try:
+        if parsed.netloc.endswith(":") or parsed.port == 0:
+            raise ValueError
+    except ValueError as error:
+        raise ValueError("Management endpoint port must be between 1 and 65535") from error
     host = parsed.hostname.rstrip(".").lower()
     if host != "localhost":
         try:
@@ -83,7 +88,7 @@ def normalize_subscription_url(value: str) -> str:
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ValueError("Subscription URL must use HTTPS without credentials or a fragment")
     try:
-        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+        if parsed.netloc.endswith(":") or parsed.port == 0:
             raise ValueError
     except ValueError as error:
         raise ValueError("Subscription URL contains an invalid port") from error
@@ -160,11 +165,14 @@ def _valid_proxy_uri(candidate: str) -> bool:
     if protocol == "vmess":
         try:
             raw = remainder.split("#", 1)[0].split("?", 1)[0]
-            node = json.loads(_decode_base64_text(raw))
-        except (binascii.Error, UnicodeError, json.JSONDecodeError, ValueError):
+            node = load_json(_decode_base64_text(raw))
+        except ValueError:
             return False
         return isinstance(node, dict) and _valid_node_host(node.get("add")) and _valid_node_port(node.get("port")) and bool(str(node.get("id", "")).strip()) and bool(str(node.get("net", "")).strip())
-    parsed = urlsplit(candidate)
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return False
     if not _valid_node_host(parsed.hostname):
         if protocol not in {"ss", "shadowsocks"}:
             return False
@@ -197,27 +205,31 @@ def _parse_subscription(body: bytes, content_type: str, depth: int = 0) -> dict[
     lowered = text[:512].casefold()
     if "html" in content_type or lowered.startswith(("<!doctype html", "<html", "<head", "<body")):
         raise ValueError("Subscription publisher returned HTML instead of a subscription")
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
+    if text.startswith(("{", "[")) or "json" in content_type:
+        payload = load_json(text)
+        if not isinstance(payload, dict):
+            raise ValueError("Subscription JSON must be an object")
+    else:
         payload = None
     if isinstance(payload, dict):
         if isinstance(payload.get("proxies"), list):
             valid = [item for item in payload["proxies"] if isinstance(item, dict) and item.get("name") and _valid_structured_node(item)]
             if valid:
-                return {"format": "clash-json", "nodeCount": len(valid)}
+                return {"format": "clash-json", "nodeCount": len(valid), "invalidNodeCount": len(payload["proxies"]) - len(valid)}
         if isinstance(payload.get("outbounds"), list):
             valid = [item for item in payload["outbounds"] if _valid_structured_node(item, singbox=True)]
             if valid:
-                return {"format": "sing-box-json", "nodeCount": len(valid)}
+                return {"format": "sing-box-json", "nodeCount": len(valid), "invalidNodeCount": len(payload["outbounds"]) - len(valid)}
         raise ValueError("Subscription response contains no valid proxy node")
-    uri_count = 0
+    uri_count = invalid_count = 0
     for line in text.splitlines():
         candidate = line.strip()
         if _valid_proxy_uri(candidate):
             uri_count += 1
+        elif candidate and not candidate.startswith("#"):
+            invalid_count += 1
     if uri_count:
-        return {"format": "uri-list", "nodeCount": uri_count}
+        return {"format": "uri-list", "nodeCount": uri_count, "invalidNodeCount": invalid_count}
     if re.search(r"(?m)^\s*proxies\s*:", text):
         try:
             payload = yaml.load(text, Loader=_SubscriptionLoader)
@@ -228,13 +240,13 @@ def _parse_subscription(body: bytes, content_type: str, depth: int = 0) -> dict[
             raise ValueError("Subscription YAML must contain at most 2048 proxy nodes")
         valid = [item for item in nodes if isinstance(item, dict) and item.get("name") and _valid_structured_node(item)]
         if valid:
-            return {"format": "clash-yaml", "nodeCount": len(valid)}
+            return {"format": "clash-yaml", "nodeCount": len(valid), "invalidNodeCount": len(nodes) - len(valid)}
     try:
         compact = "".join(text.split())
         decoded = base64.b64decode(compact + "=" * (-len(compact) % 4), validate=True)
         if decoded and decoded != body:
             parsed = _parse_subscription(decoded, "text/plain", depth + 1)
-            return {"format": f"base64-{parsed['format']}", "nodeCount": int(parsed["nodeCount"])}
+            return {**parsed, "format": f"base64-{parsed['format']}"}
     except (binascii.Error, UnicodeError, ValueError):
         pass
     raise ValueError("Subscription response contains no valid proxy node")
@@ -328,8 +340,15 @@ def _require_public_host(host: str, port: int = 443) -> list[str]:
             addresses = list(dict.fromkeys(ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)))
         except (OSError, ValueError) as error:
             raise ValueError("Background image host cannot be resolved") from error
-    if not addresses or any(not address.is_global for address in addresses):
-        raise ValueError("Background image host must resolve only to public IP addresses")
+    def public_unicast(address: Any) -> bool:
+        mapped = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) else None
+        address = mapped or address
+        return address.is_global and not (
+            address.is_multicast or address.is_reserved or address.is_unspecified
+            or address.is_loopback or address.is_link_local or getattr(address, "scope_id", None)
+        )
+    if not addresses or not all(map(public_unicast, addresses)):
+        raise ValueError("Public fetch hosts must resolve only to public IP addresses that are unicast")
     return [str(address) for address in addresses]
 
 
@@ -509,9 +528,9 @@ def fetch_https_image_api(value: str, allowed_hosts: list[str] | None = None, ma
             if len(body) > 64 * 1024:
                 raise ValueError("Background API JSON response exceeds 64 KiB")
             try:
-                payload = json.loads(body)
+                payload = load_json(body)
                 candidate = next(str(payload[key]) for key in ("url", "image", "imageUrl", "image_url") if isinstance(payload, dict) and payload.get(key))
-            except (json.JSONDecodeError, StopIteration, TypeError, ValueError) as error:
+            except (StopIteration, TypeError, ValueError) as error:
                 raise ValueError("Background API JSON must contain url, image, imageUrl, or image_url") from error
             current = normalize_https_image_url(candidate, allowed_hosts)
             continue

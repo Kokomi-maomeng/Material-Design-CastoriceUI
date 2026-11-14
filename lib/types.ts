@@ -17,10 +17,11 @@ export interface Account {
   coreEvidence: "observed" | "notObserved" | "unavailable" | "unknown";
   protocols: Protocol[];
   usedBytes: number;
-  usageSource: "protocolCounter" | "unmapped";
+  usageSource: "protocolCounter" | "unmapped" | "notObserved" | "unavailable";
   quotaBytes: number;
   expiresAt: string;
   onlineDevices: number;
+  onlineEvidence?: boolean;
 }
 
 export interface Connection {
@@ -160,6 +161,10 @@ export interface IntegrationStatus {
   configured: boolean;
   status: "ready" | "partial" | "pending" | "preview" | "error";
   sources?: { id: string; status: "ready" | "error" }[];
+  subscriptionValidation?: {
+    temporary: { nodeCount: number; invalidNodeCount: number } | null;
+    protected: { configured: boolean; parseable: number; count: number; nodeCount?: number; invalidNodeCount?: number };
+  };
   summary: string;
   summaryZh?: string;
   summaryEn?: string;
@@ -187,6 +192,7 @@ export interface OverviewMetrics {
   trafficQuotaUnit: "GB";
   trafficQuota?: TrafficQuotaSettings;
   trafficCoverage?: TrafficCoverage;
+  trafficQuotaAvailable?: boolean;
   downloadBps: number;
   uploadBps: number;
   interface: string;
@@ -238,6 +244,9 @@ export interface DashboardPayload {
     protocol: TrafficBreakdown[];
     account: TrafficBreakdown[];
     coverage?: TrafficCoverage;
+    recentUsage?: { usedBytes: number; coverage: TrafficCoverage } | null;
+    countMode?: "sum" | "max";
+    unassignedAccountBytes?: number | null;
   };
   subscriptions: Subscription[];
   networkTargets: NetworkTarget[];
@@ -262,7 +271,7 @@ export interface UiSettings {
   visiblePanels: PageId[];
   panelTitle: string;
   idleTimeoutMinutes: 2 | 5 | 10 | 15 | 20 | 30;
-  auditRetentionDays: 30 | 60 | 90 | 120 | 150 | 180 | 365;
+  auditRetentionDays: number;
 }
 
 export interface LoginAppearance {

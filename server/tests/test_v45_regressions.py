@@ -150,7 +150,7 @@ class AuditRegressions(unittest.TestCase):
         self.start_api()
         self.initialize()
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
-        connection.request("POST", "/api/v2/auth/login", headers={"Content-Length": "-1"})
+        connection.request("POST", "/api/v2/auth/login", headers={"Content-Length": "-1", "Content-Type": "application/json", "X-CastoriceUI-Request": "1"})
         response = connection.getresponse()
         self.assertEqual(response.status, 400)
         response.read(); connection.close()
@@ -254,7 +254,8 @@ class AuditRegressions(unittest.TestCase):
                 return malformed if url.endswith("/traffic") else {} if url.endswith("/online") else {"streams": []}
             with patch("castoriceui.collectors.http_json", side_effect=fake):
                 value = hysteria_snapshot(self.config)
-            self.assertFalse(value["available"])
+            self.assertTrue(value["available"])
+            self.assertFalse(value["endpointStatus"]["traffic"])
             self.assertEqual(value["traffic"], {})
         self.config.singbox_api = {"url": "http://127.0.0.1:9091"}
         for malformed in ({"metadata": [], "upload": 0}, {"metadata": {}, "upload": "bad"}):

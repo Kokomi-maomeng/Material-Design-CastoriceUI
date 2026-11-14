@@ -26,7 +26,7 @@ function compareExpiry(left: Account, right: Account, direction: number) {
   return (a - b) * direction;
 }
 
-export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = [], integration, onConfigure, onToast = () => undefined }: { accounts: Account[]; unattributedBytes?: number; subscriptions?: Subscription[]; integration?: IntegrationStatus; onConfigure: () => void; onToast?: (message: string) => void }) {
+export function AccountsPage({ accounts, unattributedBytes = null, subscriptions = [], integration, onConfigure, onToast = () => undefined }: { accounts: Account[]; unattributedBytes?: number | null; subscriptions?: Subscription[]; integration?: IntegrationStatus; onConfigure: () => void; onToast?: (message: string) => void }) {
   const { language, t } = useI18n();
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -112,7 +112,7 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
             <td><div className="account-cell"><span className="avatar avatar--small"><Icon name="data_usage" size={18} /></span><span><strong>{t("未归属", "Unattributed")}</strong></span></div></td>
             <td className="account-unattributed__blank" />
             <td className="account-unattributed__blank" />
-            <td data-label={t("累计流量", "Cumulative traffic")}><div className="quota-cell"><div><span>{formatDecimalBytes(unattributedBytes)}</span></div></div></td>
+            <td data-label={t("累计流量", "Cumulative traffic")}><div className="quota-cell"><div><span>{unattributedBytes === null ? "—" : formatDecimalBytes(unattributedBytes)}</span><small>{t("未匹配账号的 HY2 核心累计", "Unmapped HY2 core counters")}</small></div></div></td>
             <td className="account-unattributed__blank" />
           </tr>
         </tbody>
@@ -122,7 +122,7 @@ export function AccountsPage({ accounts, unattributedBytes = 0, subscriptions = 
             <td data-label={t("账号", "Account")}><button className="account-cell account-subscription-trigger" onClick={() => { setSelectedId(account.id); setSubscriptionOpen(true); }} aria-label={t(`查看 ${account.name} 的订阅`, `View ${account.name} subscriptions`)} aria-haspopup="dialog"><span className="avatar avatar--small">{account.name.slice(0, 1).toUpperCase()}</span><span><strong>{account.name}</strong><span>{account.email}</span></span><Icon name="chevron_right" size={20} /></button></td>
             <td data-label={t("账号状态", "Account status")}><StatusChips account={account} /></td>
             <td data-label={t("协议", "Protocols")}><div className="protocol-list">{account.protocols.map((protocol) => <Chip staticChip key={protocol}>{protocol}</Chip>)}</div></td>
-            <td data-label={t("累计流量", "Cumulative traffic")}><div className="quota-cell"><div><span>{formatDecimalBytes(account.usedBytes)}</span>{account.usageSource !== "protocolCounter" ? <small>{t("尚未映射协议身份", "No protocol identity mapping")}</small> : null}</div></div></td>
+            <td data-label={t("累计流量", "Cumulative traffic")}><div className="quota-cell"><div><span>{account.usageSource === "protocolCounter" ? formatDecimalBytes(account.usedBytes) : "—"}</span>{account.usageSource === "unmapped" ? <small>{t("尚未映射协议身份", "No protocol identity mapping")}</small> : account.usageSource === "notObserved" ? <small>{t("尚无流量观测", "No traffic observed")}</small> : account.usageSource === "unavailable" ? <small>{t("流量证据不可用", "Traffic evidence unavailable")}</small> : null}</div></div></td>
             <td data-label={t("到期时间", "Expires")}><span className={account.expiryStatus === "expiring" || account.expiryStatus === "expired" ? "text-warning" : ""}>{account.expiresAt ? formatDate(account.expiresAt, language) : t("未登记", "Not registered")}</span></td>
           </tr>;
         })}{filtered.length === 0 ? <tr><td colSpan={5}><span role="status">{t("没有符合条件的账号。", "No matching accounts.")}</span></td></tr> : null}</tbody>
@@ -153,9 +153,12 @@ function AccountSortHeader({ label, action, direction, onClick }: { label: strin
 
 function StatusChips({ account }: { account: Account }) {
   const { t } = useI18n();
+  const observed = account.onlineEvidence === false
+    ? t("核心观测到身份 · 在线数未知", "Identity observed · online count unavailable")
+    : t(`核心观测到身份 · 在线数 ${account.onlineDevices}`, `Identity observed by core · online ${account.onlineDevices}`);
   return <div className="protocol-list">
     <Chip staticChip tone={account.configuredStatus === "disabled" ? "default" : account.configuredStatus === "active" ? "info" : "warning"} icon={account.configuredStatus === "disabled" ? "pause_circle" : "settings"}>{account.configuredStatus === "disabled" ? t("账号禁用", "Account disabled") : account.configuredStatus === "active" ? t("账号启用", "Account enabled") : t("账号状态未知", "Account status unknown")}</Chip>
     {account.expiryStatus === "expired" ? <Chip staticChip tone="danger" icon="event_busy">{t("登记日期已过期", "Recorded date expired")}</Chip> : account.expiryStatus === "expiring" ? <Chip staticChip tone="warning" icon="schedule">{t("登记日期临期", "Recorded date expiring")}</Chip> : null}
-    <Chip staticChip tone={account.coreEvidence === "observed" ? "success" : "default"} icon={account.coreEvidence === "observed" ? "visibility" : "help"}>{account.coreEvidence === "observed" ? t(`核心观测到身份 · 在线数 ${account.onlineDevices}`, `Identity observed by core · online ${account.onlineDevices}`) : account.coreEvidence === "notObserved" ? t("核心当前未观测到身份", "Identity not currently observed") : account.coreEvidence === "unavailable" ? t("核心证据不可用", "Core evidence unavailable") : t("未配置身份映射", "No identity mapping")}</Chip>
+    <Chip staticChip tone={account.coreEvidence === "observed" ? "success" : "default"} icon={account.coreEvidence === "observed" ? "visibility" : "help"}>{account.coreEvidence === "observed" ? observed : account.coreEvidence === "notObserved" ? t("核心当前未观测到身份", "Identity not currently observed") : account.coreEvidence === "unavailable" ? t("核心证据不可用", "Core evidence unavailable") : t("未配置身份映射", "No identity mapping")}</Chip>
   </div>;
 }

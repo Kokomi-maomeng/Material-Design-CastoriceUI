@@ -24,7 +24,7 @@ Public, intentionally credential-free endpoints:
 | GET | `/api/v2/bootstrap` | Whether the first administrator is required and the configured login background |
 | GET | `/api/v2/auth/background` | Validated server-hosted login image, when configured |
 | POST | `/api/v2/auth/initialize` | Create the first administrator using the one-time Bootstrap Token |
-| POST | `/api/v2/auth/login` | Start an application session |
+| POST | `/api/v2/auth/login` | Start an application session using guarded JSON |
 
 Authenticated endpoints:
 
@@ -37,10 +37,12 @@ Authenticated endpoints:
 | GET | `/api/v2/dashboard` | Bounded real/stale operational snapshot |
 | GET | `/api/v2/alerts` | Filter and paginate current and historical alert episodes |
 | POST | `/api/v2/alerts/ack-all` | Acknowledge all pending episodes |
+| POST | `/api/v2/network/alerts/ack-all` | Acknowledge only pending network episodes and return updated counts |
 | GET | `/api/v2/monitoring` | Freshness, service, maintenance and resource evidence |
 | GET | `/api/v2/network/:id/history` | Measured network history for the requested family/time range |
 | GET | `/api/v2/network` | Authenticated, cached live network targets; does not trigger probes |
-| GET | `/api/v2/audits` | Server-filtered audit records with bounded 30/50-row pagination |
+| GET | `/api/v2/audits` | Audit records with bounded 30/50-row pagination and optional category |
+| POST | `/api/v2/audits/search` | Authenticated audit search with page, pageSize, search and category in the JSON body |
 | PUT | `/api/v2/settings/traffic-limit` | Update the single quota shared by Overview and Accounts |
 | PUT | `/api/v2/integrations/:id` | Validate and persist an integration override |
 | PUT | `/api/v2/settings/network-targets` | Replace validated name/address/order probe targets |
@@ -55,7 +57,7 @@ All authenticated mutations require both the session CSRF token and `X-Castorice
 
 Account management opens subscription details for records whose protected `account` matches the managed account ID, name or nonempty email. Dashboard metadata contains no full URLs. Opening the card explicitly fetches the URL; closing or switching accounts aborts pending reads. Copying client links wraps this HTTPS URL as `clash://install-config` or `shadowrocket://add/sub://` with standard UTF-8 Base64 and an encoded display name. It does not convert the publisher format or contact third parties.
 
-`PUT /api/v2/settings/ui` accepts `auditRetentionDays` as an integer from 30, 60, 90, 120, 150, 180 or 365. Security settings default to 180 days. The saved value overrides the deployment default, survives restarts, and prunes expired audit records immediately after a settings update, at startup, on audit reads/writes and hourly. Removing the former subscription navigation preference preserves all other settings and protected records.
+`PUT /api/v2/settings/ui` accepts `auditRetentionDays` as an integer from 7 to 3650. Security settings provide presets and accept custom days. The default is 180 days unless specified in protected config. A saved override survives restart and takes precedence. Expired rows are pruned on relevant writes, audit reads, startup and hourly maintenance.
 
 ## Hysteria2
 
@@ -168,7 +170,7 @@ Sign-in entry, browser reload and logout request `/api/v2/auth/background?profil
 
 Each profile retains its own successful-fetch timestamp. A positive duration returns that image until expiry; expiry does not run a timer or clear an image. The next entry after expiry requests a replacement. Zero requests a replacement on each entry, subject to global protective limits. API sources can optionally contain `{width}` and `{height}` placeholders, replaced with canonical dimensions. Public providers receive fixed coarse Mobile/portrait or Desktop/landscape hints and canonical width headers; automatic adaptation still depends on the provider supporting those hints or URL parameters.
 
-One upstream chain runs at a time; at most 12 starts per rolling 60s, at least 1s between starts, with a reserved 90 MB image-response budget per rolling 60s. Failed transfers reserve 30 MB conservatively; JSON/redirect envelopes are separately bounded to 64 KiB. A chain has a 15s total deadline and at most five hops. Last successful files are returned on failure/throttling with `X-Background-Stale: 1` and `Retry-After`; a cold unavailable profile returns 503 and `Retry-After`. Server responses use `no-store` so ordinary and forced reloads respect this lifecycle. A browser decode failure can request `retry=1` to bypass a corrupt image's TTL while retaining all global limits.
+One upstream chain runs at a time; at most 12 starts per rolling 60s, at least 1s between starts, with a reserved 90 MB image-response budget per rolling 60s. Failed transfers reserve 30 MB conservatively; JSON/redirect envelopes are separately bounded to 64 KiB. A chain has a 15s total deadline and at most five hops. Last successful files are returned on failure/throttling with `X-Background-Stale: 1` and `Retry-After`; a cold unavailable profile returns 503 and `Retry-After`. Server responses use `no-store` so ordinary and forced reloads respect this lifecycle. A browser decode failure can request `retry=1` with `X-CastoriceUI-Background-Version` set to the returned `X-Background-Version`. It can refresh the current generation once per cache profile and cooldown. All global limits still apply.
 
 The browser decodes before replacing an image, retains the previous successful image in bounded Cache Storage, and makes at most two retries per entry. Background fetch uses `credentials: omit`; application authentication cookies remain part of the separate login/session mechanism. The server keeps at most eight files, 30 MB each, next to the configured database, plus one temporary download; bodies stream to clients in 64 KiB chunks. The browser keeps at most three image variants (90 MB) and one in-memory fallback. Disabled/unavailable Cache Storage falls back to current-tab memory and server files. These limits protect the background fetcher; they are not a claim of infrastructure-wide DDoS protection.
 
@@ -197,6 +199,12 @@ Authenticated route: `/api/v2/connections/targets`.
 `GET /api/v2/connections/targets` requires the existing administrator session. It returns cached destination identifiers and domain/IP plus port for live sources. The response includes `sampledAt`, a list of responding `sources`, and `available` to indicate whether a source responded. A responding source can have zero flows. Transport data uses `[address]:port` for IPv6. The page displays the address without brackets and shows the port separately. Copy buttons copy the address. An unauthenticated request returns 401. All responses use no-store.
 
 The normal dashboard omits destinations. Traffic analytics requests them when the administrator expands a connection group or filters by address or port. Only expanded groups display details. The page clears the destination cache when the details and address filters are no longer in use. A confirmed closure retains a displayed row for 30 seconds. Rate totals use all listed connection samples and stay independent of filters. Destination values stay in memory and are excluded from preferences, connection history, audit logs and exports.
+
+For login or initialization, send `Content-Type: application/json` and `X-CastoriceUI-Request: 1`. Browser requests must be same-origin, including the HTTPS port. A local CLI may omit Origin and Fetch Metadata. An authenticated audit search also needs the session's CSRF token. Do not put search text in the URL.
+
+Use unique account and subscription IDs consisting of 1–160 ASCII letters, digits, hyphens or underscores. Older missing or unsafe IDs are derived deterministically during config load. Set explicit IDs when two legacy records are ambiguous. Each Hysteria2 identity can be mapped once. Traffic, online counts and streams remain usable independently when other endpoints fail. Temporary subscription checks and protected-record checks have separate results within one request budget, including counts of parsed nodes and skipped invalid records.
+
+Daily and monthly quota boundaries are resolved in UTC. A repeated wall-clock time uses its first occurrence. A missing local time moves forward by the daylight-saving gap. The 24-hour and calendar-month interface usage use the same sum or larger-direction mode as the quota. Core counters can reset independently and have no interface billing period.
 
 Hysteria2 `/online` reports client instances while `/dump/streams` reports TCP streams. The latter does not expose source addresses. Event-log peer addresses cannot safely be assigned to a stream when client/session identifiers are absent; the UI does not infer these associations. See the [upstream statistics API](https://v2.hysteria.network/docs/advanced/Traffic-Stats-API/) and the [sing-box serialization](https://github.com/SagerNet/sing-box/blob/v1.13.19/experimental/clashapi/trafficontrol/tracker.go).
 

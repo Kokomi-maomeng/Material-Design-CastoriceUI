@@ -14,7 +14,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVER_ROOT))
@@ -304,7 +304,7 @@ class BackendTests(unittest.TestCase):
 
         with patch("castoriceui.collectors.http_json", side_effect=response):
             snapshot = hysteria_snapshot(config)
-        self.assertFalse(snapshot["available"])
+        self.assertTrue(snapshot["available"])
         self.assertEqual(snapshot["endpointStatus"], {"traffic": True, "online": True, "streams": False})
 
     def test_runtime_integration_status_separates_config_from_health(self) -> None:
@@ -345,7 +345,7 @@ class BackendTests(unittest.TestCase):
                 result = dashboard.configure_integration("subscriptions", {"values": {}})
             self.assertTrue(result["configured"])
             self.assertNotIn("values", result)
-            probe.assert_called_once_with("https://example.test/subscription", force=True)
+            probe.assert_called_once_with("https://example.test/subscription", force=True, deadline=ANY)
 
     def test_config_merges_safe_integration_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -607,13 +607,13 @@ class BackendTests(unittest.TestCase):
             config.hysteria_api = {"url": "http://127.0.0.1:19090", "secret": "unit-test-secret"}
             storage = Storage(config.database_path)
             dashboard = DashboardService(config, storage)
-            with patch("castoriceui.dashboard.http_json", return_value={}) as probe:
+            with patch("castoriceui.dashboard.http_json", side_effect=lambda url, _: {"streams": []} if url.endswith("/dump/streams") else {}) as probe:
                 result = dashboard.configure_integration("hysteria2", {"enabled": True, "values": {"endpoint": "http://127.0.0.1:19090", "secret": "must-be-ignored"}})
             self.assertTrue(result["configured"])
-            self.assertEqual(probe.call_args_list, [
-                call("http://127.0.0.1:19090/traffic", "unit-test-secret", strict=True),
-                call("http://127.0.0.1:19090/online", "unit-test-secret", strict=True),
-                call("http://127.0.0.1:19090/dump/streams", "unit-test-secret", strict=True),
+            self.assertCountEqual(probe.call_args_list, [
+                call("http://127.0.0.1:19090/traffic", "unit-test-secret"),
+                call("http://127.0.0.1:19090/online", "unit-test-secret"),
+                call("http://127.0.0.1:19090/dump/streams", "unit-test-secret"),
             ])
             self.assertNotIn("secret", json.dumps(result))
             self.assertNotIn("secret", json.dumps(storage.get_setting("integration_overrides", {})))
@@ -626,7 +626,7 @@ class BackendTests(unittest.TestCase):
             storage = Storage(config.database_path)
             dashboard = DashboardService(config, storage)
             responses = [{"user": {"tx": 1, "rx": 2}}, {"user": 1}, {"streams": []}]
-            with patch("castoriceui.dashboard.http_json", side_effect=responses):
+            with patch("castoriceui.dashboard.http_json", side_effect=lambda url, _: responses[2 if url.endswith("/dump/streams") else 1 if url.endswith("/online") else 0]):
                 dashboard.configure_integration("hysteria2", {"values": {"endpoint": "http://127.0.0.1:19090", "identityMappings": "primary=user"}})
             self.assertEqual(config.managed_accounts[0]["trafficIdentities"], {"hysteria2": ["user"]})
             saved = storage.get_setting("integration_overrides", {})["hysteria2"]
@@ -810,7 +810,7 @@ class BackendTests(unittest.TestCase):
 
             def call(path: str, method: str = "GET", payload: dict[str, object] | None = None, headers: dict[str, str] | None = None) -> tuple[int, dict[str, object]]:
                 data = json.dumps(payload).encode() if payload is not None else None
-                request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}{path}", data=data, method=method, headers={"Content-Type": "application/json", **(headers or {})})
+                request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}{path}", data=data, method=method, headers={"Content-Type": "application/json", **({"X-CastoriceUI-Request": "1"} if path in {"/api/v2/auth/initialize", "/api/v2/auth/login"} else {}), **(headers or {})})
                 try:
                     with opener.open(request, timeout=5) as response:
                         return response.status, json.loads(response.read())
@@ -855,15 +855,15 @@ class BackendTests(unittest.TestCase):
                 self.assertEqual(settings["idleTimeoutMinutes"], 10)
                 self.assertFalse(settings["showSetup"])
                 self.assertEqual(settings["auditRetentionDays"], 180)
-                for days in (30, 60, 90, 120, 150, 180, 365):
+                for days in (7, 30, 60, 90, 120, 150, 180, 365, 3650):
                     status, settings = call("/api/v2/settings/ui", "PUT", {"auditRetentionDays": days}, guard)
                     self.assertEqual(status, 200)
                     self.assertEqual(settings["auditRetentionDays"], days)
                     self.assertEqual(storage.audit_retention(), days)
-                for invalid_days in (True, "30", 0, 29, 181, 366, 30.5):
+                for invalid_days in (True, "30", 0, 6, 3651, 30.5):
                     status, _ = call("/api/v2/settings/ui", "PUT", {"auditRetentionDays": invalid_days}, guard)
                     self.assertEqual(status, 400)
-                    self.assertEqual(storage.audit_retention(), 365)
+                    self.assertEqual(storage.audit_retention(), 3650)
                 status, _ = call("/api/v2/settings/ui", "PUT", {"idleTimeoutMinutes": 3}, guard)
                 self.assertEqual(status, 400)
                 user_id, _ = storage.authenticate("operator", "Valid-Password-123") or (0, "")
@@ -917,7 +917,7 @@ class BackendTests(unittest.TestCase):
         thread.start()
         try:
             base = f"http://127.0.0.1:{server.server_port}"
-            self.assertEqual(http_json(base + "/traffic", "unit-test-secret", strict=True), {})
+            self.assertEqual(http_json(base + "/traffic", "unit-test-secret"), {})
             with self.assertRaisesRegex(ValueError, "validation failed"):
                 http_json(base + "/redirect", strict=True)
         finally:

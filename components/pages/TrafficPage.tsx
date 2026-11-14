@@ -19,9 +19,16 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
   const { language, t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
   const [expanded, setExpanded] = useState(true);
-  const hourlyTraffic = traffic.ranges?.["24h"] ?? traffic.hourly;
   const currentMonth = traffic.monthly.at(-1);
   const coverage = currentMonth?.coverage;
+  const recent = traffic.recentUsage;
+  const mode = traffic.countMode === "max" ? t("取较大方向", "larger direction") : t("双向求和", "RX + TX");
+  const covered = (item?: { firstSampleAt?: number | null }) => item?.firstSampleAt !== null;
+  const connections = activity?.connections ?? [];
+  const rateKnown = connections.reduce((count, item) => count + (item.rateCoverage?.known ?? (item.uploadBps != null ? item.connections : 0)), 0);
+  const rateTotal = connections.reduce((count, item) => count + (item.rateCoverage?.total ?? item.connections), 0);
+  const rateCoverage = { title: t("连接速率覆盖", "Connection rate coverage"),
+    description: t(`已列出 ${rateTotal} 条连接，${activity?.stale ? 0 : rateKnown} 条有连续样本。`, `${activity?.stale ? 0 : rateKnown} of ${rateTotal} listed connections have consecutive samples.`) };
   const selectedTraffic = (traffic.ranges?.[range] ?? []).map((item) => ({ ...item, upload: item.upload / 1_000_000_000, download: item.download / 1_000_000_000 }));
   const monthlyMax = Math.max(0, ...traffic.monthly.map((item) => item.bytes));
   const formatPeriod = (start: string, end: string) => language === "zh"
@@ -32,18 +39,20 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
     <PageHeader eyebrow={t("连接与用量", "Connections and usage")} title={t("流量分析", "Traffic analytics")} />
     <IntegrationGate status={integration} name="流量采集" nameEn="Traffic collection" description="配置主网卡与流量额度后，才能统计真实用量。" descriptionEn="Configure the primary interface and traffic quota to measure real usage." onConfigure={onConfigure} />
     <section className="traffic-kpis">
-      <Kpi label={t("近 24h 用量", "Last 24h usage")} value={formatDecimalBytes(hourlyTraffic.reduce((sum, item) => sum + item.upload + item.download, 0))} icon="today" />
+      <Kpi label={t(`近 24h 网卡用量 · ${mode}`, `Last 24h interface usage · ${mode}`)}
+        value={recent && covered(recent.coverage) ? formatDecimalBytes(recent.usedBytes) : "—"} icon="today"
+        coverage={recent && !recent.coverage.complete ? { title: t("统计覆盖不完整", "Measurement coverage is incomplete"), description: t("只统计有采样证据的网卡增量。", "Only measured interface deltas are included.") } : undefined} />
       <Kpi
         label={t("本月网卡已测用量", "Measured interface usage this month")}
-        value={currentMonth ? formatDecimalBytes(currentMonth.bytes) : "—"}
+        value={currentMonth && covered(coverage) ? formatDecimalBytes(currentMonth.bytes) : "—"}
         icon="calendar_month"
         coverage={coverage && !coverage.complete ? {
           title: t("统计覆盖不完整", "Measurement coverage is incomplete"),
           description: t(`已计入可确认的重置后计数，存在 ${coverage.gapCount} 个采集间隙。`, `Known post-reset counters are included. There are ${coverage.gapCount} collection gaps.`),
         } : undefined}
       />
-      <Kpi label={t("总上传(TX)", "Total upload (TX)")} value={connectionRate(listedRate(activity?.connections ?? [], "uploadBps"), activity?.stale)} icon="north" />
-      <Kpi label={t("总下载(RX)", "Total download (RX)")} value={connectionRate(listedRate(activity?.connections ?? [], "downloadBps"), activity?.stale)} icon="south" />
+      <Kpi label={t("已列连接上传速率", "Listed connection upload rate")} value={connectionRate(listedRate(connections, "uploadBps"), activity?.stale)} icon="north" coverage={rateCoverage} />
+      <Kpi label={t("已列连接下载速率", "Listed connection download rate")} value={connectionRate(listedRate(connections, "downloadBps"), activity?.stale)} icon="south" coverage={rateCoverage} />
     </section>
     <TrafficSection className="traffic-analysis" title={t("用量明细", "Usage details")} expanded={expanded} onToggle={() => setExpanded((value) => !value)}>
         <div className="traffic-analysis__grid">
@@ -53,25 +62,27 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
             <TrafficChart data={selectedTraffic} />
           </Card>
           <Card variant="filled" className="monthly-traffic-panel">
-            <CardHeader title={t("近期月流量", "Recent monthly traffic")} />
+            <CardHeader title={t("近期月流量", "Recent monthly traffic")} description={mode} />
             <div className="monthly-traffic-list">
               {traffic.monthly.map((item) => {
                 const period = formatPeriod(item.startDate, item.endDate);
-                const usage = `${(item.bytes / 1_000_000_000).toFixed(1)} GB`;
+                const measured = covered(item.coverage);
+                const usage = measured ? `${(item.bytes / 1_000_000_000).toFixed(1)} GB` : t("无采样", "No samples");
                 const width = monthlyMax > 0 ? (item.bytes / monthlyMax) * 100 : 0;
                 return <div className="monthly-traffic-row" key={item.startDate}>
                   <time dateTime={item.startDate}>{period}</time>
                   <strong>{usage}</strong>
-                  <div className="monthly-traffic-track" role="meter" aria-label={t(`${period} 流量`, `${period} traffic`)} aria-valuemin={0} aria-valuemax={monthlyMax || 1} aria-valuenow={item.bytes} aria-valuetext={usage}>
+                  {measured ? <div className="monthly-traffic-track" role="meter" aria-label={t(`${period} 流量`, `${period} traffic`)} aria-valuemin={0} aria-valuemax={monthlyMax || 1} aria-valuenow={item.bytes} aria-valuetext={usage}>
                     <span style={{ width: `${width}%`, minWidth: item.bytes > 0 ? 3 : 0 }} />
-                  </div>
+                  </div> : <div className="monthly-traffic-track" aria-hidden="true" />}
                 </div>;
               })}
               {!traffic.monthly.length ? <p className="muted">{t("暂无月流量记录", "No monthly traffic records yet")}</p> : null}
             </div>
           </Card>
           <Card variant="filled" className="protocol-panel">
-            <CardHeader title={t("协议分布", "Protocol distribution")} />
+            <CardHeader title={t("协议核心累计", "Protocol core counters")}
+              description={t("核心各自累计、可重置，不对应网卡账期。", "Each core has its own resettable counter; these are separate from interface billing periods.")} />
             <ProtocolDistribution data={traffic.protocol} totalBytes={traffic.protocolTotalBytes} />
           </Card>
         </div>

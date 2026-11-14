@@ -36,6 +36,14 @@ def _month_at(anchor: date, month_index: int) -> date:
     return date(year, month, min(anchor.day, monthrange(year, month)[1]))
 
 
+def _utc_boundary(day: date, at: datetime_time, zone: timezone | ZoneInfo) -> datetime:
+    """Resolve once in UTC: first occurrence in a fold, shift by the gap otherwise."""
+    wall = datetime.combine(day, at)
+    candidates = [wall.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc) for fold in (0, 1)]
+    valid = [moment for moment in candidates if moment.astimezone(zone).replace(tzinfo=None) == wall]
+    return min(valid) if valid else max(candidates)
+
+
 def traffic_quota_period(
     now: datetime,
     quota: dict[str, Any],
@@ -46,6 +54,7 @@ def traffic_quota_period(
     timezone_name = validate_timezone(quota.get("timezone") or legacy_timezone or "UTC")
     zone = _zone(timezone_name)
     local_now = now.astimezone(zone)
+    now_utc = now.astimezone(timezone.utc)
     unit = str(quota.get("periodUnit") or "month")
     if unit not in PERIOD_UNITS:
         unit = "month"
@@ -91,20 +100,22 @@ def traffic_quota_period(
         elapsed = (local_now.date() - anchor).days
         periods = elapsed // step_days
         start_date = anchor + timedelta(days=periods * step_days)
-        if datetime.combine(start_date, reset_time, zone) > local_now:
+        while _utc_boundary(start_date, reset_time, zone) > now_utc:
             start_date -= timedelta(days=step_days)
         next_date = start_date + timedelta(days=step_days)
+        while _utc_boundary(next_date, reset_time, zone) <= now_utc:
+            start_date, next_date = next_date, next_date + timedelta(days=step_days)
     else:
         step_months = count * (12 if unit == "year" else 1)
         elapsed_months = (local_now.year - anchor.year) * 12 + local_now.month - anchor.month
         periods = elapsed_months // step_months
         start_date = _month_at(anchor, periods * step_months)
-        if datetime.combine(start_date, reset_time, zone) > local_now:
+        if _utc_boundary(start_date, reset_time, zone) > now_utc:
             periods -= 1
             start_date = _month_at(anchor, periods * step_months)
         next_date = _month_at(anchor, (periods + 1) * step_months)
-    start = datetime.combine(start_date, reset_time, zone).astimezone(timezone.utc)
-    next_reset = datetime.combine(next_date, reset_time, zone).astimezone(timezone.utc)
+    start = _utc_boundary(start_date, reset_time, zone)
+    next_reset = _utc_boundary(next_date, reset_time, zone)
     return start, next_reset, {
         "autoReset": True,
         "periodUnit": unit,

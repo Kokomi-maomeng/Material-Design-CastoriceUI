@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import tempfile
 import time
@@ -57,7 +58,13 @@ def owned_listeners(process: Path) -> set[tuple[str, int]]:
             continue
     listeners = set()
     for table, transport in (("tcp", "tcp"), ("tcp6", "tcp"), ("udp", "udp"), ("udp6", "udp")):
-        for line in (process / "net" / table).read_text().splitlines()[1:]:
+        try:
+            rows = (process / "net" / table).read_text().splitlines()
+        except FileNotFoundError:
+            if table.endswith("6"):
+                continue
+            raise
+        for line in rows[1:]:
             fields = line.split()
             if len(fields) < 10 or fields[9] not in inodes:
                 continue
@@ -107,7 +114,21 @@ def inbound_records(configs: list[dict[str, Any]], listeners: set[tuple[str, int
     return records
 
 
-def collect(unit: str = "sing-box") -> dict[str, Any]:
+def _executable_matches(process: Path, binary: Path) -> bool:
+    if not binary.is_absolute():
+        return False
+    real = binary.resolve(strict=True)
+    for parent in {*binary.parents, *real.parents}:
+        metadata = parent.stat()
+        if metadata.st_uid != 0 or metadata.st_mode & 0o022 or not stat.S_ISDIR(metadata.st_mode):
+            return False
+    expected = real.stat()
+    actual = (process / "exe").stat()
+    return (stat.S_ISREG(expected.st_mode) and expected.st_uid == 0 and not expected.st_mode & 0o022
+            and (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino))
+
+
+def collect(unit: str = "sing-box", binary: Path = Path("/usr/bin/sing-box")) -> dict[str, Any]:
     result: dict[str, Any] = {"schema": 2, "sampledAt": time.time(), "sampleStartedAt": time.time(), "pid": 0, "available": False, "reason": "core_unavailable", "inbounds": []}
     try:
         result["bootId"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
@@ -119,8 +140,11 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
             return result
         process = Path("/proc") / str(pid)
         arguments = (process / "cmdline").read_bytes().decode().strip("\0").split("\0")
-        if not arguments or Path(arguments[0]).name != "sing-box":
+        if not arguments or not _executable_matches(process, binary):
+            result["reason"] = "core_executable_mismatch"
             return result
+        if not (process / "ns/net").samefile("/proc/self/ns/net"):
+            result["networkNamespace"] = "separate"
         started_ticks = int((process / "stat").read_text().rsplit(")", 1)[1].split()[19])
         result["startedTicks"] = started_ticks
         digest = hashlib.sha256()
@@ -157,6 +181,8 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
         result.update(available=True, reason="verified")
     except ValueError as error:
         result["reason"] = str(error) if str(error) == "config_not_loaded" else "unreadable_config"
+    except PermissionError:
+        result["reason"] = "process_inspection_denied"
     except (OSError, TypeError, KeyError, IndexError, AttributeError, StopIteration, subprocess.SubprocessError):
         result["reason"] = "probe_unavailable"
     finally:
@@ -168,6 +194,7 @@ def collect(unit: str = "sing-box") -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--unit", default=os.environ.get("SING_BOX_UNIT", "sing-box"))
+    parser.add_argument("--binary", type=Path, default=os.environ.get("SING_BOX_BINARY", "/usr/bin/sing-box"))
     parser.add_argument("--output", default=os.environ.get("CASTORICEUI_PROTOCOL_STATUS", "/run/castoriceui/protocol-status.json"))
     args = parser.parse_args()
     import fcntl
@@ -181,7 +208,7 @@ def main() -> None:
     fd, temporary = tempfile.mkstemp(prefix=".protocol-", dir=output.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(collect(args.unit), handle)
+            json.dump(collect(args.unit, args.binary), handle)
             handle.flush()
             os.fchmod(handle.fileno(), 0o644)
             os.fsync(handle.fileno())

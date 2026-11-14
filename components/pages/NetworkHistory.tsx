@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchNetworkHistory } from "../../lib/api";
 import { useI18n } from "../../lib/i18n";
 import { networkHistoryBuckets } from "../../lib/network-chart";
-import type { NetworkHistoryResponse, NetworkHistorySample, NetworkTarget } from "../../lib/types";
+import type { NetworkHistoryResponse, NetworkTarget } from "../../lib/types";
 import { NetworkChart } from "../charts/NetworkChart";
 import { Button } from "../ui/Button";
 
@@ -49,8 +49,4 @@ export function NetworkHistory({ target }: { target: NetworkTarget }) {
     <NetworkChart samples={samples} label={t(`${target.name} 趋势记录`, `${target.name} trend history`)} step={step} start={end - hours * 3600} end={end}
       state={hours > 1 && !current ? "loading" : current?.error ? "error" : undefined} />
   </div>;
-}
-
-export function TimeTrend({ samples, label, step = 20, start, end }: { samples: NetworkHistorySample[]; label: string; step?: number; start?: number; end?: number }) {
-  return <NetworkChart samples={samples} label={label} step={step} start={start} end={end} />;
 }
