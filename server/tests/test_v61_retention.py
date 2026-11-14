@@ -30,7 +30,7 @@ class AuditRetentionTests(unittest.TestCase):
 
     def test_every_retention_prunes_expired_rows_but_keeps_boundary_and_newer(self):
         now = 2_000_000_000
-        for days in AUDIT_RETENTION_DAYS:
+        for days in (7, *AUDIT_RETENTION_DAYS, 3650):
             with self.subTest(days=days), tempfile.TemporaryDirectory() as directory, patch('castoriceui.storage.time.time', return_value=now):
                 storage = Storage(str(Path(directory) / 'state.db'))
                 storage.set_setting('ui_settings', {'auditRetentionDays': days})

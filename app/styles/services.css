@@ -33,7 +33,7 @@
 .network-page .feature-intro p { font-size: clamp(.8125rem, .75rem + .15vw, .9375rem); }
 .network-page .segmented-control button { font-size: var(--text-sm); }
 .network-target-grid, .network-target-column { align-items: start; }
-.network-target-grid:has(> .network-target-column:empty) { grid-template-columns: minmax(0, 1fr); }
+.network-target-grid[data-columns="1"] { grid-template-columns: minmax(0, 1fr); }
 .network-target-column { display: grid; grid-template-columns: minmax(0, 1fr); gap: inherit; min-width: 0; }
 .network-target-column:empty { display: none; }
 .network-target-card__header {

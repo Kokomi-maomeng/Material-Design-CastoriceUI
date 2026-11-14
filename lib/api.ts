@@ -85,11 +85,11 @@ export async function fetchSession(signal?: AbortSignal) {
 }
 
 export async function initializeAdministrator(payload: { bootstrapToken: string; username: string; password: string }) {
-  return rememberSession(await request<SessionState>("/api/v2/auth/initialize", { method: "POST", body: JSON.stringify(payload) }));
+  return rememberSession(await request<SessionState>("/api/v2/auth/initialize", { method: "POST", body: JSON.stringify(payload) }, true));
 }
 
 export async function login(username: string, password: string) {
-  return rememberSession(await request<SessionState>("/api/v2/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }));
+  return rememberSession(await request<SessionState>("/api/v2/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, true));
 }
 
 export async function logout() {
@@ -121,10 +121,8 @@ export async function fetchConnectionTargets(signal?: AbortSignal) {
 }
 
 export function fetchAudits(options: { page: number; pageSize: 30 | 50; search?: string; category?: string; signal?: AbortSignal }) {
-  const query = new URLSearchParams({ page: String(options.page), pageSize: String(options.pageSize) });
-  if (options.search) query.set("search", options.search);
-  if (options.category) query.set("category", options.category);
-  return request<AuditPageResponse>(`/api/v2/audits?${query}`, { signal: options.signal });
+  const { signal, ...filters } = options;
+  return request<AuditPageResponse>("/api/v2/audits/search", { method: "POST", body: JSON.stringify(filters), signal }, true);
 }
 
 export function fetchAlerts(options: { page: number; pageSize: 30 | 50; filter: "pending" | "all" | "active" | "recovered"; status?: "" | "active" | "recovered"; severity?: "" | "critical" | "warning" | "info"; start?: string; end?: string; signal?: AbortSignal }) {
@@ -147,6 +145,10 @@ export function acknowledgeAlert(id: string) {
 
 export function acknowledgeAllAlerts() {
   return request<{ ok: boolean; count: number }>("/api/v2/alerts/ack-all", { method: "POST" }, true);
+}
+
+export function acknowledgeNetworkAlerts() {
+  return request<{ ok: boolean; count: number; summary: import("./types").AlertSummary; network: { items: import("./types").AlertItem[]; pending: number } }>("/api/v2/network/alerts/ack-all", { method: "POST" }, true);
 }
 
 export function configureIntegration(id: string, enabled: boolean, values: Record<string, string>) {

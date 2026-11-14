@@ -42,11 +42,17 @@ def main() -> None:
     config_path = Path("/etc/castoriceui/custom-qa.json")
     version = args.archive.name.removeprefix("CastoriceUI-v").removesuffix(".tar.gz")
     if args.phase == "install":
-        run("groupadd", "--system", "proxycert")
-        run("useradd", "--system", "--user-group", "--home-dir", "/var/lib/castoriceui", "--shell", "/usr/sbin/nologin", "castoriceui")
-        run("usermod", "-a", "-G", "proxycert", "castoriceui")
-        run("install", "-d", "-m", "0750", "-o", "root", "-g", "castoriceui", "/etc/castoriceui")
-        run("install", "-d", "-m", "0700", "-o", "castoriceui", "-g", "castoriceui", "/var/lib/castoriceui", "/var/lib/castoriceui/login-backgrounds")
+        prepare = ("python3", "-I", "-B", str(release / "deploy/prepare-host.py"))
+        assert json.loads(run(*prepare).stdout)["mutationFree"]
+        default_config = Path("/etc/castoriceui/config.json")
+        assert not default_config.exists()
+        assert json.loads(run(*prepare, "--apply").stdout)["ok"]
+        configured = json.loads(default_config.read_text())
+        configured["node_name"] = "Synthetic retry"
+        default_config.write_text(json.dumps(configured))
+        before_retry = default_config.read_bytes()
+        assert json.loads(run(*prepare, "--apply").stdout)["ok"]
+        assert default_config.read_bytes() == before_retry
         run("install", "-d", "/etc/letsencrypt/live/panel.example.com", "/opt/castoriceui/releases", "/var/www/castorice-ui/releases")
         run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=panel.example.com", "-keyout", "/etc/letsencrypt/live/panel.example.com/privkey.pem", "-out", "/etc/letsencrypt/live/panel.example.com/fullchain.pem")
         config = json.loads((release / "server/config.example.json").read_text())
@@ -101,20 +107,7 @@ def main() -> None:
         module = importlib.util.module_from_spec(specification); specification.loader.exec_module(module)
         underlying_command = module.command
         archive_sha = hashlib.sha256(args.archive.read_bytes()).hexdigest()
-        cached_regressions = [None]
-        def real_command(*arguments, **kwargs):
-            # Failure injection changes installation operations, not the immutable
-            # candidate. Run its staged suite once here; separate CLI attempts run it
-            # independently again. Never reuse a failed result or another archive.
-            if arguments[:3] == ('python3', '-m', 'unittest'):
-                assert hashlib.sha256(args.archive.read_bytes()).hexdigest() == archive_sha
-                if cached_regressions[0] is not None:
-                    return cached_regressions[0]
-                result = underlying_command(*arguments, **kwargs)
-                if result.returncode == 0:
-                    cached_regressions[0] = result
-                return result
-            return underlying_command(*arguments, **kwargs)
+        real_command = underlying_command
         injected = [False]
         def failed_start(*arguments, **kwargs):
             if arguments[:3] == ("systemctl", "restart", "castoriceui-backend.service") and not injected[0]:
@@ -131,6 +124,24 @@ def main() -> None:
         assert not Path("/etc/systemd/system/castoriceui-backend.service").exists()
         module.command = real_command
         accepted = module.install(args.archive, config_path)
+        for user in ("nobody", "castoriceui"):
+            for candidate in (
+                "/opt/castoriceui/current/server/castoriceui/protocol_probe.py",
+                "/opt/castoriceui/current/server/castoriceui",
+                "/var/www/castorice-ui/current/index.html",
+                "/var/www/castorice-ui/current",
+            ):
+                assert run("runuser", "-u", user, "--", "test", "-w", candidate, check=False).returncode == 1
+        for user, path in (("nobody", config_path), ("nobody", Path("/var/lib/castoriceui/state.db"))):
+            assert run("runuser", "-u", user, "--", "test", "-r", str(path), check=False).returncode == 1
+        os.chmod(config_path, 0o644)
+        assert preflight.inspect(str(config_path))["errorCategory"] == "unsafe_configuration"
+        os.chmod(config_path, 0o640)
+        # Put the panel beyond the legacy command preview limit.
+        include = Path("/etc/nginx/conf.d/00-large-qa.conf")
+        include.write_text("# synthetic padding for the machine parser\n" * 2400)
+        assert preflight.inspect(str(config_path))["ok"]
+        include.unlink()
         assert run("systemctl", "is-enabled", "castoriceui-backend").stdout.strip() == "enabled"
         run("runuser", "-u", "castoriceui", "--", "python3", "/opt/castoriceui/current/server/run.py", "--config", str(config_path), "--generate-bootstrap")
     else:
@@ -140,16 +151,34 @@ def main() -> None:
         nonlocal cookie, csrf
         connection = http.client.HTTPSConnection("127.0.0.1", 2087, context=ssl._create_unverified_context(), timeout=12)
         headers = {"Content-Type": "application/json", "Cookie": cookie, "X-CastoriceUI-Request": "1", "X-CSRF-Token": csrf}
-        connection.request(method, path, json.dumps(payload) if payload else None, headers)
-        response = connection.getresponse(); raw = response.read()
-        data = json.loads(raw) if raw else {}
-        if response.getheader("Set-Cookie"):
-            cookie = response.getheader("Set-Cookie").split(";", 1)[0]
+        try:
+            connection.request(method, path, json.dumps(payload) if payload else None, headers)
+            response = connection.getresponse()
+            raw = response.read()
+            media_type = response.getheader("Content-Type", "").split(";", 1)[0]
+            data = json.loads(raw) if raw and media_type == "application/json" else {}
+            if response.getheader("Set-Cookie"):
+                cookie = response.getheader("Set-Cookie").split(";", 1)[0]
+            status = response.status
+        finally:
+            connection.close()
         if data.get("csrfToken"):
             csrf = data["csrfToken"]
-        status = response.status; connection.close()
         return status, data
-    assert call("GET", "/api/v2/health")[1]["version"] == version
+
+    deadline = time.monotonic() + (90 if args.phase == "reboot" else 0)
+    while True:
+        # SSH and Nginx can accept connections before the backend finishes starting.
+        try:
+            status, health = call("GET", "/api/v2/health")
+        except (ConnectionError, TimeoutError):
+            if time.monotonic() >= deadline:
+                raise
+        else:
+            if status not in (502, 503, 504) or time.monotonic() >= deadline:
+                assert status == 200 and health.get("version") == version, (status, health)
+                break
+        time.sleep(1)
     assert call("GET", "/api/v2/dashboard")[0] == 401
     if args.phase == "install":
         token = Path("/var/lib/castoriceui/bootstrap-token").read_text().strip()
@@ -167,6 +196,12 @@ def main() -> None:
     if args.phase == "install":
         previous = {path: path.resolve() for path in (Path("/opt/castoriceui/current"), Path("/var/www/castorice-ui/current"))}
         original_copy, original_link, original_health, original_backup = module.shutil.copytree, module.link, module.health, module.backup_database
+        database_path = Path("/var/lib/castoriceui/state.db")
+        with sqlite3.connect(database_path) as db:
+            db.execute("INSERT INTO alert_history(episode_id,alert_id,started_at,resolved_at,payload_json) VALUES ('qa-late','network-late',datetime('now'),datetime('now'),'{}')")
+        # Make writes after staging but before the old panel is quiesced.
+        assert call("POST", "/api/v2/auth/login", {"username": "qa-admin", "password": "Synthetic-Password-123!"})[0] == 200
+        late_writes = [False]
         for failure in ("copy", "switch", "nginx", "startup", "health", "restore"):
             fired = [False]
             rollback_armed = [False]
@@ -176,7 +211,15 @@ def main() -> None:
                     raise RuntimeError("Synthetic " + label + " failure")
             def copy(*arguments, **kwargs):
                 fail_once("copy")
-                return original_copy(*arguments, **kwargs)
+                result = original_copy(*arguments, **kwargs)
+                if failure == "health" and not late_writes[0]:
+                    assert call("PUT", "/api/v2/settings/ui", {"panelTitle": "Last accepted write"})[0] == 200
+                    assert call("POST", "/api/v2/alerts/qa-late/ack")[0] == 200
+                    assert call("POST", "/api/v2/auth/change-password", {
+                        "currentPassword": "Synthetic-Password-123!", "newPassword": "Synthetic-Late-456!",
+                    })[0] == 200
+                    late_writes[0] = True
+                return result
             def switch(target, destination):
                 if destination == Path("/var/www/castorice-ui/current"):
                     fail_once("switch")
@@ -223,6 +266,13 @@ def main() -> None:
             assert run("systemctl", "is-enabled", "castoriceui-backend").stdout.strip() == "enabled", failure
             with sqlite3.connect("/var/lib/castoriceui/state.db") as connection:
                 assert connection.execute("SELECT value FROM settings WHERE key='synthetic_rollback_marker'").fetchone() is None
+                if late_writes[0]:
+                    saved = json.loads(connection.execute("SELECT value FROM settings WHERE key='ui_settings'").fetchone()[0])
+                    assert saved["panelTitle"] == "Last accepted write"
+                    assert connection.execute("SELECT acknowledged_at FROM alert_history WHERE episode_id='qa-late'").fetchone()[0]
+        assert late_writes[0]
+        assert call("POST", "/api/v2/auth/login", {"username": "qa-admin", "password": "Synthetic-Late-456!"})[0] == 200
+        assert call("POST", "/api/v2/auth/change-password", {"currentPassword": "Synthetic-Late-456!", "newPassword": "Synthetic-Password-123!"})[0] == 200
         # A real competing installer must stop before entering a transaction.
         installer_args = ['python3', str(release / 'deploy/install_release.py'), '--archive', str(args.archive), '--config', str(config_path)]
         # Pause the actual installer after its links have switched. Merely
@@ -258,12 +308,12 @@ module.main()
                     time.sleep(.1)
                 assert all(path.resolve() != target for path, target in previous.items()), 'Interruption checkpoint precedes the real switch'
                 competing = run(*installer_args, check=False)
-                assert competing.returncode != 0 and 'Another CastoriceUI installation is running' in competing.stderr
+                assert competing.returncode == 75 and json.loads(competing.stdout.splitlines()[-1])['errorCategory'] == 'installer_locked'
                 assert worker.poll() is None, 'Gated installer exited before SIGTERM'
                 worker.terminate()
                 output, errors = worker.communicate(timeout=600)
                 assert worker.returncode != 0, 'Interrupted installer unexpectedly completed'
-                assert 'Installer interrupted; restoring recorded state' in errors, errors
+                assert json.loads(output.splitlines()[-1])['errorCategory'] == 'installer_interrupted', errors
                 transaction = max(Path('/var/backups').glob('castoriceui-v*/transaction.json'), key=lambda path: path.stat().st_mtime_ns)
                 assert json.loads(transaction.read_text())['phase'] == 'rolled-back'
             finally:
@@ -274,13 +324,15 @@ module.main()
         retried = run(*installer_args)
         accepted = json.loads(retried.stdout.splitlines()[-1])
         assert accepted['proxyPidsUnchanged']
+        assert hashlib.sha256(args.archive.read_bytes()).hexdigest() == archive_sha
+        accepted["archiveSha256"] = archive_sha
         assert (Path('/etc/systemd/system') / (core_name + '.service.d') / '90-castoriceui-lifecycle.conf').is_file()
         assert Path('/etc/systemd/system/qa-hy2.service.d/90-castoriceui-lifecycle.conf').is_file()
     with sqlite3.connect("file:/var/lib/castoriceui/state.db?mode=ro", uri=True) as database:
         assert database.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     run("nginx", "-t")
     assert run("systemctl", "is-active", "castoriceui-backend").stdout.strip() == "active"
-    print(json.dumps({"phase": args.phase, "debian": platform.freedesktop_os_release()['VERSION_ID'], "version": version, "archiveSha256": hashlib.sha256(args.archive.read_bytes()).hexdigest(), "customConfigAndPort": True, "customProtectedUnits": True, "tcp443ConflictAnd2087Redirect": True, "competingInstallerRejected": args.phase == "install", "interruptedInstallerRetry": args.phase == "install", "interruptedAfterSwitch": args.phase == "install", "sigtermAndRollbackVerified": args.phase == "install", "immutableSuiteReusedForFailureInjection": args.phase == "install", "freshInstallRollbackRetry": args.phase == "install", "realHttpsInitializationOrLogin": True, "sqliteIntegrity": "ok"}))
+    print(json.dumps({"phase": args.phase, "debian": platform.freedesktop_os_release()['VERSION_ID'], "version": version, "archiveSha256": hashlib.sha256(args.archive.read_bytes()).hexdigest(), "customConfigAndPort": True, "customProtectedUnits": True, "tcp443ConflictAnd2087Redirect": True, "competingInstallerRejected": args.phase == "install", "interruptedInstallerRetry": args.phase == "install", "interruptedAfterSwitch": args.phase == "install", "sigtermAndRollbackVerified": args.phase == "install", "protectedFilePermissions": args.phase == "install", "largeNginxDumpAccepted": args.phase == "install", "freshInstallRollbackRetry": args.phase == "install", "realHttpsInitializationOrLogin": True, "sqliteIntegrity": "ok"}))
 
 
 if __name__ == "__main__":

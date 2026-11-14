@@ -247,7 +247,8 @@ test("subscription hints are removed and traffic quota remains one shared value"
   assert.match(overview, /流量使用趋势/);
   assert.match(accounts, /累计流量/);
   assert.doesNotMatch(accounts, /统一累计账本|Unified cumulative/);
-  assert.match(dashboard, /"quotaBytes": int\(self\.traffic_quota_state\(\)\["bytes"\]\)/);
+  assert.match(dashboard, /quota = int\(self\.traffic_quota_state\(\)\["bytes"\]\)/);
+  assert.match(dashboard, /"quotaBytes": quota/);
   assert.match(quotaDialog, /quota-input-stable/);
 });
 
@@ -319,7 +320,7 @@ test("v3.1 scopes alert acknowledgement and audit history on the server", async 
   ]);
   assert.match(app, /await acknowledgeAlert\(change\.episodeId\)/);
   assert.match(await read("components/pages/AlertsPage.tsx"), /Unable to acknowledge the alert/);
-  assert.match(client, /\/api\/v2\/audits\?/);
+  assert.match(client, /\/api\/v2\/audits\/search/);
   assert.doesNotMatch(dashboard, /"auditEvents"/);
   assert.match(storage, /def reconcile_alerts/);
   assert.match(storage, /acknowledged_at=NULL/);
@@ -328,8 +329,8 @@ test("v3.1 scopes alert acknowledgement and audit history on the server", async 
   assert.match(packager, /SHA256SUMS\.txt/);
   assert.match(packager, /SOURCE_DATE_EPOCH/);
   assert.match(packager, /archive-manifest\.txt/);
-  assert.match(packager, /--no-recursion/);
-  assert.match(packager, /await utimes/);
+  assert.match(packager, /write-release-tar\.py/);
+  assert.match(await read("scripts/write-release-tar.py"), /entry\.mtime = int\(epoch\)/);
   assert.match(packager, /gzipSync/);
 });
 
@@ -408,7 +409,7 @@ test("v3.3 validates subscriptions, account attribution, ranking, alerts, and re
     read("components/CastoriceApp.tsx"), read("components/traffic/TrafficQuotaDialog.tsx"), read("server/castoriceui/dashboard.py"),
     read("server/castoriceui/traffic_quota.py"), read("server/castoriceui/security.py"),
   ]);
-  assert.match(wizard, /配置已保存，但运行验证未通过/);
+  assert.match(wizard, /配置已保存，运行状态待确认/);
   assert.match(wizard, /订阅发布器未通过服务器可达性与节点格式验证/);
   assert.match(wizard, /不代表客户端导入或代理连通性/);
   assert.match(wizard, /订阅验证地址通过当前 HTTPS 管理会话提交/);

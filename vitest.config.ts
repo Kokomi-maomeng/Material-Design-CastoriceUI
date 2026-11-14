@@ -5,5 +5,6 @@ export default defineConfig({
     environment: "jsdom",
     include: ["tests/**/*.runtime.test.tsx"],
     restoreMocks: true,
+    maxWorkers: process.env.VITEST_MAX_WORKERS ? Number(process.env.VITEST_MAX_WORKERS) : process.platform === "win32" ? 2 : undefined,
   },
 });

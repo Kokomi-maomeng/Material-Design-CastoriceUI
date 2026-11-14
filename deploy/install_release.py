@@ -10,6 +10,7 @@ import re
 import signal
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tarfile
@@ -17,6 +18,40 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from pathlib import PurePosixPath
+
+MAINTENANCE = Path("/run/castoriceui/installing")
+
+
+class InstallError(RuntimeError):
+    def __init__(self, category: str, message: str, code: int = 1):
+        super().__init__(message)
+        self.category, self.code = category, code
+
+
+def immutable_path(path: Path, *, directory: bool = True) -> None:
+    """Reject symlinks, ACLs and non-root write access in executable paths."""
+    if path != path.resolve(strict=True):
+        raise ValueError("Release paths must not contain symlinks")
+    for part in (path, *path.parents):
+        info = part.lstat()
+        expected = stat.S_ISREG(info.st_mode) if part == path and not directory else stat.S_ISDIR(info.st_mode)
+        if (not expected or info.st_uid != 0 or info.st_mode & 0o022
+                or set(os.listxattr(part, follow_symlinks=False)) & {"system.posix_acl_access", "system.posix_acl_default", "security.capability"}):
+            raise ValueError("Release files and their parents must be root-owned without unprivileged write access or ACLs")
+
+
+def immutable_tree(root: Path) -> None:
+    immutable_path(root)
+    for path, dirs, files in os.walk(root):
+        for name in (*dirs, *files):
+            entry = Path(path) / name
+            info = entry.lstat()
+            regular = name in files and stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+            if not (regular or stat.S_ISDIR(info.st_mode)) or info.st_uid != 0 or info.st_mode & 0o022 or (
+                set(os.listxattr(entry, follow_symlinks=False)) & {"system.posix_acl_access", "system.posix_acl_default", "security.capability"}
+            ):
+                raise ValueError("Release must contain only protected directories and single-link regular files")
 
 
 def command(*args: str, check: bool = True, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -27,7 +62,7 @@ def command(*args: str, check: bool = True, timeout: int = 120) -> subprocess.Co
 
 
 def system_state(unit: str) -> dict[str, str]:
-    output = command("systemctl", "show", unit, "-p", "LoadState", "-p", "ActiveState", "-p", "MainPID", check=False).stdout
+    output = command("systemctl", "show", unit, "-p", "LoadState", "-p", "ActiveState", "-p", "MainPID", "-p", "ExecMainStartTimestampMonotonic", check=False).stdout
     state = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
     state["enabled"] = command("systemctl", "is-enabled", unit, check=False).stdout.strip()
     return state
@@ -78,10 +113,40 @@ def protect_html_updates(site_text: str) -> str:
 
 
 def backup_database(source: Path, target: Path) -> None:
-    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as incoming, sqlite3.connect(target) as outgoing:
+    with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True) as incoming, sqlite3.connect(target) as outgoing:
         incoming.backup(outgoing)
         if outgoing.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise RuntimeError("SQLite backup integrity check failed")
+
+
+def release_directory(path: Path) -> None:
+    if not path.exists():
+        immutable_path(path.parent)
+        path.mkdir(mode=0o755)
+    immutable_path(path)
+
+
+def runtime_check(source: Path, config_path: Path, log: Path) -> None:
+    """Verify the staged interpreter, imports and config without touching live state."""
+    start = time.monotonic()
+    args = ("python3", "-I", "-B", "-c",
+            "import sys,sqlite3; sys.path.insert(0,sys.argv[1]); "
+            "from castoriceui.api import ApiServer; from castoriceui.config import AppConfig; "
+            "AppConfig.load(sys.argv[2]); db=sqlite3.connect(':memory:'); "
+            "assert db.execute('PRAGMA quick_check').fetchone()[0]=='ok'",
+            str(source / "server"), str(config_path))
+    state = {"exitCode": None, "timedOut": False}
+    try:
+        result = command(*args, check=False, timeout=20)
+        state["exitCode"] = result.returncode
+        if result.returncode:
+            raise InstallError("runtime_check_failed", "Staged Python or dependency check failed; see runtime-check.json")
+    except subprocess.TimeoutExpired as error:
+        state["timedOut"] = True
+        raise InstallError("runtime_check_failed", "Staged Python check exceeded 20 seconds") from error
+    finally:
+        state["elapsedSeconds"] = round(time.monotonic() - start, 3)
+        log.write_text(json.dumps(state), encoding="utf-8")
 
 
 def link(target: Path | None, destination: Path) -> None:
@@ -115,18 +180,36 @@ def health(config: object, expected: str | None = None) -> dict:
 
 
 def extract(archive: Path, staging: Path, version: str) -> Path:
+    immutable_path(staging)
+    name = f"CastoriceUI-v{version}"
     with tarfile.open(archive, "r:gz") as bundle:
-        members = bundle.getmembers()
-        if not members or len(members) > 10_000 or sum(item.size for item in members) > 100_000_000:
-            raise ValueError("Release archive exceeds size limits")
-        seen = set()
-        for item in members:
-            path = Path(item.name)
-            if path.is_absolute() or ".." in path.parts or item.issym() or item.islnk() or not (item.isfile() or item.isdir()) or item.name in seen or not path.parts or path.parts[0] != f"CastoriceUI-v{version}":
-                raise ValueError("Unsafe or duplicate release archive entry")
-            seen.add(item.name)
-        bundle.extractall(staging)
-    root = staging / f"CastoriceUI-v{version}"
+        seen: dict[str, bool] = {}
+        total = 0
+        for item in bundle:
+            path = PurePosixPath(item.name)
+            total += item.size
+            if len(seen) >= 10_000 or total > 100_000_000:
+                raise ValueError("Release archive exceeds size limits")
+            if (not path.parts or path.parts[0] != name or item.name != path.as_posix()
+                or any(not re.fullmatch(r"[A-Za-z0-9_.-]+", part) or part in {".", ".."} for part in path.parts)
+                or item.name in seen or (path.as_posix() != name and not seen.get(path.parent.as_posix()))
+                or item.type not in {tarfile.REGTYPE, tarfile.DIRTYPE} or item.pax_headers or item.uid != 0 or item.gid != 0):
+                raise ValueError("Unsafe, unordered or duplicate release archive entry")
+            mode = 0o755 if item.isdir() or path.parts[1:] == ("deploy", "install-or-upgrade.sh") else 0o644
+            if item.mode != mode or item.isdir() and item.size != 0:
+                raise ValueError("Incorrect release archive permissions")
+            seen[item.name] = item.isdir()
+            destination = staging / path
+            if item.isdir():
+                destination.mkdir(mode=0o755)
+            else:
+                with bundle.extractfile(item) as source, destination.open("xb") as output:
+                    shutil.copyfileobj(source, output)
+            destination.chmod(mode)
+            if item.isfile():
+                os.utime(destination, (item.mtime, item.mtime))
+    root = staging / name
+    immutable_tree(root)
     for name in ("server/run.py", "server/preflight.py", "server/requirements.txt", "frontend/index.html", "deploy/castoriceui-backend.service", "deploy/castoriceui-protocol-probe.service", "deploy/castoriceui-protocol-probe.timer"):
         if not (root / name).is_file():
             raise ValueError("Release archive is incomplete")
@@ -143,7 +226,7 @@ def install(archive: Path, config_path: Path) -> dict:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise RuntimeError("Another CastoriceUI installation is running; retry after it completes") from error
+            raise InstallError("installer_locked", "Another CastoriceUI installation is running; retry after it completes", 75) from error
         return _install(archive, config_path)
 
 
@@ -155,8 +238,9 @@ def _install(archive: Path, config_path: Path) -> dict:
     backend_root = Path("/opt/castoriceui")
     frontend_root = Path("/var/www/castorice-ui")
     backend_link, frontend_link = backend_root / "current", frontend_root / "current"
-    backend_root.joinpath("releases").mkdir(parents=True, exist_ok=True)
-    frontend_root.joinpath("releases").mkdir(parents=True, exist_ok=True)
+    for root in (backend_root, frontend_root):
+        release_directory(root)
+        release_directory(root / "releases")
     staging = Path(tempfile.mkdtemp(prefix=f".staging-v{version}-", dir=backend_root / "releases"))
     backup = Path(tempfile.mkdtemp(prefix=f"castoriceui-v{version}-{datetime.datetime.now(datetime.timezone.utc):%Y%m%dT%H%M%SZ}-", dir="/var/backups"))
     os.chmod(backup, 0o700)
@@ -165,17 +249,23 @@ def _install(archive: Path, config_path: Path) -> dict:
     frontend_release = frontend_root / "releases" / transaction
     units = ("castoriceui-backend.service", "castoriceui-protocol-probe.service", "castoriceui-protocol-probe.timer")
     states = {unit: system_state(unit) for unit in units}
-    proxy_pids = {}
+    protected_before = {}
     old_links = {backend_link: backend_link.resolve() if backend_link.is_symlink() else None, frontend_link: frontend_link.resolve() if frontend_link.is_symlink() else None}
     modified = False
+    stopped = False
+    held = False
+    site_changed = False
     saved_files: dict[Path, Path | None] = {}
     config = old_config = None
     old_version = None
     db_backup = None
-    state = {"phase": "staging", "version": version, "rollbackErrors": [], "proxyPids": proxy_pids, "unitStates": states, "previousLinks": {str(path): str(target) if target else None for path, target in old_links.items()}}
+    resume_backend = False
+    state = {"phase": "staging", "version": version, "rollbackErrors": [], "unitStates": states, "previousLinks": {str(path): str(target) if target else None for path, target in old_links.items()}}
     def record(phase: str) -> None:
         state["phase"] = phase
-        (backup / "transaction.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+        temporary = backup / ".transaction.json"
+        temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        temporary.replace(backup / "transaction.json")
     def save(path: Path, name: str) -> None:
         target = backup / name
         saved_files[path] = target if path.is_file() else None
@@ -184,33 +274,29 @@ def _install(archive: Path, config_path: Path) -> dict:
     try:
         if any(path.exists() and not path.is_symlink() for path in old_links):
             raise ValueError("Live panel paths must be symlinks; migrate legacy directories before installing")
+        for live, old in old_links.items():
+            if old is not None:
+                if live.lstat().st_uid != 0 or old.parent != live.parent / "releases":
+                    raise ValueError("Current link must be root-owned and point to a sibling release")
+                immutable_tree(old)
         source = extract(archive, staging, version)
+        sys.dont_write_bytecode = True
         sys.path.insert(0, str(source / "server"))
-        from castoriceui.config import AppConfig
-        from castoriceui.migrations import retired_config
         import preflight
-        config = AppConfig.load(config_path)
-        protected_units = {value.removesuffix(".service") + ".service" for value in (config.hysteria_unit, config.singbox_unit, config.nginx_unit)}
-        proxy_pids.update({unit: system_state(unit).get("MainPID") for unit in protected_units})
         report = preflight.inspect(str(config_path))
         (backup / "preflight.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         for item in report["checks"]:
             print(f"Preflight {item['status']}: {item['name']}", flush=True)
         if not report["ok"]:
-            raise RuntimeError("Preflight failed; see retained preflight.json")
+            raise InstallError(report.get("errorCategory", "preflight_failed"), "Preflight failed; see retained preflight.json", report.get("exitCode", 2))
         if not re.fullmatch(r"/etc/castoriceui/[A-Za-z0-9_./-]+", str(config_path)):
             raise ValueError("Unsupported protected config path")
-        command("python3", "-m", "compileall", "-q", str(source / "server"))
-        test_log = backup / "backend-tests.log"
-        try:
-            checked = command("python3", "-m", "unittest", "discover", "-s", str(source / "server/tests"), "-p", "test_*.py", check=False, timeout=240)
-        except subprocess.TimeoutExpired as error:
-            partial = "".join(value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or "" for value in (error.stdout, error.stderr))
-            test_log.write_text(partial + "\nStaged backend regressions exceeded 240 seconds.\n", encoding="utf-8")
-            raise RuntimeError("Staged backend regressions timed out; see retained backend-tests.log") from error
-        test_log.write_text(checked.stdout + checked.stderr, encoding="utf-8")
-        if checked.returncode:
-            raise RuntimeError("Staged backend regressions failed")
+        runtime_check(source, config_path, backup / "runtime-check.json")
+        from castoriceui.config import AppConfig
+        from castoriceui.migrations import retired_config
+        config = AppConfig.load(config_path)
+        protected_units = {value.removesuffix(".service") + ".service" for value in (config.hysteria_unit, config.singbox_unit, config.nginx_unit)}
+        protected_before.update({unit: system_state(unit) for unit in protected_units})
         old_unit = Path("/etc/systemd/system/castoriceui-backend.service")
         if old_unit.is_file() and states[units[0]].get("LoadState") == "loaded":
             old_match = re.search(r"--config\s+(\S+)", old_unit.read_text())
@@ -219,6 +305,7 @@ def _install(archive: Path, config_path: Path) -> dict:
                 raise ValueError("Upgrade cannot silently change the live database path")
             if states[units[0]].get("ActiveState") == "active":
                 old_version = health(old_config).get("version")
+                resume_backend = True
         for unit in units:
             save(Path("/etc/systemd/system") / unit, unit)
         event_helper = Path("/usr/local/libexec/castoriceui-core-event.py")
@@ -237,9 +324,6 @@ def _install(archive: Path, config_path: Path) -> dict:
         for path, old in old_links.items():
             (backup / (path.parent.name + "-previous-target.txt")).write_text(str(old or ""))
         database = Path(config.database_path)
-        if database.exists():
-            db_backup = backup / "state.db"
-            backup_database(database, db_backup)
         sites = set()
         for directory in (Path("/etc/nginx/sites-enabled"), Path("/etc/nginx/conf.d")):
             if directory.is_dir():
@@ -256,7 +340,22 @@ def _install(archive: Path, config_path: Path) -> dict:
         updated_site = protect_html_updates(allow_login_image_blobs(updated_site))
         shutil.copytree(source, backend_release)
         shutil.copytree(source / "frontend", frontend_release)
+        immutable_tree(backend_release)
+        immutable_tree(frontend_release)
         record("prepared")
+        release_directory(MAINTENANCE.parent)
+        with MAINTENANCE.open("x", encoding="utf-8") as gate:
+            held = True
+            gate.write(transaction + "\n")
+        if states[units[0]].get("ActiveState") == "active":
+            stopped = True
+            command("systemctl", "stop", units[0])
+            if system_state(units[0]).get("MainPID") != "0":
+                raise RuntimeError("Old backend did not drain")
+        if database.exists():
+            db_backup = backup / "state.db"
+            backup_database(database, db_backup)
+        record("quiesced")
         modified = True
         raw_config = json.loads(config_path.read_text(encoding="utf-8"))
         cleaned_config = retired_config(raw_config)
@@ -290,12 +389,15 @@ def _install(archive: Path, config_path: Path) -> dict:
             path = Path("/etc/systemd/system") / unit
             path.write_text(text)
             os.chmod(path, 0o644)
-        probe_environment.write_text(f"SING_BOX_UNIT={config.singbox_unit}\nCASTORICEUI_PROTOCOL_STATUS={config.protocol_status_path}\n")
+        probe_environment.write_text(f"SING_BOX_UNIT={config.singbox_unit}\nSING_BOX_BINARY={json.dumps(config.singbox_binary, ensure_ascii=False)}\n"
+                                     f"CASTORICEUI_PROTOCOL_STATUS={json.dumps(config.protocol_status_path, ensure_ascii=False)}\n")
         os.chmod(probe_environment, 0o640)
         link(backend_release, backend_link)
         link(frontend_release, frontend_link)
         record("switched")
-        site.write_text(updated_site)
+        if updated_site != site_text:
+            site_changed = True
+            site.write_text(updated_site)
         command("nginx", "-t")
         command("systemctl", "daemon-reload")
         command("systemctl", "enable", "--now", units[2])
@@ -304,16 +406,18 @@ def _install(archive: Path, config_path: Path) -> dict:
             command("systemctl", "enable", units[0])
         command("systemctl", "restart", units[0])
         health(config, version)
-        if updated_site != site_text:
+        if site_changed:
             command("systemctl", "reload", config.nginx_unit)
-        if proxy_pids != {unit: system_state(unit).get("MainPID") for unit in proxy_pids}:
-            raise RuntimeError("Proxy or Nginx PID changed during panel deployment")
-        with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+        if protected_before != {unit: system_state(unit) for unit in protected_before}:
+            raise RuntimeError("Proxy or Nginx service state changed during panel deployment")
+        with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise RuntimeError("Live database integrity failed")
         record("accepted")
+        MAINTENANCE.unlink()
+        held = False
         return {"version": version, "backup": str(backup), "backend": str(backend_release), "frontend": str(frontend_release), "proxyPidsUnchanged": True}
-    except BaseException:
+    except BaseException as failure:
         errors = []
         if modified:
             operations = [("stop-new-backend", lambda: command("systemctl", "stop", units[0]))]
@@ -322,7 +426,8 @@ def _install(archive: Path, config_path: Path) -> dict:
             for unit in (units[0], units[2]):
                 if states[unit].get("LoadState") != "loaded":
                     operations.append((f"disable-new-{unit}", lambda unit=unit: command("systemctl", "disable", unit)))
-            operations += [(f"restore-{path.name}", lambda path=path, saved=saved: shutil.copy2(saved, path) if saved else path.unlink(missing_ok=True)) for path, saved in saved_files.items()]
+            operations += [(f"restore-{path.name}", lambda path=path, saved=saved: shutil.copy2(saved, path) if saved else path.unlink(missing_ok=True))
+                           for path, saved in saved_files.items() if path != site or site_changed]
             operations += [(f"restore-{path.parent.name}-link", lambda path=path, old=old: link(old, path)) for path, old in old_links.items()]
             if db_backup is not None:
                 operations.append(("restore-database", lambda: backup_database(db_backup, Path(config.database_path))))
@@ -339,7 +444,8 @@ def _install(archive: Path, config_path: Path) -> dict:
                 operations.append((f"restore-{unit}-active", lambda unit=unit, active=active: command("systemctl", "start" if active else "stop", unit)))
             if states[units[1]].get("ActiveState") == "active":
                 operations.append(("restore-probe-active", lambda: command("systemctl", "start", units[1])))
-            operations += [("nginx-syntax", lambda: command("nginx", "-t")), ("nginx-reload", lambda: command("systemctl", "reload", config.nginx_unit))]
+            if site_changed:
+                operations += [("nginx-syntax", lambda: command("nginx", "-t")), ("nginx-reload", lambda: command("systemctl", "reload", config.nginx_unit))]
             if old_config is not None and old_version:
                 operations.append(("old-panel-health", lambda: health(old_config, old_version)))
             for label, operation in operations:
@@ -347,6 +453,12 @@ def _install(archive: Path, config_path: Path) -> dict:
                     operation()
                 except BaseException as error:
                     errors.append(f"{label}: {type(error).__name__}")
+        elif stopped and resume_backend:
+            try:
+                command("systemctl", "start", units[0])
+                health(old_config, old_version)
+            except Exception as error:
+                errors.append(f"resume-old-backend: {type(error).__name__}")
         for release in (backend_release, frontend_release):
             if release.exists():
                 release.rename(release.with_name(release.name + ".failed"))
@@ -355,26 +467,31 @@ def _install(archive: Path, config_path: Path) -> dict:
         print(f"Deployment failed; rollback {'FAILED' if errors else 'verified' if modified else 'not needed'}. Backup: {backup}", file=sys.stderr)
         if errors:
             print(json.dumps(errors), file=sys.stderr)
+            raise InstallError("rollback_failed", "Restore the retained transaction before retrying", 4) from failure
         raise
     finally:
+        if held:
+            MAINTENANCE.unlink(missing_ok=True)
         if staging.parent.resolve() == (backend_root / "releases").resolve() and staging.name.startswith(f".staging-v{version}-"):
             shutil.rmtree(staging)
 
 
 def main() -> None:
     def terminate(_signum: int, _frame: object) -> None:
-        raise RuntimeError("Installer interrupted; restoring recorded state")
+        raise InstallError("installer_interrupted", "Installer interrupted; restoring recorded state", 3)
     signal.signal(signal.SIGTERM, terminate)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--config", default=Path("/etc/castoriceui/config.json"), type=Path)
     args = parser.parse_args()
-    if os.geteuid() != 0:
-        raise SystemExit("Run as root")
     try:
-        result = install(args.archive.resolve(strict=True), args.config.resolve(strict=True))
+        if os.geteuid() != 0:
+            raise InstallError("root_required", "Run as root", 2)
+        result = install(args.archive.resolve(strict=True), args.config.absolute())
     except Exception as error:
-        raise SystemExit(f"Installer stopped: {type(error).__name__}: {error}") from error
+        print(json.dumps({"ok": False, "errorCategory": error.category if isinstance(error, InstallError) else "installation_failed",
+                          "message": str(error) if isinstance(error, InstallError) else "See the local transaction and preflight logs"}))
+        raise SystemExit(error.code if isinstance(error, InstallError) else 3) from None
     print(json.dumps(result))
 
 

@@ -102,13 +102,19 @@ def main():
                                         context = browser.new_context(ignore_https_errors=True, reduced_motion=motion, timezone_id="Asia/Shanghai", viewport={"width":1440,"height":1000})
                                         context.add_init_script("localStorage.setItem('castorice-language',"+json.dumps(language)+")")
                                         context.add_init_script("window.qaRecordAnimations=[];const originalAnimate=Element.prototype.animate;Element.prototype.animate=function(frames,options){if(this.closest('.record-transition'))window.qaRecordAnimations.push({height:frames.some(frame=>'height' in frame),opacity:frames.some(frame=>'opacity' in frame)});return originalAnimate.call(this,frames,options)}")
-                                        login = context.request.post(origin + '/api/v2/auth/login', data={"username":"qa-browser","password":"Synthetic-Password-123!"})
+                                        login = context.request.post(origin + '/api/v2/auth/login', data={"username":"qa-browser","password":"Synthetic-Password-123!"}, headers={"X-CastoriceUI-Request":"1"})
                                         assert login.status == 200
                                         csrf = login.json()["csrfToken"]
                                         page = context.new_page(); errors=[]; requests=[]; responses=[]
                                         page.on('pageerror', lambda error: errors.append(str(error)))
-                                        page.on('request', lambda request: requests.append(request.url) if '/api/v2/alerts?' in request.url or '/api/v2/audits?' in request.url else None)
-                                        page.on('response', lambda response: responses.append(response.url) if '/api/v2/alerts?' in response.url or '/api/v2/audits?' in response.url else None)
+                                        def record_request(request):
+                                            if '/api/v2/audits/search' in request.url:
+                                                assert request.method == 'POST' and '?' not in request.url
+                                                requests.append(int(request.post_data_json['pageSize']))
+                                            elif '/api/v2/alerts?' in request.url:
+                                                from urllib.parse import parse_qs, urlsplit
+                                                requests.append(int(parse_qs(urlsplit(request.url).query)['pageSize'][0]))
+                                        page.on('request', record_request)
                                         t=lambda en,zh: zh if language=='zh' else en
                                         for width,height in ((1440,1000),(390,844),(320,700)):
                                             print(json.dumps({"caseStart": {"engine":engine,"language":language,"motion":motion,"width":width}}), flush=True)
@@ -125,12 +131,12 @@ def main():
                                                 assert page.locator(selector).count()==50
                                                 animation_count=page.evaluate('window.qaRecordAnimations.filter(item=>item.height).length')
                                                 assert (animation_count>0) == (motion=='no-preference'), ('height animation preference',engine,motion,animation_count)
-                                                assert all('pageSize=50' in url for url in requests[calls:]), 'toggle requested a different snapshot size'
+                                                assert all(size == 50 for size in requests[calls:]), 'toggle requested a different snapshot size'
                                                 page.wait_for_timeout(260)
                                                 assert abs(page.evaluate('scrollY')-y)<3, ('expand moved scroll',engine,width,y,page.evaluate('scrollY'))
                                                 page.get_by_role('button',name=t('Collapse to latest 30','收起到最近 30 条'),exact=True).click()
                                                 assert page.locator(selector).count()==30
-                                                assert all('pageSize=50' in url for url in requests[calls:]), 'toggle requested a different snapshot size'
+                                                assert all(size == 50 for size in requests[calls:]), 'toggle requested a different snapshot size'
                                                 page.wait_for_timeout(260)
                                                 assert page.evaluate('scrollY')>0, 'collapse jumped to page top'
                                                 page.get_by_role('button',name=expand,exact=True).click()

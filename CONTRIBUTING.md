@@ -16,6 +16,12 @@ Thank you for helping improve CastoriceUI.
 
 ## Quality expectations
 
+Install the release browser test runtime with `python -m pip install playwright==1.58.0` and `python -m playwright install chromium firefox webkit`. With Vite running, execute `python scripts/run-browser-suite.py chromium layout` and `python scripts/run-browser-suite.py chromium behavior`. Run `python scripts/browser-first-run.py chromium` to exercise the real HTTP API, bootstrap token and SQLite using temporary synthetic state. Browser scripts use loopback ports and never require production credentials. The browser fixtures are suitable for repeatable screenshots. For design reviews, begin with 390×844 and 1440×1000 and check 320 px for overflow.
+
+Health returns a JSON object such as `{"status":"ok","version":"6.6.0","setupRequired":false,"scope":"panel-liveness"}`. The unauthenticated dashboard returns 401. Open [the API contract](docs/INTEGRATION.md) before changing a fixture or response. Use `npm run test:runtime -- --maxWorkers=1` to diagnose Windows timeouts with the same assertions and record worker count and Node version with the test result.
+
+The Debian VM tests use dated official images and verified SHA-512 values in `scripts/debian-images.json`. To update a pin, take the exact filename and hash from that build's official checksum list and rerun both Linux installation jobs.
+
 - Keep pages focused and reusable components small.
 - Preserve keyboard navigation, visible focus, semantic labels, and reduced-motion behavior.
 - Avoid unnecessary client state, large dependencies, polling loops, and expensive visual effects.

@@ -7,7 +7,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import Error, expect, sync_playwright
 from browser_fixture import empty_dashboard
 from qa_browser import settled, frames
 
@@ -24,6 +24,7 @@ def run(engine, browser, language):
     page = context.new_page()
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode='live', generatedAt='2026-11-01T00:00:00Z')
+    dashboard['traffic']['unassignedAccountBytes'] = 12_500_000_000
     dashboard['uiSettings']['visiblePanels'] = ['alerts', 'accounts', 'services', 'network', 'traffic', 'audit']
     state = {'count': 1, 'urlReads': 0, 'writes': [], 'heldUrl': None, 'delayUrl': False}
     url = 'https://publisher.example.com/qa.yaml?token=synthetic%2Bvalue'
@@ -39,7 +40,9 @@ def run(engine, browser, language):
             data = {'username': 'QA operator', 'csrfToken': 'synthetic-csrf', 'expiresAt': int(time.time()) + 3600, 'setupComplete': True}
         elif path == 'dashboard':
             data = dashboard
-        elif path in ('alerts', 'audits'):
+        elif path in ('alerts', 'audits/search'):
+            if path == "audits/search":
+                query = {key: [str(value)] for key, value in route.request.post_data_json.items()}
             total = state['count']; page_number = int(query.get('page', ['1'])[0]); size = int(query.get('pageSize', ['50'])[0])
             rows = []
             for index in range((page_number - 1) * size, min(total, page_number * size)):
@@ -63,26 +66,59 @@ def run(engine, browser, language):
         route.fulfill(status=200, content_type='application/json', body=json.dumps(data))
 
     context.route('**/api/v2/**', api)
+    # Keep one dashboard document per language. Changing the hash exercises real
+    # route mounts without resetting WebKit's TLS session and request interception.
+    page.goto(BASE + '/#/overview', wait_until='domcontentloaded')
+    overview = page.locator('.traffic-hero')
+    overview.wait_for()
+
+    def leave_history():
+        page.evaluate("location.hash='/overview'")
+        overview.wait_for()
+
+    # A real resize through the desktop breakpoint must never keep the old
+    # sidebar offset on the mobile view, even during the transition.
+    page.evaluate("location.hash='/alerts'")
+    page.locator('.alert-row').first.wait_for()
+    page.evaluate("""window.qaShellFrames=[];
+      const sample=()=>{if(innerWidth!==320){requestAnimationFrame(sample);return;}
+        const shell=document.querySelector('.app-main');
+        window.qaShellFrames.push([shell.getBoundingClientRect().left,document.documentElement.scrollWidth]);
+        if(window.qaShellFrames.length<12)requestAnimationFrame(sample);}; requestAnimationFrame(sample);""")
+    page.set_viewport_size({'width': 320, 'height': 700})
+    page.wait_for_function('window.qaShellFrames.length===12')
+    shell_frames = page.evaluate('window.qaShellFrames')
+    assert all(abs(left) < 1 and scroll_width <= 321 for left, scroll_width in shell_frames), shell_frames
+    leave_history()
+
     cases = []; animations = []; focus_count = 0
     titles = {'accounts': ('账号管理', 'Account management'), 'alerts': ('告警中心', 'Alerts'), 'audit': ('审计中心', 'Audit center')}
     for section in titles:
         for index, total in enumerate((0, 1, 29, 30, 31, 121)):
             width, height = ((1536, 960), (901, 420), (390, 844), (320, 700))[index % 4]
+            leave_history()
             page.set_viewport_size({'width': width, 'height': height})
+            # Wait for the responsive shell's width/margin transition before
+            # measuring the destination at this breakpoint.
+            settled(page)
             state['count'] = total; dashboard['accounts'] = [account(i) for i in range(total)]
-            page.goto(BASE + '/?qa_case=' + section + str(total) + '#/' + section, wait_until='networkidle')
+            page.evaluate("name=>location.hash='/'+name", section)
             page.get_by_role('heading', name=titles[section][language == 'en'], exact=True).wait_for()
-            footer = page.locator('.audit-controls'); expect(footer).to_contain_text(f'总计 {total} 条' if language == 'zh' else f'{total} total records')
+            footer = page.locator('.audit-controls'); expect(footer).to_contain_text(f'总计 {total} 条' if language == 'zh' else f'{total} total records', timeout=20000)
             expect(footer.locator('button')).to_have_count(1 if total >= 30 else 0)
             if total >= 30:
                 expect(footer).to_contain_text('默认显示最近 30 条' if language == 'zh' else 'Showing the latest 30 by default')
                 if total == 121:
-                    sampled = frames(page.locator('.record-transition'), lambda: footer.locator('button').click(), False)
+                    settled(page)
+                    try:
+                        sampled = frames(page.locator('.record-transition'), lambda: footer.locator('button').click(), False)
+                    except Error as error:
+                        raise AssertionError((engine, language, section, 'Record expansion animation was not measurable')) from error
                     animations.append({'section': section, 'frames': len(sampled)})
                     assert len({round(row['height'], 1) for row in sampled}) >= 3, (section, sampled)
                     footer.locator('button').click(); settled(page)
             if not page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'):
-                print(json.dumps({'overflow': page.evaluate("()=>[...document.querySelectorAll('#main-content *')].filter(e=>{const r=e.getBoundingClientRect();return r.right>innerWidth+1&&r.width>0}).slice(0,16).map(e=>({tag:e.tagName,cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right,text:e.textContent.slice(0,80)}))")}), flush=True)
+                print(json.dumps({'viewport': width, 'overflow': page.evaluate("()=>{const shell=document.querySelector('.app-main'), bounds=shell.getBoundingClientRect();return {viewport:innerWidth, scrollWidth:document.documentElement.scrollWidth, shellLeft:bounds.left, shellWidth:bounds.width, elements:[...document.querySelectorAll('#main-content *')].filter(e=>{const r=e.getBoundingClientRect();return r.right>innerWidth+1&&r.width>0}).slice(0,16).map(e=>({tag:e.tagName,cls:e.className,width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right,text:e.textContent.slice(0,80)}))}}")}), flush=True)
                 page.screenshot(path='outputs/v61-overflow.png')
                 raise AssertionError((section, total, width, 'document overflow'))
             page.keyboard.press('Tab')
@@ -96,10 +132,12 @@ def run(engine, browser, language):
         {**account(2), 'name': 'Charlie', 'email': 'charlie@example.test', 'usedBytes': 90, 'protocols': ['VMess'], 'expiresAt': '2027-01-01'},
         {**account(3), 'name': 'Delta', 'email': 'delta@example.test', 'usedBytes': 200, 'protocols': ['Hysteria2'], 'configuredStatus': 'disabled'},
     ]
+    leave_history()
     page.set_viewport_size({'width': 390, 'height': 844})
-    page.goto(BASE + '/?qa_columns#/accounts', wait_until='networkidle')
+    page.evaluate("location.hash='/accounts'")
     names = page.locator('.account-subscription-trigger strong')
     search_button = page.get_by_role('button', name=translated('搜索与排序账号', 'Search and sort accounts'), exact=True)
+    expect(names).to_have_text(['Bravo', 'Alpha', 'Charlie', 'Delta'], timeout=20000)
     expect(page.get_by_role('textbox', name=translated('搜索账号', 'Search accounts'), exact=True)).to_have_count(0)
     search_button.click()
     page.get_by_role('button', name='A–Z', exact=True).click()
@@ -179,9 +217,12 @@ def run(engine, browser, language):
     page.emulate_media(reduced_motion='no-preference')
 
     # The removed route cannot expose a standalone page. Account details own it.
+    leave_history()
     dashboard['accounts'] = [account(0)]; dashboard['subscriptions'] = [{'id': 'qa-sub', 'account': 'qa-0', 'protocols': ['AnyTLS'], 'enabled': True}]
     dashboard['traffic']['totalBytes'] = 12_500_000_000
-    page.set_viewport_size({'width': 390, 'height': 844}); page.goto(BASE + '/#/accounts', wait_until='networkidle')
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.evaluate("location.hash='/accounts'")
+    expect(names).to_have_text(['QA 0'], timeout=20000)
     assert state['urlReads'] == 0
     search_button.click()
     search = page.get_by_role('textbox', name='搜索账号' if language == 'zh' else 'Search accounts', exact=True)
@@ -221,12 +262,12 @@ def run(engine, browser, language):
     assert base64.b64decode(copied[2].split('sub://')[1].split('?')[0]).decode() == url
     page.get_by_role('button', name='完成' if language == 'zh' else 'Done', exact=True).click()
     expect(page.locator('.qr-surface')).to_have_count(0)
-    page.goto(BASE + '/#/subscriptions', wait_until='networkidle')
-    assert page.locator('.account-subscriptions').count() == 0
-    assert page.evaluate('location.hash') == '#/accounts'
+    page.evaluate("location.hash='/subscriptions'")
+    expect(page).to_have_url(BASE + '/#/accounts')
+    expect(page.locator('.account-subscriptions')).to_have_count(0)
 
     page.set_viewport_size({'width': 1536, 'height': 960})
-    page.goto(BASE + '/#/traffic', wait_until='networkidle')
+    page.evaluate("location.hash='/traffic'")
     expect(page.get_by_text(translated('连接与用量', 'Connections and usage'), exact=True)).to_be_visible()
     usage = page.locator('.traffic-analysis')
     toggle = usage.get_by_role('button', name=translated('用量明细', 'Usage details'), exact=True)
@@ -241,8 +282,9 @@ def run(engine, browser, language):
     page.mouse.up()
     expect(toggle).to_have_attribute('aria-expanded', 'false')
 
-    page.goto(BASE + '/#/accounts', wait_until='networkidle')
-    page.set_viewport_size({'width': 1536, 'height': 960}); settled(page)
+    page.evaluate("location.hash='/accounts'")
+    page.get_by_role('heading', name=translated('账号管理', 'Account management'), exact=True).wait_for()
+    settled(page)
     page.get_by_role('button', name='设置' if language == 'zh' else 'Settings', exact=True).click()
     group = page.locator('.security-settings-group'); expect(group).to_contain_text('在线超时时长' if language == 'zh' else 'Inactivity timeout')
     expect(group).to_contain_text('更换密码' if language == 'zh' else 'Change password')
@@ -255,7 +297,7 @@ def run(engine, browser, language):
     assert state['writes'] == [{'auditRetentionDays': 30}]
     assert not errors, errors
     context.close()
-    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'stableEmptyHeaders': stable_headers, 'accountMotion': True, 'usageCard': True}
+    return {'language': language, 'cases': cases, 'animations': animations, 'focusIndicators': focus_count, 'clientLinks': True, 'securitySettings': True, 'stableQrLoading': True, 'searchRing': True, 'pinnedUsage': True, 'accountColumns': True, 'stableEmptyHeaders': stable_headers, 'accountMotion': True, 'usageCard': True, 'resizeFrames': len(shell_frames)}
 
 
 with sync_playwright() as playwright:

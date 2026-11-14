@@ -10,6 +10,7 @@ import {
 import {
   acknowledgeAlert,
   acknowledgeAllAlerts,
+  acknowledgeNetworkAlerts,
   ApiError,
   completeInitialization,
   configureIntegration,
@@ -451,28 +452,49 @@ export function CastoriceApp() {
       alertWriteInFlight.current = false;
     }
   };
+  const confirmNetworkAlerts = async () => {
+    if (alertWriteInFlight.current) throw new Error("alert_write_in_progress");
+    alertWriteInFlight.current = true;
+    alertAcknowledgementGeneration.current += 1;
+    try {
+      const { summary, network } = await acknowledgeNetworkAlerts();
+      setDashboard((current) => ({
+        ...current, alertSummary: summary, networkAlerts: network,
+        alerts: current.alerts.map((item) => item.id.startsWith("network-") ? { ...item, acknowledged: true } : item),
+      }));
+      showToast(t("网络告警已确认", "Network alerts acknowledged"));
+    } finally {
+      alertAcknowledgementGeneration.current += 1;
+      alertWriteInFlight.current = false;
+    }
+  };
   const saveIntegration = useCallback(
     async (id: IntegrationId, values: Record<string, string>) => {
+      let saved: Awaited<ReturnType<typeof configureIntegration>>;
       try {
-        const saved = await configureIntegration(id, true, values);
+        saved = await configureIntegration(id, true, values);
+      } catch (error) {
+        void loadDashboard();
+        showToast(id === "subscriptions"
+          ? t("订阅实际访问验证失败，配置未保存", "Live subscription probe failed; configuration was not saved")
+          : t("后端实际验证失败，配置未保存", "Backend live validation failed; configuration was not saved"));
+        throw error;
+      }
+      if (id === "subscriptions") setSetupDrafts((current) => ({ ...current, subscriptions: {} }));
+      try {
         const payload = await fetchDashboard();
         setDashboard(payload);
         setConnections(payload.connections);
         hasLiveData.current = true;
         const verified = payload.integrations.find((item) => item.id === id) ?? saved;
-        if (id === "subscriptions") {
-          setSetupDrafts((current) => ({ ...current, subscriptions: {} }));
-        }
         showToast(verified.status === "ready"
           ? t("配置已保存并通过实际运行验证", "Configuration saved and live-verified")
           : t("配置已保存，但实际运行状态仍需检查", "Configuration saved, but the live status still needs attention"));
-        return verified;
-      } catch (error) {
-        await loadDashboard();
-        showToast(id === "subscriptions"
-          ? t("订阅实际访问验证失败，配置未保存", "Live subscription probe failed; configuration was not saved")
-          : t("后端实际验证失败，配置未保存", "Backend live validation failed; configuration was not saved"));
-        throw error;
+        return saved.subscriptionValidation ? { ...verified, subscriptionValidation: saved.subscriptionValidation } : verified;
+      } catch {
+        setDashboard((current) => ({ ...current, integrations: current.integrations.map((item) => item.id === id ? saved : item) }));
+        showToast(t("配置已保存，但暂时无法刷新运行状态", "Configuration saved. Live status could not be refreshed."));
+        return saved;
       }
     },
     [loadDashboard, showToast, t],
@@ -574,7 +596,7 @@ export function CastoriceApp() {
         return (
           <AccountsPage
             accounts={dashboard.accounts}
-            unattributedBytes={Math.max(0, dashboard.traffic.totalBytes - dashboard.accounts.reduce((total, account) => total + account.usedBytes, 0))}
+            unattributedBytes={dashboard.traffic.unassignedAccountBytes ?? null}
             subscriptions={dashboard.subscriptions}
             onToast={showToast}
             integration={integrationFor("hysteria2")}
@@ -607,7 +629,7 @@ export function CastoriceApp() {
             networkAlertCount={dashboard.networkAlerts?.pending}
             alertIntegration={integrationFor("alerts")}
             onOpenAlerts={() => navigate("alerts")}
-            onAcknowledgeAll={() => confirmAlerts("all")}
+            onAcknowledgeAll={confirmNetworkAlerts}
             onToast={showToast}
             integration={integrationFor("network")}
             onConfigure={() => configurePage("network")}

@@ -49,6 +49,7 @@ export function OverviewPage({
   const [trafficRange, setTrafficRange] = useState<TrafficRange>("24h");
   const stale = mode === "stale";
   const usage = percent(metrics.trafficUsedBytes, metrics.trafficLimitBytes);
+  const quotaAvailable = metrics.trafficQuotaAvailable !== false;
   const totalDown = metrics.downloadBps;
   const totalUp = metrics.uploadBps;
   const remaining = Math.max(
@@ -93,9 +94,9 @@ export function OverviewPage({
           <div className="traffic-hero__top">
             <div>
               <span className="metric-label">{t("流量用量", "Traffic usage")}</span>
-              <strong>{formatDecimalBytes(metrics.trafficUsedBytes)}</strong>
+              <strong>{quotaAvailable ? formatDecimalBytes(metrics.trafficUsedBytes) : "—"}</strong>
               <span className="metric-support">
-                {t(
+                {!quotaAvailable ? t("当前额度用量暂不可用", "Quota usage is temporarily unavailable") : t(
                   `额度 ${formatDecimalBytes(metrics.trafficLimitBytes)} · 剩余 ${formatDecimalBytes(remaining)}`,
                   `Quota ${formatDecimalBytes(metrics.trafficLimitBytes)} · ${formatDecimalBytes(remaining)} remaining`,
                 )}
@@ -110,12 +111,12 @@ export function OverviewPage({
               onClick={onEditQuota}
             />
           </div>
-          <Progress
+          {quotaAvailable ? <Progress
             value={usage}
             tone={usage >= 90 ? "danger" : usage >= 75 ? "warning" : "primary"}
             label={t("当前周期流量使用率", "Current-cycle traffic usage")}
-          />
-          <div className="traffic-hero__footer">
+          /> : null}
+          {quotaAvailable ? <div className="traffic-hero__footer">
             <span>
               <Icon name="data_usage" size={18} />
               {t(`剩余 ${formatDecimalBytes(remaining)}`, `${formatDecimalBytes(remaining)} remaining`)}
@@ -123,7 +124,7 @@ export function OverviewPage({
             <Chip staticChip tone={usage >= 90 ? "danger" : usage >= 75 ? "warning" : "default"}>
               {t(`已用 ${usage.toFixed(0)}%`, `${usage.toFixed(0)}% used`)}
             </Chip>
-          </div>
+          </div> : null}
         </Card>
 
         <MetricCard
@@ -241,6 +242,7 @@ export function OverviewPage({
                   : t("等待探测", "Waiting")}
               </b>
               <Progress
+                decorative
                 value={
                   averageLatency !== null
                     ? Math.max(0, 100 - averageLatency / 2)
@@ -261,6 +263,7 @@ export function OverviewPage({
                   : t("等待探测", "Waiting")}
               </b>
               <Progress
+                decorative
                 value={
                   averageLoss !== null
                     ? Math.max(0, 100 - averageLoss * 10)

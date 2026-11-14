@@ -48,8 +48,10 @@ def run(engine, timezone, browser):
             data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": {"type": "default", "url": "", "fit": "cover"}}
         elif path.startswith("auth/"):
             data = {"username": "QA", "csrfToken": "synthetic-csrf", "expiresAt": int(time.time())+3600, "setupComplete": True}
-        elif path in ("alerts", "audits"):
-            rows = audits if path == "audits" else [item for item in history if query.get("filter", ["all"])[0] == "all" or not item["acknowledged"]]
+        elif path in ("alerts", "audits/search"):
+            if path == "audits/search":
+                query = {key: [str(value)] for key, value in route.request.post_data_json.items()}
+            rows = audits if path == "audits/search" else [item for item in history if query.get("filter", ["all"])[0] == "all" or not item["acknowledged"]]
             size = int(query.get("pageSize", ["30"])[0])
             pages = max(1, (len(rows)+size-1)//size)
             current = min(int(query.get("page", ["1"])[0]), pages)

@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -21,11 +22,14 @@ from .config import AppConfig
 from .dashboard import DashboardService, VISIBLE_PANEL_ORDER, ordered_visible_panels
 from .security import PublicFetchBusy, _image_mime, list_background_images, normalize_https_image_url, safe_background_image
 from .background import BackgroundCache, BackgroundUnavailable, CACHE_SECONDS, DEFAULT_PROFILE, PROFILES, background_setting
-from .storage import Storage
+from .bounded_json import JsonLimitError, loads as load_json
+from .storage import Storage, valid_retention_days
+from .validation import integer, boolean, text
 
 
 SESSION_COOKIE = "castorice_session"
 VISIBLE_PANELS = set(VISIBLE_PANEL_ORDER)
+INSTALL_MARKER = Path("/run/castoriceui/installing")
 
 
 class AuthenticationBusy(Exception):
@@ -45,6 +49,12 @@ def validation_error_payload(error: ValueError) -> dict[str, str]:
     if message.startswith("Password must"):
         return {"error": "weak_password", "field": "password", "message": message}
     lowered = message.casefold()
+    if lowered.startswith("temporary subscription url"):
+        return {"error": "temporary_subscription_failed", "message": "The temporary test URL failed validation"}
+    if lowered.startswith("protected subscription records"):
+        return {"error": "protected_subscriptions_failed", "message": "One or more protected subscription records failed validation"}
+    if lowered.startswith("hysteria2 invalid response"):
+        return {"error": "upstream_invalid_response", "message": message}
     if "background image api port" in lowered:
         return {"error": "invalid_background_port", "field": "value", "message": "Background image API port must be an integer from 1 to 65535"}
     if "configure" in lowered and "secret" in lowered and "protected server config" in lowered:
@@ -69,7 +79,13 @@ def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple
     scheme = scheme.strip().lower()
     if scheme not in {"http", "https"} or not authority or "," in authority:
         return None
-    parsed = urlparse(f"{scheme}://{authority.strip()}")
+    try:
+        parsed = urlparse(f"{scheme}://{authority.strip()}")
+        port = parsed.port
+        if port is None and port_hint:
+            port = int(port_hint)
+    except ValueError:
+        return None
     if (
         not parsed.hostname
         or parsed.username
@@ -80,16 +96,9 @@ def normalized_origin(scheme: str, authority: str, port_hint: str = "") -> tuple
         or parsed.fragment
     ):
         return None
-    try:
-        port = parsed.port
-        if port is None and port_hint:
-            port = int(port_hint)
-    except ValueError:
+    if port is not None and not 1 <= port <= 65535:
         return None
-    return scheme, parsed.hostname.lower(), port or (443 if scheme == "https" else 80)
-
-
-from .validation import integer, boolean, text
+    return scheme, parsed.hostname.lower(), port if port is not None else (443 if scheme == "https" else 80)
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -99,8 +108,34 @@ class ApiHandler(BaseHTTPRequestHandler):
     def app(self) -> "ApiServer":
         return self.server  # type: ignore[return-value]
 
-    def log_message(self, format_string: str, *args: Any) -> None:
-        print(f"{self.address_string()} {format_string % args}")
+    def handle_one_request(self) -> None:
+        self.request_started = time.monotonic()
+        super().handle_one_request()
+
+    def parse_request(self) -> bool:
+        if not super().parse_request():
+            return False
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if self.app.stopping or (path not in {"/api/v1/health", "/api/v2/health"} and INSTALL_MARKER.is_file()):
+            self.close_connection = True
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "panel_maintenance"}, {"Retry-After": "5"})
+            return False
+        return True
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        target = getattr(self, "path", "").partition("?")[0]
+        if not re.fullmatch(r"/api/v[12]/[a-zA-Z0-9/_-]{1,140}", target):
+            target = "/other"
+        for prefix, endpoint in (("/subscriptions/", "/url"), ("/network/", "/history"), ("/alerts/", "/evidence"), ("/alerts/", "/ack")):
+            if prefix in target and target.endswith(endpoint):
+                target = target.split(prefix, 1)[0] + prefix + ":id" + endpoint
+                break
+        method = self.command if self.command in {"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"} else "-"
+        print(f"{method} {target} {code} {round((time.monotonic() - self.request_started) * 1000)}ms")
+
+    def log_message(self, _format_string: str, *args: Any) -> None:
+        # BaseHTTPRequestHandler diagnostics may include the raw request line.
+        print("HTTP transport or request syntax error")
 
     def send_json(self, status: HTTPStatus, payload: Any, headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
@@ -122,7 +157,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     def send_image(self, path: Path, mime: str) -> None:
         self.stream_image(path, mime)
 
-    def stream_image(self, path: Path, mime: str, stale: bool = False, retry_after: int = 0, fetched_at: float = 0) -> None:
+    def stream_image(self, path: Path, mime: str, stale: bool = False, retry_after: int = 0, fetched_at: float = 0, generation: str = "") -> None:
         try:
             with path.open("rb") as stream:
                 # An atomic refresh may replace this path between get() and
@@ -137,6 +172,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
                 if fetched_at:
                     self.send_header("X-Background-Age", str(round(max(0, time.time() - fetched_at), 3)))
+                if generation:
+                    self.send_header("X-Background-Version", generation)
                 if stale:
                     self.send_header("X-Background-Stale", "1")
                     self.send_header("Retry-After", str(retry_after))
@@ -157,7 +194,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             return {}
         if length > 65_536:
             raise ValueError("Request body exceeds 64 KiB")
-        value = json.loads(self.rfile.read(length), parse_constant=lambda _value: (_ for _ in ()).throw(ValueError("Non-finite JSON number")))
+        data = self.rfile.read(length)
+        if len(data) != length:
+            raise ValueError("Incomplete request body")
+        value = load_json(data, max_items=8_192)
         if not isinstance(value, dict):
             raise ValueError("JSON object required")
         return value
@@ -171,7 +211,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             return False
         origin = self.headers.get("Origin", "").strip()
         if origin:
-            parsed = urlparse(origin)
+            try:
+                parsed = urlparse(origin)
+            except ValueError:
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": "origin_mismatch"})
+                return False
             try:
                 peer_is_loopback = ipaddress.ip_address(self.client_address[0]).is_loopback
             except (AttributeError, ValueError):
@@ -188,6 +232,12 @@ class ApiHandler(BaseHTTPRequestHandler):
             if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment or supplied is None or supplied != expected:
                 self.send_json(HTTPStatus.FORBIDDEN, {"error": "origin_mismatch"})
                 return False
+        return True
+
+    def require_json_content(self) -> bool:
+        if self.headers.get_content_type() != "application/json":
+            self.send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "json_required"})
+            return False
         return True
 
     def source_ip(self) -> str:
@@ -284,11 +334,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self.send_image(image_path, mime)
                     return
                 if setting.get("type") == "url":
-                    # A failed browser decode may retry a corrupt cached image;
-                    # this uses the same global fetch/byte/concurrency budgets.
-                    seconds = 0 if parse_qs(parsed_request.query).get("retry") == ["1"] else setting["cacheSeconds"]
-                    image = self.app.backgrounds.get(setting["value"], self.app.config.external_background_hosts, profile, seconds)
-                    self.stream_image(image.path, image.mime, image.stale, image.retry_after, image.fetched_at)
+                    version = self.headers.get("X-CastoriceUI-Background-Version", "") if parse_qs(parsed_request.query).get("retry") == ["1"] else ""
+                    image = self.app.backgrounds.get(setting["value"], self.app.config.external_background_hosts, profile, setting["cacheSeconds"], version)
+                    self.stream_image(image.path, image.mime, image.stale, image.retry_after, image.fetched_at, image.generation)
                     return
                 raise ValueError("No background is selected")
             except BackgroundUnavailable as error:
@@ -329,8 +377,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if page < 1 or page > 100_000 or page_size not in {30, 50} or alert_filter not in {"pending", "all", "active", "recovered"}:
                     raise ValueError("Invalid alert pagination or filter")
                 self.send_json(HTTPStatus.OK, self.app.storage.alert_page(page, page_size, alert_filter == "pending", query.get("status", [alert_filter])[0], query.get("severity", [""])[0], query.get("start", [""])[0], query.get("end", [""])[0]))
-            except (TypeError, ValueError) as error:
-                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_alert_filter"})
         elif path.startswith("/api/v2/alerts/") and path.endswith("/evidence"):
             episode_id = path.removeprefix("/api/v2/alerts/").removesuffix("/evidence")
             if not episode_id or len(episode_id) > 80 or not all(c.isascii() and (c.isalnum() or c in "-_") for c in episode_id):
@@ -357,17 +405,12 @@ class ApiHandler(BaseHTTPRequestHandler):
         elif path == "/api/v2/audits":
             try:
                 query = parse_qs(parsed_request.query, keep_blank_values=True)
-                page = int(query.get("page", ["1"])[0])
-                page_size = int(query.get("pageSize", ["30"])[0])
-                if page < 1 or page > 100_000 or page_size not in {30, 50}:
-                    raise ValueError("Invalid audit pagination")
-                search = query.get("search", [""])[0].strip()
-                category = query.get("category", [""])[0].strip()
-                if len(search) > 200 or category not in {"", "认证", "账号", "配置", "系统"}:
-                    raise ValueError("Invalid audit filter")
-                self.send_json(HTTPStatus.OK, self.app.dashboard.audit_page(page, page_size, search, category))
-            except (TypeError, ValueError) as error:
-                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                if query.get("search", [""])[0]:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "use_audit_search_body"})
+                else:
+                    self.send_audit_page({key: values[0] for key, values in query.items()})
+            except (TypeError, ValueError):
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_audit_filter"})
         elif path.startswith("/api/v1/subscriptions/") and path.endswith("/url") or path.startswith("/api/v2/subscriptions/") and path.endswith("/url"):
             subscription_id = path.split("/")[-2]
             value = self.app.dashboard.subscription_url(subscription_id)
@@ -381,6 +424,17 @@ class ApiHandler(BaseHTTPRequestHandler):
         else:
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
+    def send_audit_page(self, payload: dict[str, Any]) -> None:
+        page = integer(payload.get("page", 1), "page")
+        page_size = integer(payload.get("pageSize", 30), "pageSize")
+        if not 1 <= page <= 100_000 or page_size not in {30, 50}:
+            raise ValueError("Invalid audit pagination")
+        search = text(payload.get("search", ""), "search").strip()
+        category = text(payload.get("category", ""), "category").strip()
+        if len(search) > 200 or category not in {"", "认证", "账号", "配置", "系统"}:
+            raise ValueError("Invalid audit filter")
+        self.send_json(HTTPStatus.OK, self.app.dashboard.audit_page(page, page_size, search, category))
+
     def do_PUT(self) -> None:
         session = self.require_session(mutation=True)
         if session is None:
@@ -389,8 +443,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         try:
             payload = self.read_json()
             if path in {"/api/v1/settings/traffic-limit", "/api/v2/settings/traffic-limit"}:
-                quota_setting = self.app.dashboard.update_traffic_quota(payload)
-                self.app.storage.add_audit("更新流量额度", "配置", "总流量额度已更新", self.source_ip(), actor=str(session["username"]))
+                quota_setting = self.app.dashboard.update_traffic_quota(payload,
+                    audit=("更新流量额度", "配置", "总流量额度已更新", self.source_ip(), str(session["username"])))
                 self.send_json(HTTPStatus.OK, {"ok": True, **quota_setting})
                 return
             if path.startswith("/api/v1/integrations/") or path.startswith("/api/v2/integrations/"):
@@ -403,40 +457,46 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self.send_json(HTTPStatus.OK, {"targets": result})
                 return
             if path == "/api/v2/settings/ui":
-                saved = self.app.storage.get_setting("ui_settings", {})
-                if not isinstance(saved, dict):
-                    saved = {}
-                current = {"showSetup": True, "visiblePanels": list(VISIBLE_PANEL_ORDER), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 15, **saved}
-                current["auditRetentionDays"] = self.app.storage.audit_retention()
-                current["visiblePanels"] = ordered_visible_panels(current.get("visiblePanels"))
-                if current.get("idleTimeoutMinutes") not in {2, 5, 10, 15, 20, 30}:
-                    current["idleTimeoutMinutes"] = 15
-                if "showSetup" in payload:
-                    current["showSetup"] = boolean(payload["showSetup"], "showSetup")
-                if "visiblePanels" in payload:
-                    panels = payload["visiblePanels"]
-                    if not isinstance(panels, list) or any(str(item) not in VISIBLE_PANELS for item in panels):
-                        raise ValueError("visiblePanels contains an unknown panel")
-                    current["visiblePanels"] = ordered_visible_panels(list(dict.fromkeys(str(item) for item in panels)))
-                if "panelTitle" in payload:
-                    panel_title = text(payload["panelTitle"], "panelTitle").strip()
-                    if not panel_title or len(panel_title) > 40 or any(ord(character) < 32 for character in panel_title):
-                        raise ValueError("panelTitle must contain 1 to 40 printable characters")
-                    current["panelTitle"] = panel_title
-                if "idleTimeoutMinutes" in payload:
-                    idle_timeout = integer(payload["idleTimeoutMinutes"], "idleTimeoutMinutes")
-                    if idle_timeout not in {2, 5, 10, 15, 20, 30}:
-                        raise ValueError("idleTimeoutMinutes is not supported")
-                    current["idleTimeoutMinutes"] = idle_timeout
-                if "auditRetentionDays" in payload:
-                    from .storage import AUDIT_RETENTION_DAYS
-                    days = payload["auditRetentionDays"]
-                    if type(days) is not int or days not in AUDIT_RETENTION_DAYS:
-                        raise ValueError("auditRetentionDays is not supported")
-                    current["auditRetentionDays"] = days
-                self.app.storage.set_setting("ui_settings", current)
-                self.app.storage.add_audit("更新面板设置", "配置", "界面偏好设置已更新", self.source_ip(), actor=str(session["username"]))
-                self.send_json(HTTPStatus.OK, current)
+                def edit(settings: dict[str, Any]) -> dict[str, Any]:
+                    saved = settings["ui_settings"]
+                    if not isinstance(saved, dict):
+                        saved = {}
+                    current = {"showSetup": True, "visiblePanels": list(VISIBLE_PANEL_ORDER), "panelTitle": "CastoriceUI", "idleTimeoutMinutes": 15, **saved}
+                    retention = saved.get("auditRetentionDays", self.app.storage.audit_retention_days)
+                    current["auditRetentionDays"] = retention if valid_retention_days(retention) else self.app.storage.audit_retention_days
+                    current["visiblePanels"] = ordered_visible_panels(current.get("visiblePanels"))
+                    if current.get("idleTimeoutMinutes") not in {2, 5, 10, 15, 20, 30}:
+                        current["idleTimeoutMinutes"] = 15
+                    if "showSetup" in payload:
+                        current["showSetup"] = boolean(payload["showSetup"], "showSetup")
+                    if "visiblePanels" in payload:
+                        panels = payload["visiblePanels"]
+                        if not isinstance(panels, list) or any(str(item) not in VISIBLE_PANELS for item in panels):
+                            raise ValueError("visiblePanels contains an unknown panel")
+                        current["visiblePanels"] = ordered_visible_panels(list(dict.fromkeys(str(item) for item in panels)))
+                    if "panelTitle" in payload:
+                        panel_title = text(payload["panelTitle"], "panelTitle").strip()
+                        if not panel_title or len(panel_title) > 40 or any(ord(character) < 32 for character in panel_title):
+                            raise ValueError("panelTitle must contain 1 to 40 printable characters")
+                        current["panelTitle"] = panel_title
+                    if "idleTimeoutMinutes" in payload:
+                        idle_timeout = integer(payload["idleTimeoutMinutes"], "idleTimeoutMinutes")
+                        if idle_timeout not in {2, 5, 10, 15, 20, 30}:
+                            raise ValueError("idleTimeoutMinutes is not supported")
+                        current["idleTimeoutMinutes"] = idle_timeout
+                    if "auditRetentionDays" in payload:
+                        days = payload["auditRetentionDays"]
+                        if not valid_retention_days(days):
+                            raise ValueError("auditRetentionDays is not supported")
+                        current["auditRetentionDays"] = days
+                    stored = dict(current)
+                    if "auditRetentionDays" not in payload and not valid_retention_days(saved.get("auditRetentionDays")):
+                        stored.pop("auditRetentionDays")
+                    return {"ui_settings": stored}
+                result = self.app.storage.edit_settings({"ui_settings": {}}, edit,
+                    audit=("更新面板设置", "配置", "界面偏好设置已更新", self.source_ip(), str(session["username"])))["ui_settings"]
+                result.setdefault("auditRetentionDays", self.app.storage.audit_retention_days)
+                self.send_json(HTTPStatus.OK, result)
                 return
             if path == "/api/v2/settings/login-background":
                 background_type = text(payload.get("type", "default"), "type")
@@ -470,6 +530,10 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/")
         try:
+            if path in {"/api/v2/auth/initialize", "/api/v2/auth/login"} and not (
+                self.require_mutation_header() and self.require_json_content()
+            ):
+                return
             if path == "/api/v2/auth/initialize":
                 payload = self.read_json()
                 with self.app.authentication_gate():
@@ -515,12 +579,22 @@ class ApiHandler(BaseHTTPRequestHandler):
         except AuthenticationBusy:
             self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "authentication_busy"}, {"Retry-After": "2"})
             return
-        except (ValueError, json.JSONDecodeError) as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error) if isinstance(error, ValueError) else {"error": "invalid_json"})
+        except (JsonLimitError, UnicodeError, json.JSONDecodeError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_json"})
+            return
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, validation_error_payload(error))
             return
 
         session = self.require_session(mutation=True)
         if session is None:
+            return
+        if path == "/api/v2/audits/search":
+            if self.require_json_content():
+                try:
+                    self.send_audit_page(self.read_json())
+                except (TypeError, ValueError, OverflowError):
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_audit_filter"})
             return
         if path == "/api/v2/auth/logout":
             self.app.storage.delete_session(self.session_token())
@@ -569,10 +643,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.app.storage.add_audit("完成初始化向导", "配置", "必要的面板设置已确认", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
-        if path == "/api/v2/alerts/ack-all":
-            count = self.app.storage.acknowledge_all()
-            self.app.storage.add_audit("确认全部告警", "系统", f"已确认 {count} 条告警", self.source_ip(), actor=str(session["username"]))
-            self.send_json(HTTPStatus.OK, {"ok": True, "count": count})
+        if path in {"/api/v2/alerts/ack-all", "/api/v2/network/alerts/ack-all"}:
+            network_only = path == "/api/v2/network/alerts/ack-all"
+            count = self.app.storage.acknowledge_all(network_only=network_only, source_ip=self.source_ip(), actor=str(session["username"]))
+            result = {"ok": True, "count": count}
+            if network_only:
+                result.update(summary=self.app.storage.alert_summary(), network=self.app.storage.network_alert_preview())
+            self.send_json(HTTPStatus.OK, result)
             return
         if (path.startswith("/api/v1/alerts/") or path.startswith("/api/v2/alerts/")) and path.endswith("/ack"):
             alert_id = path.split("/")[-2]
@@ -586,12 +663,13 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 
 class ApiServer(ThreadingHTTPServer):
-    daemon_threads = True
+    daemon_threads = False
     request_queue_size = 64
     max_request_workers = 16
 
     def __init__(self, config: AppConfig, storage: Storage, dashboard: DashboardService) -> None:
         self.config = config
+        self.stopping = False
         self.storage = storage
         self.dashboard = dashboard
         self.authentication_lock = threading.Lock()
@@ -614,6 +692,7 @@ class ApiServer(ThreadingHTTPServer):
             self.shutdown_request(request)
             return
         try:
+            request.settimeout(15)
             super().process_request(request, client_address)
         except Exception:
             self.request_slots.release()

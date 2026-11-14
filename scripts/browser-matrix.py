@@ -271,7 +271,7 @@ with sync_playwright() as playwright:
             data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1, "summary": {"pending": 0, "critical": 0, "warning": 0, "info": 0}}
         elif request_path == "subscriptions/matrix-subscription/url":
             data = {"url": "https://publisher.example.com/synthetic.yaml"}
-        elif request_path == "audits":
+        elif request_path in {"audits", "audits/search"}:
             data = {
                 "items": [{
                     "id": "audit-qa-ipv6",

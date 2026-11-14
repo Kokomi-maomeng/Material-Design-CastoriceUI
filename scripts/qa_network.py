@@ -120,7 +120,7 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
     expect(card.locator('.md-chip--info')).to_have_text('24 reminders' if language == 'en' else '24 项提醒')
     empty = card.get_by_text('所有问题已确认，更多前往告警中心查看', exact=True)
     def confirm_network():
-        with page.expect_response(lambda response: response.url.endswith('/api/v2/alerts/ack-all')) as ack:
+        with page.expect_response(lambda response: response.url.endswith('/api/v2/network/alerts/ack-all')) as ack:
             card.get_by_role('button', name='全部确认', exact=True).click()
         assert ack.value.ok
         expect(empty).to_be_visible()

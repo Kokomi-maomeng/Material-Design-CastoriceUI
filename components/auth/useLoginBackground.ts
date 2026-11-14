@@ -30,7 +30,7 @@ export function useLoginBackground(appearance: LoginAppearance, enteredAt?: numb
     if (!key) return;
     let disposed = false;
     let retryTimer = 0;
-    let retryDecode = false;
+    let failedVersion = "";
     let fallback: StoredImage | undefined;
     let controller: AbortController | undefined;
     const show = async (blob: Blob) => {
@@ -85,13 +85,19 @@ export function useLoginBackground(appearance: LoginAppearance, enteredAt?: numb
       let shouldRetry = false;
       const timeout = window.setTimeout(() => requestController.abort(), 20_000);
       try {
-        const response = await fetch(key + (retryDecode ? "&retry=1" : ""), { credentials: "omit", cache: "no-store", signal: requestController.signal });
+        const response = await fetch(key + (failedVersion ? "&retry=1" : ""), {
+          credentials: "omit", cache: "no-store", signal: requestController.signal,
+          headers: failedVersion ? { "X-CastoriceUI-Background-Version": failedVersion } : undefined,
+        });
         retryAfter = Math.max(2, Math.min(60, Number(response.headers.get("Retry-After")) || retryAfter));
         if (!response.ok) throw new Error("background_unavailable");
         if (Number(response.headers.get("Content-Length")) > MAX_IMAGE_BYTES) throw new Error("background_too_large");
         const blob = await response.blob();
-        if (!await show(blob)) { retryDecode = true; throw new Error("background_decode_failed"); }
-        retryDecode = false;
+        if (!await show(blob)) {
+          failedVersion = response.headers.get("X-Background-Version") ?? "";
+          throw new Error("background_decode_failed");
+        }
+        failedVersion = "";
         // A new image's client TTL starts only when decoding has completed.
         // Reusing an existing cache entry never extends that deadline.
         const stale = response.headers.get("X-Background-Stale") === "1";

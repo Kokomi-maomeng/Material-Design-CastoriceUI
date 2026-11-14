@@ -56,7 +56,7 @@ def run(engine, context):
             state["corrupt"] = False
             body = b"\x89PNG\r\n\x1a\ninvalid" if corrupt else image(state["images"])
             if not corrupt: state["server_images"][profile] = body
-            route.fulfill(body=body, content_type="image/png", headers={"Cache-Control": "no-store"}); return
+            route.fulfill(body=body, content_type="image/png", headers={"Cache-Control": "no-store", "X-Background-Version": str(state["images"])}); return
         if path == "bootstrap": data = {"setupRequired": False, "bootstrapAvailable": False, "appearance": appearance}
         elif path == "auth/session" and not state["authenticated"]:
             route.fulfill(status=401, json={"error": "authentication_required"}); return
@@ -78,7 +78,7 @@ def run(engine, context):
             state["saved"] = route.request.post_data_json
             appearance.update({key: value for key, value in state["saved"].items() if key != "value"}, revision="synthetic-v50-saved")
             data = appearance
-        elif path in {"audits", "settings/ui"}: data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1} if path == "audits" else dashboard["uiSettings"]
+        elif path in {"audits/search", "settings/ui"}: data = {"items": [], "total": 0, "page": 1, "pageSize": 30, "totalPages": 1} if path == "audits/search" else dashboard["uiSettings"]
         else: data = {"ok": True}
         route.fulfill(json=data)
 

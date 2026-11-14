@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from debian_images import pinned_images
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 1
@@ -72,13 +73,7 @@ def environment():
 
 
 def official_images():
-    result = {}
-    for number, suite in (("12", "bookworm"), ("13", "trixie")):
-        with urllib.request.urlopen(f"https://cloud.debian.org/images/cloud/{suite}/latest/SHA512SUMS", timeout=20) as response:
-            lines = response.read(1024 * 1024).decode().splitlines()
-        name = f"debian-{number}-genericcloud-amd64.qcow2"
-        result[number] = next(line.split()[0] for line in lines if len(line.split()) == 2 and line.split()[1].lstrip("*") == name)
-    return result
+    return {number: image["sha512"] for number, image in pinned_images().items()}
 
 
 class Github:

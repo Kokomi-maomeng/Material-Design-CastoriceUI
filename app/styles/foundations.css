@@ -14,7 +14,7 @@
 }
 
 :root {
-  --primary: #7357a3;
+  --primary: #694c99;
   --on-primary: #ffffff;
   --primary-container: #ecdcff;
   --on-primary-container: #2c1552;
@@ -222,7 +222,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .nav-footer > button { width: 100%; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
 .status-dot--online { background: var(--success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 15%, transparent); }
-.app-main { margin-left: var(--nav-width); min-height: 100vh; transition: margin .28s cubic-bezier(.2,0,0,1), width .28s cubic-bezier(.2,0,0,1); }
+.app-main { margin-left: var(--nav-width); min-height: 100vh; }
 .top-app-bar { height: var(--topbar-height); position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 28px; background: var(--surface); background: color-mix(in srgb, var(--surface) 88%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-bottom: 1px solid var(--outline-variant); border-bottom-color: color-mix(in srgb, var(--outline-variant) 45%, transparent); }
 .top-app-bar__start, .top-actions { display: flex; align-items: center; gap: 4px; }
 .menu-button, .mobile-brand { display: none !important; }
@@ -241,6 +241,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .avatar--small { width: 34px; height: 34px; font-size: var(--text-sm); }
 #main-content { padding: 30px clamp(20px, 3vw, 44px) 64px; max-width: 1640px; margin: 0 auto; }
 @media (min-width: 901px) {
+  .app-main { transition: margin .28s cubic-bezier(.2,0,0,1), width .28s cubic-bezier(.2,0,0,1); }
   .app-shell--navigation-hidden .navigation-rail { transform: translateX(-105%); box-shadow: none; }
   .app-shell--navigation-hidden .app-main { width: calc(100% - var(--nav-width)); margin-left: auto; margin-right: auto; }
 }

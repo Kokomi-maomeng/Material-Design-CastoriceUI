@@ -1,10 +1,12 @@
 limit_req_zone $binary_remote_addr zone=castorice_api:10m rate=30r/s;
 limit_conn_zone $binary_remote_addr zone=castorice_connections:10m;
+log_format castorice_safe '$remote_addr $request_method $uri $status $request_time';
 
 server {
     listen 80;
     listen [::]:80;
     server_name panel.example.com;
+    access_log off;
     return 301 https://$host$request_uri;
 }
 
@@ -15,6 +17,7 @@ server {
     server_name panel.example.com;
 
     root /var/www/castorice-ui/current;
+    access_log /var/log/nginx/castoriceui-access.log castorice_safe;
     index index.html;
     server_tokens off;
 

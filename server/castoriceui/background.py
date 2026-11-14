@@ -59,12 +59,18 @@ class CachedImage:
     stale: bool = False
     retry_after: int = 0
 
+    @property
+    def generation(self) -> str:
+        # Opaque to the client; no URL, source data or per-visitor identifier.
+        return hashlib.sha256(f"{self.path.name}:{self.fetched_at}".encode()).hexdigest()[:20]
+
 
 class BackgroundCache:
     # These are global to the panel, not multiplied by IP/window/profile.
     MAX_ATTEMPTS = 12
     WINDOW_SECONDS = 60
     MIN_FETCH_GAP = 1
+    MIN_DECODE_RETRY_GAP = 60
     MAX_WINDOW_BYTES = 90_000_000
 
     def __init__(self, directory: Path) -> None:
@@ -73,6 +79,7 @@ class BackgroundCache:
         self.busy = False
         self.namespace = ""
         self.entries: dict[str, CachedImage] = {}
+        self.decode_retries: dict[str, float] = {}
         self.attempts: deque[float] = deque()
         self.transfers: deque[tuple[float, int]] = deque()
         self.next_fetch = 0.0
@@ -84,6 +91,7 @@ class BackgroundCache:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.namespace = namespace
         self.entries = {}
+        self.decode_retries = {}
         # Touch only this cache's fixed managed filenames; never user images.
         managed = re.compile(r"[0-9a-f]{20}-(?:portrait|landscape)-[0-9]+\.(?:image|json|tmp)")
         for path in self.directory.iterdir():
@@ -108,7 +116,7 @@ class BackgroundCache:
             raise BackgroundUnavailable(retry)
         return CachedImage(entry.path, entry.mime, entry.fetched_at, True, max(1, retry))
 
-    def get(self, url: str, allowed_hosts: list[str], profile: str = DEFAULT_PROFILE, seconds: int = 0) -> CachedImage:
+    def get(self, url: str, allowed_hosts: list[str], profile: str = DEFAULT_PROFILE, seconds: int = 0, failed_version: str = "") -> CachedImage:
         if profile not in PROFILES or type(seconds) is not int or seconds not in CACHE_SECONDS:
             raise ValueError("Invalid background profile or cache duration")
         normalized = normalize_https_image_url(url, allowed_hosts)
@@ -119,9 +127,14 @@ class BackgroundCache:
                 raise BackgroundUnavailable(2)
             self._select_source(namespace)
             entry = self.entries.get(profile)
-            if entry and seconds and 0 <= time.time() - entry.fetched_at < seconds:
-                return entry
             now = time.monotonic()
+            fresh = entry is not None and seconds and 0 <= time.time() - entry.fetched_at < seconds
+            decode_retry = fresh and failed_version == entry.generation
+            retry_deadline = self.decode_retries.get(profile, 0.0)
+            if decode_retry and retry_deadline > now:
+                return self._fallback(entry, math.ceil(retry_deadline - now))
+            if fresh and not decode_retry:
+                return entry
             while self.attempts and now - self.attempts[0] >= self.WINDOW_SECONDS:
                 self.attempts.popleft()
             while self.transfers and now - self.transfers[0][0] >= self.WINDOW_SECONDS:
@@ -135,6 +148,8 @@ class BackgroundCache:
             if self.busy or now < self.next_fetch or len(self.attempts) >= self.MAX_ATTEMPTS or byte_limited:
                 return self._fallback(entry, retry)
             self.busy = True
+            if decode_retry:
+                self.decode_retries[profile] = now + max(self.MIN_DECODE_RETRY_GAP, seconds)
             self.attempts.append(now)
             self.next_fetch = now + self.MIN_FETCH_GAP
         temporary = None

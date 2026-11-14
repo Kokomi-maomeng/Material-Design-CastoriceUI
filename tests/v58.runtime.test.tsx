@@ -19,9 +19,9 @@ it("uses calendar-month usage and keeps all connection rates above the filtered 
   const activity = { connections: [connection, { ...connection, id: "other", protocol: "VMess" as const, uploadBps: 300, downloadBps: 400 }], now: Date.now(), onConfigure: vi.fn(), onToast: vi.fn() };
   const { container } = render(<I18nProvider><TrafficPage traffic={traffic} onConfigure={vi.fn()} activity={activity} /></I18nProvider>);
   const kpis = [...container.querySelectorAll(".traffic-kpi")];
-  expect(kpis.map((item) => item.querySelector("small")?.textContent)).toEqual(["Last 24h usage", "Measured interface usage this month", "Total upload (TX)", "Total download (RX)"]);
+  expect(kpis.map((item) => item.querySelector("small > span")?.textContent)).toEqual(["Last 24h interface usage · RX + TX", "Measured interface usage this month", "Listed connection upload rate", "Listed connection download rate"]);
   const values = () => kpis.map((item) => item.querySelector("strong")?.textContent);
-  expect(values()).toEqual(["0 B", "7.0 GB", "400 B/s", "600 B/s"]);
+  expect(values()).toEqual(["—", "7.0 GB", "400 B/s", "600 B/s"]);
   const section = screen.getByRole("button", { name: "Live connections" });
   fireEvent.click(section);
   expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
@@ -30,7 +30,7 @@ it("uses calendar-month usage and keeps all connection rates above the filtered 
   fireEvent.click(screen.getByRole("button", { name: "Protocol" }));
   fireEvent.click(await screen.findByRole("option", { name: "Trojan" }));
   expect(container.querySelectorAll(".connection-card")).toHaveLength(1);
-  expect(values()).toEqual(["0 B", "7.0 GB", "400 B/s", "600 B/s"]);
+  expect(values()).toEqual(["—", "7.0 GB", "400 B/s", "600 B/s"]);
   expect(screen.queryByText("About these measurements")).toBeNull();
 });
 

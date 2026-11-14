@@ -169,8 +169,8 @@ export function NetworkPage({
             </button>
           </div>
         </div>
-        <AnimatedRecords itemCount={filtered.length} transitionKey={`${version}:${filtered.map((target) => target.id).join("|")}`}><div className="network-target-grid">
-          {columns.map((column, index) => <div className="network-target-column" key={index}>
+        <AnimatedRecords itemCount={filtered.length} transitionKey={`${version}:${filtered.map((target) => target.id).join("|")}`}><div className="network-target-grid" data-columns={filtered.length <= 1 ? 1 : 2}>
+          {columns.filter((column) => column.length > 0).map((column, index) => <div className="network-target-column" key={index}>
             {column.map((target) => <NetworkTargetCard key={target.id} target={target} expanded={!collapsed.has(target.id)} onToggle={() => toggleTarget(target.id)} />)}
           </div>)}
         </div></AnimatedRecords>

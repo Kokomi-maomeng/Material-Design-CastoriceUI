@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .bounded_json import loads as load_json
+from .dns_wire import verified_a_response
+
 import json
 import ipaddress
 import math
@@ -24,6 +27,7 @@ from typing import Any
 
 from .config import AppConfig
 from .network_limits import MAX_NETWORK_TARGETS
+from .monitoring import event
 from .storage import Storage
 from .traffic_quota import baseline_for_cycle, normalize_quota_state, traffic_quota_period
 
@@ -222,32 +226,22 @@ class SystemCollector:
             self.storage.record_sample(now, rx, tx, cpu, memory_pct, self.interface, self.boot_id)
             self.last_persisted_at = now
         self.collection_stage = "quota"
-        legacy_limit = self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)
-        quota_setting = normalize_quota_state(
-            self.storage.get_setting("traffic_quota", {}),
-            default_bytes=int(legacy_limit),
-            legacy_day=self.config.traffic_billing_day,
-            legacy_timezone=self.config.traffic_billing_timezone,
-            legacy_count_mode=self.config.traffic_count_mode,
-            legacy_initial_bytes=self.config.traffic_initial_used_bytes,
-            legacy_initial_cycle=self.config.traffic_initial_used_cycle,
-        )
-        limit = int(quota_setting["bytes"])
-        cycle_start, next_reset, quota_schedule = traffic_quota_period(
-            datetime.now(timezone.utc), quota_setting, self.config.traffic_billing_day, self.config.traffic_billing_timezone
-        )
-        traffic_usage = self.storage.traffic_usage_since(
-            int(cycle_start.timestamp()),
-            str(quota_setting["countMode"]),
-            baseline_for_cycle(quota_setting, cycle_start),
-        )
+        try:
+            traffic_quota = self.quota_metrics()
+        except (OSError, TypeError, ValueError, OverflowError, sqlite3.Error) as error:
+            event("host-diagnostic", "quota-unavailable", exceptionType=type(error).__name__)
+            traffic_quota = {
+                "trafficUsedBytes": 0, "trafficLimitBytes": self.config.traffic_limit_bytes,
+                "trafficCycleStart": "", "trafficBaselineBytes": 0,
+                "trafficCountMode": self.config.traffic_count_mode, "trafficQuotaUnit": "GB",
+                "trafficQuotaAvailable": False,
+            }
         self.collection_stage = "host-load"
         load = os.getloadavg()
         self.collection_stage = "host-uptime"
         uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
         self.collection_stage = "database-diagnostics"
         from .alert_archive import capacity
-        from .monitoring import event
         try:
             database_bytes = self.storage.database_size()
             alert_capacity = capacity(self.storage, self.config.alert_history_limit)
@@ -270,19 +264,7 @@ class SystemCollector:
             "diskTotalBytes": disk.total,
             "load": [round(value, 2) for value in load],
             "uptimeSeconds": uptime_seconds,
-            "trafficUsedBytes": traffic_usage["usedBytes"],
-            "trafficLimitBytes": limit,
-            "trafficCycleStart": cycle_start.isoformat().replace("+00:00", "Z"),
-            "trafficBaselineBytes": traffic_usage["baselineBytes"],
-            "trafficCountMode": traffic_usage["countMode"],
-            "trafficQuotaUnit": "GB",
-            "trafficCoverage": traffic_usage["coverage"],
-            "trafficQuota": {
-                "bytes": limit,
-                **quota_schedule,
-                "cycleStart": cycle_start.isoformat().replace("+00:00", "Z"),
-                "nextReset": next_reset.isoformat().replace("+00:00", "Z") if next_reset else None,
-            },
+            **traffic_quota,
             "downloadBps": download,
             "uploadBps": upload,
             "interface": self.interface,
@@ -293,6 +275,27 @@ class SystemCollector:
             "databaseDiagnosticError": database_error,
             "alertCapacity": alert_capacity,
             "databaseWritable": writable,
+        }
+
+    def quota_metrics(self) -> dict[str, Any]:
+        legacy_limit = self.storage.get_setting("traffic_limit_bytes", self.config.traffic_limit_bytes)
+        now = datetime.now(timezone.utc)
+        quota = normalize_quota_state(
+            self.storage.get_setting("traffic_quota", {}), default_bytes=int(legacy_limit),
+            legacy_day=self.config.traffic_billing_day, legacy_timezone=self.config.traffic_billing_timezone,
+            legacy_count_mode=self.config.traffic_count_mode, legacy_initial_bytes=self.config.traffic_initial_used_bytes,
+            legacy_initial_cycle=self.config.traffic_initial_used_cycle, now=now,
+        )
+        start, next_reset, schedule = traffic_quota_period(now, quota)
+        usage = self.storage.traffic_usage_since(int(start.timestamp()), quota["countMode"], baseline_for_cycle(quota, start))
+        start_iso = start.isoformat().replace("+00:00", "Z")
+        return {
+            "trafficUsedBytes": usage["usedBytes"], "trafficLimitBytes": quota["bytes"],
+            "trafficCycleStart": start_iso, "trafficBaselineBytes": usage["baselineBytes"],
+            "trafficCountMode": usage["countMode"], "trafficQuotaUnit": "GB",
+            "trafficCoverage": usage["coverage"], "trafficQuotaAvailable": True,
+            "trafficQuota": {"bytes": quota["bytes"], **schedule, "cycleStart": start_iso,
+                             "nextReset": next_reset.isoformat().replace("+00:00", "Z") if next_reset else None},
         }
 
 
@@ -313,7 +316,7 @@ def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float =
             body = _read_response_before(response, max_bytes, deadline)
             if len(body) > max_bytes:
                 raise ValueError("Integration response exceeds the size limit")
-            return json.loads(body)
+            return load_json(body, max_items=150_000)
     except (OSError, ValueError, TypeError, urllib.error.URLError) as error:
         if strict:
             raise ValueError("Integration endpoint validation failed") from error
@@ -321,47 +324,49 @@ def http_json(url: str, secret: str = "", bearer: bool = False, timeout: float =
 
 
 def valid_counter(value: Any) -> bool:
-    return type(value) in {int, float} and math.isfinite(value) and 0 <= value < 1e30 and int(value) == value
+    return type(value) in {int, float} and 0 <= value < 1e30 and int(value) == value
 
 
 def valid_hysteria_traffic(value: Any) -> bool:
-    return isinstance(value, dict) and all(isinstance(item, dict) and all(valid_counter(item.get(key, 0)) for key in ("tx", "rx")) for item in value.values())
+    return isinstance(value, dict) and all(isinstance(item, dict) and all(valid_counter(item.get(key)) for key in ("tx", "rx")) for item in value.values())
 
 
 def valid_hysteria_streams(value: Any) -> bool:
-    return isinstance(value, dict) and isinstance(value.get("streams", []), list) and all(isinstance(item, dict) and all(valid_counter(item.get(key, 0)) for key in ("tx", "rx")) for item in value.get("streams", []))
+    return isinstance(value, dict) and isinstance(value.get("streams"), list) and all(
+        isinstance(item, dict) and all(valid_counter(item.get(key)) for key in ("tx", "rx"))
+        and all(isinstance(item.get(key), str) for key in ("state", "auth", "req_addr"))
+        and all(valid_counter(item.get(key)) for key in ("connection", "stream"))
+        for item in value["streams"]
+    )
 
 
-def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
-    api = config.hysteria_api
-    base = str(api.get("url", "")).rstrip("/")
-    if not base:
-        return {"available": False, "traffic": {}, "online": {}, "streams": [], "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    secret = str(api.get("secret", ""))
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="hysteria-api") as pool:
-        traffic_future = pool.submit(http_json, base + "/traffic", secret)
-        online_future = pool.submit(http_json, base + "/online", secret)
-        stream_future = pool.submit(http_json, base + "/dump/streams", secret)
-        traffic_raw = traffic_future.result()
-        online_raw = online_future.result()
-        stream_raw = stream_future.result()
-    traffic = traffic_raw if valid_hysteria_traffic(traffic_raw) else {}
+def hysteria_endpoints(base: str, secret: str, fetch=None) -> dict[str, Any]:
+    fetch = fetch or http_json
+    if base:
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="hysteria-api") as pool:
+            futures = [pool.submit(fetch, base + path, secret) for path in ("/traffic", "/online", "/dump/streams")]
+            traffic_raw, online_raw, stream_raw = (future.result() for future in futures)
+    else:
+        traffic_raw = online_raw = stream_raw = None
     online_valid = isinstance(online_raw, dict) and all(valid_counter(value) for value in online_raw.values())
-    online = online_raw if online_valid else {}
-    stream_data = stream_raw if valid_hysteria_streams(stream_raw) else {}
     endpoint_status = {
         "traffic": valid_hysteria_traffic(traffic_raw),
         "online": online_valid,
         "streams": valid_hysteria_streams(stream_raw),
     }
     return {
-        "available": all(endpoint_status.values()),
-        "traffic": traffic,
-        "online": online,
-        "streams": stream_data.get("streams", []) if isinstance(stream_data.get("streams", []), list) else [],
+        "available": any(endpoint_status.values()),
+        "traffic": traffic_raw if endpoint_status["traffic"] else {},
+        "online": online_raw if endpoint_status["online"] else {},
+        "streams": stream_raw["streams"] if endpoint_status["streams"] else [],
         "endpointStatus": endpoint_status,
         "observedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+def hysteria_snapshot(config: AppConfig) -> dict[str, Any]:
+    api = config.hysteria_api
+    return hysteria_endpoints(str(api.get("url", "")).rstrip("/"), str(api.get("secret", "")))
 
 
 def singbox_snapshot(config: AppConfig) -> dict[str, Any]:
@@ -444,6 +449,10 @@ def protocol_readiness(config: AppConfig, protocol: str, sb: dict[str, Any]) -> 
     if not inventory.get("available"):
         if inventory.get("reason") == "config_not_loaded":
             return False, "Core configuration changed since startup; loaded inbounds cannot be verified", "核心配置在启动后发生变更，无法确认已加载的入站"
+        if inventory.get("reason") == "core_executable_mismatch":
+            return False, "Configured sing-box executable differs from the running unit", "配置的 sing-box 程序与当前运行单元不一致"
+        if inventory.get("reason") == "process_inspection_denied":
+            return False, "Protocol probe cannot read the process network tables or descriptors", "协议探测无法读取进程网络表或描述符"
         return False, "Live inbound inventory unavailable; check the protocol probe", "无法读取实时入站信息，请检查协议状态采集服务"
     if urlsplit(str(config.singbox_api.get("url", ""))).port != inventory.get("apiPort"):
         return False, "Statistics API endpoint does not match the running core", "统计 API 地址与当前运行核心不一致"
@@ -796,13 +805,9 @@ def layered_probe(target: dict[str, Any]) -> dict[str, Any]:
                     sock.connect((address, int(port)))
                     sent_at = time.monotonic()
                     sock.send(request)
-                    response = sock.recv(4096)
+                    response = sock.recv(4097)
                     response_ms = (time.monotonic() - sent_at) * 1000
-                reply_id, flags, questions, answers = struct.unpack("!4H", response[:8]) if len(response) >= 12 else (0, 0, 0, 0)
-                question = request[12:]
-                valid = (reply_id == query_id and bool(flags & 0x8000) and not flags & 0x7A0F
-                         and questions == 1 and answers > 0 and response[12:12 + len(question)] == question
-                         and len(response) >= 12 + len(question) + 16)
+                valid = verified_a_response(response, query_id, name)
                 evidence.update(status="passed" if valid else "failed", reason="answer_verified" if valid else "invalid_dns_response")
                 evidence["durationMs"] = round(response_ms, 1) if valid else None
         except (OSError, ValueError, subprocess.SubprocessError):

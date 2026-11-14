@@ -1,0 +1,14 @@
+{
+  "12": {
+    "suite": "bookworm",
+    "build": "20261112-2660",
+    "file": "debian-12-generic-amd64-20261112-2660.qcow2",
+    "sha512": "ef4e6f3302cf7951f869e8e01263ee9ab69661b67dc28d45d76eb317b81cf7f87a75f85f26a3b30cbb772025f2edc27dee4f640f91d4cb3f4afe7662b6362e2a"
+  },
+  "13": {
+    "suite": "trixie",
+    "build": "20261111-2659",
+    "file": "debian-13-generic-amd64-20261111-2659.qcow2",
+    "sha512": "ec8c175e39d59e711798c3a2f22ba11b9aee9bca1887c7e505a800aeffd5d7616099bd0e9fad869efba96100fe09d2c8b49d6d7001d501f0056c556bdc25b605"
+  }
+}

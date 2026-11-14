@@ -2,7 +2,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import * as api from "../lib/api";
 import { I18nProvider } from "../lib/i18n";
-import { NetworkHistory, TimeTrend } from "../components/pages/NetworkHistory";
+import { NetworkHistory } from "../components/pages/NetworkHistory";
+import { NetworkChart } from "../components/charts/NetworkChart";
 import { NetworkPage } from "../components/pages/NetworkPage";
 import type { NetworkTarget } from "../lib/types";
 
@@ -11,7 +12,7 @@ const english = (node: React.ReactNode) => { localStorage.setItem("castorice-lan
 const target: NetworkTarget = { id: "qa", name: "QA", address: "192.0.2.1", ipVersion: 4, provider: "QA", latency: 10, loss: 0, jitter: 0, status: "healthy", history: [], timeHistory: [] };
 
 it("does not draw a missing round as normal or hide 100 percent loss when RTT is null", () => {
-  english(<TimeTrend label="QA trend" samples={[{ capturedAt: 0, latency: 10, loss: 0, complete: true, status: "healthy" }, { capturedAt: 20, latency: null, loss: 100, complete: true, status: "down" }, { capturedAt: 40, latency: null, loss: null, complete: false, status: "unavailable" }, { capturedAt: 60, latency: 20, loss: 0, complete: true, status: "healthy" }]} />);
+  english(<NetworkChart step={20} label="QA trend" samples={[{ capturedAt: 0, latency: 10, loss: 0, complete: true, status: "healthy" }, { capturedAt: 20, latency: null, loss: 100, complete: true, status: "down" }, { capturedAt: 40, latency: null, loss: null, complete: false, status: "unavailable" }, { capturedAt: 60, latency: 20, loss: 0, complete: true, status: "healthy" }]} />);
   const chart = screen.getByRole("img", { name: "QA trend" });
   expect(chart.querySelectorAll('[data-metric="latency"]')).toHaveLength(2);
   expect(chart.querySelector('[data-metric="loss"]')?.getAttribute("d")).toContain(",18");

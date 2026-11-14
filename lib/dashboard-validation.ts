@@ -1,5 +1,6 @@
 import { emptyDashboard } from "./empty-dashboard";
 import type { DashboardPayload, NetworkTarget } from "./types";
+import auditRetention from "../server/castoriceui/audit_retention.json";
 
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value);
@@ -67,7 +68,8 @@ export function validDashboard(value: unknown): value is DashboardPayload {
   if (!Object.values(resources).every((series) => Array.isArray(series) && series.every((point) => object(point) && typeof point.capturedAt === "string" && finite(point.cpuPercent) && finite(point.memoryPercent)))) return false;
   const ui = value.uiSettings as Record<string, unknown>;
   return [2, 5, 10, 15, 20, 30].includes(Number(ui.idleTimeoutMinutes))
-    && [30, 60, 90, 120, 150, 180, 365].includes(Number(ui.auditRetentionDays))
+    && typeof ui.auditRetentionDays === "number" && Number.isInteger(ui.auditRetentionDays)
+    && ui.auditRetentionDays >= auditRetention.minimum && ui.auditRetentionDays <= auditRetention.maximum
     && (ui.visiblePanels as unknown[]).every((id) => typeof id === "string");
 }
 

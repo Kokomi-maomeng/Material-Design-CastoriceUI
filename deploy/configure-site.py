@@ -7,11 +7,10 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
-from castoriceui.config import AppConfig
 from castoriceui.nginx_site import panel_site
 
 
-def render_site(host: str, port: int, certificate: str, key: str, backend_host: str, backend_port: int, *, http_redirect: bool = True) -> str:
+def render_site(host: str, port: int, certificate: str, key: str, backend_host: str, backend_port: int, *, http_redirect: bool = True, listen_family: str = "dual") -> str:
     if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?", host) or any(not 1 <= len(label) <= 63 for label in host.split('.')):
         raise ValueError("Invalid panel hostname")
     if type(port) is not int or not 1 <= port <= 65535 or port == 80:
@@ -26,6 +25,12 @@ def render_site(host: str, port: int, certificate: str, key: str, backend_host: 
     template = template.replace('https://$host$request_uri', f'https://{authority}$request_uri')
     if not http_redirect:
         template = re.sub(r'server\s*\{\s*listen 80;[^{}]*\}\s*', '', template, count=1)
+    if listen_family == "ipv4":
+        template = re.sub(r"(?m)^[ \t]*listen \[::\]:[^\n]+\n", "", template)
+    elif listen_family == "ipv6":
+        template = re.sub(r"(?m)^[ \t]*listen \d+[^;\n]*;\n", "", template)
+    elif listen_family != "dual":
+        raise ValueError("Invalid listener family")
     address = f'[{backend_host}]' if ':' in backend_host else backend_host
     template = template.replace('http://127.0.0.1:18080', f'http://{address}:{backend_port}')
     if not panel_site(template, backend_host, backend_port)['ok']:
@@ -41,13 +46,16 @@ def main():
     parser.add_argument('--certificate', required=True)
     parser.add_argument('--key', required=True)
     parser.add_argument('--no-http-redirect', action='store_true')
+    parser.add_argument('--listen-family', choices=('dual', 'ipv4', 'ipv6'), default='dual')
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
+    from castoriceui.config import AppConfig
     config = AppConfig.load(args.config)
-    text = render_site(args.host, args.port, args.certificate, args.key, config.listen_host, config.listen_port, http_redirect=not args.no_http_redirect)
+    text = render_site(args.host, args.port, args.certificate, args.key, config.listen_host, config.listen_port,
+                       http_redirect=not args.no_http_redirect, listen_family=args.listen_family)
     with args.output.open('x', encoding='utf-8') as handle:
         handle.write(text)
-    print(json.dumps({'generated': True, 'tlsPort': args.port, 'httpRedirect': not args.no_http_redirect, 'enabled': False}))
+    print(json.dumps({'generated': True, 'tlsPort': args.port, 'listenFamily': args.listen_family, 'httpRedirect': not args.no_http_redirect, 'enabled': False}))
 
 
 if __name__ == '__main__':
