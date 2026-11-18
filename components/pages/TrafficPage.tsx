@@ -27,7 +27,7 @@ export function TrafficPage({ traffic, quotaAvailable, integration, onConfigure,
   const interfaceTotal = quotaAvailable !== false && covered(traffic.coverage) ? traffic.totalBytes : null;
   const remainder = interfaceTotal === null ? 0 : interfaceTotal - traffic.protocolTotalBytes;
   const distribution = remainder > 0
-    ? [...traffic.protocol, { name: "Unattributed difference", nameZh: "未归属差额", value: remainder }]
+    ? [...traffic.protocol, { name: t("未归属差额", "Unattributed difference"), value: remainder }]
     : traffic.protocol;
   const connections = activity?.connections ?? [];
   const rateKnown = connections.reduce((count, item) => count + (item.rateCoverage?.known ?? (item.uploadBps != null ? item.connections : 0)), 0);
