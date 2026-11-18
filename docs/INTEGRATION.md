@@ -75,7 +75,7 @@ Display names are not assumed to equal protocol authentication identities. For m
 }
 ```
 
-Only `trafficIdentities` mappings are associated; display names and IDs are never guessed to be protocol identities. Account usage uses only explicitly mapped protocol counters. A core restart may reset these counters; no account inherits the host interface ledger. Host ledger remainder stays unattributed. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
+Only `trafficIdentities` mappings are associated; display names and IDs are never guessed to be protocol identities. Account usage uses only explicitly mapped protocol counters. A core restart may reset these counters. The Accounts unassigned value sums the Hysteria2 counters whose identities have no account mapping. Hysteria2 activity may omit client source IP; CastoriceUI preserves that absence and never relabels the requested destination as a source.
 
 ## sing-box protocol adapters
 
@@ -113,7 +113,7 @@ Host-interface traffic and protocol-account traffic are different sources:
 - account usage/rankings: only explicitly mapped protocol/account counters; a single account never inherits the whole host ledger;
 - account quota and Overview quota: one shared backend traffic-limit setting.
 
-Every account row exposes a mapped protocol-core counter or no mapping, separately from registered status, recorded expiry state, and current core observation evidence. CastoriceUI never scales protocol counters to fit the interface ledger. Positive host-ledger remainder appears in the pinned Unattributed row and in the API aggregate breakdowns; `protocolTotalBytes` and `accountTotalBytes` remain separate from host-interface `totalBytes`. A protocol cumulative value is not billing-cycle usage unless the upstream core resets on that exact cycle.
+Account rows show mapped core counters separately from registered status, recorded expiry state, and current core observation evidence. In Traffic analytics, Total traffic distribution includes known core counters and any positive difference between their sum and measured interface billing-period usage. That difference is an arithmetic remainder. When the core counters already exceed the interface usage, the chart retains their reported values and shows the interface billing-period usage separately. The API exposes `protocolTotalBytes`, `accountTotalBytes`, and host-interface `totalBytes` separately.
 
 ## Subscription validation
 

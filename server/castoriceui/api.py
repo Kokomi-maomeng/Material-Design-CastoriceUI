@@ -260,13 +260,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         return morsel.value if morsel else ""
 
     def current_session(self) -> dict[str, Any] | None:
+        token = self.session_token()
+        if not token:
+            return None
         settings = self.app.storage.get_setting("ui_settings", {})
         idle_minutes = settings.get("idleTimeoutMinutes", 15) if isinstance(settings, dict) else 15
         if type(idle_minutes) is not int:
             idle_minutes = 15
         if idle_minutes not in {2, 5, 10, 15, 20, 30}:
             idle_minutes = 15
-        return self.app.storage.session(self.session_token(), idle_minutes * 60, touch=False)
+        return self.app.storage.session(token, idle_minutes * 60, touch=False)
 
     def require_session(self, mutation: bool = False) -> dict[str, Any] | None:
         session = self.current_session()

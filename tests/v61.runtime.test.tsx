@@ -145,8 +145,11 @@ it("groups timeout, password and all seven retention options under Security", as
   expect(group?.textContent).toContain("Change password");
   const summary = Array.from(document.querySelectorAll("summary")).find((element) => element.textContent?.includes("Audit log retention"))!;
   fireEvent.click(summary);
-  fireEvent.click(screen.getByRole("button", { name: "Audit log retention" }));
-  expect(await screen.findAllByRole("option")).toHaveLength(7);
+  const retention = summary.closest("details")!;
+  expect(retention.querySelector(".field > span")?.textContent).toBe("Retention days");
+  expect(retention.querySelector("input, button[type=submit]")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retention days" }));
+  expect((await screen.findAllByRole("option")).map((option) => option.querySelector("strong")?.textContent)).toEqual(["30d", "60d", "90d", "120d", "150d", "180d", "365d"]);
   fireEvent.click(screen.getByRole("option", { name: "30d" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith({ auditRetentionDays: 30 }));
   expect(navigation.map((item) => item.id)).toEqual(["overview", "setup", "alerts", "accounts", "services", "network", "traffic", "audit"]);

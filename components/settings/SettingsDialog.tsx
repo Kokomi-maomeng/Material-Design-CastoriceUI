@@ -232,17 +232,10 @@ export function SettingsDialog({
         <AnimatedDetails className="settings-disclosure general-setting-item">
           <summary><span><Icon name="history" /><span><strong>{t("日志审计时长", "Audit log retention")}</strong><small>{formatTimeSpan(draftUiSettings.auditRetentionDays * 86400)}</small></span></span><Icon name="expand_more" /></summary>
           <div className="disclosure-content general-setting-content">
-            <div className="field"><MaterialSelect disabled={uiSaving} ariaLabel={t("日志审计时长", "Audit log retention")} value={String(draftUiSettings.auditRetentionDays)} options={[...new Set([...auditRetention.presets, draftUiSettings.auditRetentionDays])].sort((a, b) => a - b).map((days) => ({ value: String(days), label: formatTimeSpan(days * 86400) }))} onChange={(value) => void saveUiSettings({ auditRetentionDays: Number(value) })} /></div>
-            <form className="settings-inline-field" onSubmit={(event) => {
-              event.preventDefault();
-              const days = Number(new FormData(event.currentTarget).get("days"));
-              if (Number.isInteger(days) && days >= auditRetention.minimum && days <= auditRetention.maximum) {
-                void saveUiSettings({ auditRetentionDays: days });
-              }
-            }}>
-              <label className="field"><span>{t("自定义保留天数", "Custom retention days")}</span><input key={draftUiSettings.auditRetentionDays} type="number" name="days" min={auditRetention.minimum} max={auditRetention.maximum} step={1} defaultValue={draftUiSettings.auditRetentionDays} required disabled={uiSaving} /></label>
-              <Button type="submit" variant="tonal" compact disabled={uiSaving}>{t("保存", "Save")}</Button>
-            </form>
+            <div className="field">
+              <span>{t("选择保留天数", "Retention days")}</span>
+              <MaterialSelect disabled={uiSaving} ariaLabel={t("选择保留天数", "Retention days")} value={String(draftUiSettings.auditRetentionDays)} options={[...new Set([...auditRetention.presets, draftUiSettings.auditRetentionDays])].sort((a, b) => a - b).map((days) => ({ value: String(days), label: formatTimeSpan(days * 86400) }))} onChange={(value) => void saveUiSettings({ auditRetentionDays: Number(value) })} />
+            </div>
           </div>
         </AnimatedDetails>
       <AnimatedDetails className="settings-disclosure security-settings">

@@ -16,11 +16,11 @@ Supported server baseline: Debian 12/13, Python 3.11+, Nginx with TLS, systemd, 
 
 ## 1. Obtain and verify the release
 
-Download `CastoriceUI-v6.6.0.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v6.6.0), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
+Download `CastoriceUI-v6.6.1.tar.gz` and `SHA256SUMS.txt` from the same [release](https://github.com/Kokomi-maomeng/Material-Design-CastoriceUI/releases/tag/v6.6.1), then run `sha256sum -c SHA256SUMS.txt`. Inspect the checksum result before extraction.
 
 ```sh
-tar -xzf CastoriceUI-v6.6.0.tar.gz
-cd CastoriceUI-v6.6.0
+tar -xzf CastoriceUI-v6.6.1.tar.gz
+cd CastoriceUI-v6.6.1
 ```
 
 A source checkout uses an isolated environment. Debian marks its system Python as externally managed; keep pip installation inside the environment ([Debian guidance](https://wiki.debian.org/Python)).
@@ -93,14 +93,14 @@ Before upgrading, record public/loopback health, enabled/active units, live syml
 For older release directories, compare both active and rollback files with the corresponding verified archives before changing any permissions. Investigate byte mismatches before trusting the rollback copy. Secure release parents and directories as root with mode 0755, files with mode 0644, and the install wrapper with mode 0755. Preserve unexpected files for inspection outside the release tree. The installer rejects unsafe existing release paths before switching.
 
 ```sh
-sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v6.6.0.tar.gz --config /etc/castoriceui/config.json
+sudo sh deploy/install-or-upgrade.sh --archive /absolute/path/CastoriceUI-v6.6.1.tar.gz --config /etc/castoriceui/config.json
 ```
 
 The installer verifies archive ownership and modes, performs a staged Python dependency and SQLite check, runs preflight, and prepares paired release directories. During the panel maintenance window it stops and drains the old backend, takes the final rollback snapshot, switches versions and checks new health. Keep the CI acceptance for the candidate source tree and the SHA-256 of the exact archive used in installation tests. It atomically replaces each frontend/backend link. These are separate filesystem operations, so a brief panel-only mismatch can occur during the switch. It restarts only `castoriceui-backend`; proxy-core continuity is checked through PIDs. The probe timer is installed/enabled and runs a read-only inventory probe. Its custom executable, unit and output settings are read from `/etc/castoriceui/protocol-probe.env`; start with [`protocol-probe.env.example`](../deploy/protocol-probe.env.example) when needed.
 
 A fresh backend is enabled for boot. An upgrade preserves the existing backend enable policy; an intentionally disabled service stays disabled. The upgrade starts the panel for acceptance but does not promise it will start after reboot if the operator intentionally disabled it.
 
-Failure produces a retained `/var/backups/castoriceui-v6.6.0-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
+Failure produces a retained `/var/backups/castoriceui-v6.6.1-*` transaction record. The record distinguishes failure before switching, verified rollback and rollback failure. The installer restores recorded links, unit/enable state and the backed-up database, verifies old health and `nginx -t`, and reports any recovery errors explicitly. Failed release directories receive a `.failed` suffix and are retained; a same-version retry gets a new unique directory. Do not manually delete rollback media before reviewing the transaction.
 
 ## 6. Bootstrap and complete first use
 

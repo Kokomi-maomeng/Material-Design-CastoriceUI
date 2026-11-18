@@ -53,11 +53,16 @@ import { Toast } from "./ui/Toast";
 import { DataBoundary } from "./ui/DataBoundary";
 
 const PAGE_IDS = new Set<PageId>(navigation.map((item) => item.id));
-const OverviewPage = lazy(() =>
+const loadOverviewPage = () =>
   import("./pages/OverviewPage").then((module) => ({
     default: module.OverviewPage,
-  })),
-);
+  }));
+const OverviewPage = lazy(loadOverviewPage);
+
+function preloadOverviewPage() {
+  void loadOverviewPage().catch(() => {});
+}
+
 const AccountsPage = lazy(() =>
   import("./pages/AccountsPage").then((module) => ({
     default: module.AccountsPage,
@@ -113,6 +118,7 @@ export function CastoriceApp() {
   // AuthPage remounts on logout; its lifecycle must not renew the image.
   const loginBackground = useLoginBackground(bootstrap?.appearance ?? { type: "default", url: "", fit: "cover" }, pageEnteredAt);
   const [session, setSession] = useState<SessionState | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
   const [bootError, setBootError] = useState(false);
   const [route, setRoute] = useState<PageRoute>("overview");
   const page = route === "traffic/connections" ? "traffic" : route;
@@ -151,16 +157,20 @@ export function CastoriceApp() {
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const start = useCallback(async () => {
+    const pendingSession = fetchSession().then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
     try {
       const state = await fetchBootstrap();
-      // Start the image/cache lookup while session verification is in flight.
-      // Keep the boot screen until auth is known to avoid a sign-in flash.
       setBootstrap(state);
       if (!state.setupRequired) {
-        try {
-          setSession(await fetchSession());
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 401)) throw error;
+        const result = await pendingSession;
+        if ("value" in result) {
+          if (routeFromHash() === "overview" && result.value.setupComplete) preloadOverviewPage();
+          setSession(result.value);
+        } else if (!(result.error instanceof ApiError && result.error.status === 401)) {
+          throw result.error;
         }
       }
       setBooting(false);
@@ -235,6 +245,7 @@ export function CastoriceApp() {
     }
     setSigningOut(false);
     setSession(null);
+    setSigningIn(false);
     alertAcknowledgementGeneration.current += 1;
     setDashboard(emptyDashboard);
     setConnections([]);
@@ -523,12 +534,16 @@ export function CastoriceApp() {
       </main>
     );
   if (!bootstrap || booting) return <PageLoading />;
-  if (!session)
+  const finishingSignIn = signingIn && dashboard.mode === "loading";
+  if (!session || finishingSignIn)
     return (
       <AuthPage
         bootstrap={bootstrap}
         background={loginBackground}
+        finishing={finishingSignIn}
+        onSignInStart={route === "overview" ? preloadOverviewPage : undefined}
         onAuthenticated={(next) => {
+          setSigningIn(true);
           setSession(next);
           setBootstrap((current) =>
             current ? { ...current, setupRequired: false } : current,
@@ -607,6 +622,7 @@ export function CastoriceApp() {
         return (
           <TrafficPage
             traffic={dashboard.traffic}
+            quotaAvailable={dashboard.overview.trafficQuotaAvailable}
             integration={integrationFor("traffic")}
             onConfigure={() => configurePage("traffic")}
             activity={{
@@ -908,14 +924,9 @@ export function CastoriceApp() {
 function PageLoading() {
   const { t } = useI18n();
   return (
-    <div
-      className="page-loading"
-      role="status"
-      aria-label={t("正在加载页面", "Loading page")}
-    >
-      <span />
-      <span />
-      <span />
+    <div className="page-loading" role="status">
+      <span className="page-loading__indicator" aria-hidden="true" />
+      {t("正在加载页面…", "Loading page…")}
     </div>
   );
 }

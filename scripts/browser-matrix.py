@@ -428,7 +428,7 @@ with sync_playwright() as playwright:
                                     assert anchor_box and popup_box and popup_box["x"] >= 0 and popup_box["x"] + popup_box["width"] <= width + 2
                                     assert popup_box["x"] <= anchor_box["x"] + anchor_box["width"] + 12 and popup_box["x"] + popup_box["width"] >= anchor_box["x"] - 12, (width, "coverage popover detached")
                                     page.mouse.move(0, 0)
-                                    more = page.get_by_role("button", name="More protocols")
+                                    more = page.get_by_role("button", name="More entries")
                                     bar = page.locator(".protocol-distribution__bar")
                                     size_before = bar.bounding_box()
                                     more.click()
