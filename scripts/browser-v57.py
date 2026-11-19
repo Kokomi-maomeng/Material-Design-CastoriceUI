@@ -242,6 +242,23 @@ def main():
                 page.get_by_role('searchbox',name='Destination port',exact=True).fill('8443')
                 page.get_by_text('No connections match these filters',exact=True).wait_for()
                 page.get_by_role('button',name='Clear filters',exact=True).first.click()
+                viewport = page.viewport_size
+                for width in (320, 390, 1280):
+                    page.set_viewport_size({'width': width, 'height': 900})
+                    settled(page)
+                    geometry_check = filter_panel.evaluate("""e => {
+                      const port = e.querySelector('[inputmode=numeric]');
+                      const clear = e.querySelector('.connection-clear-filters');
+                      const shape = [...e.querySelectorAll('.md-select-trigger, .connection-address-control, [inputmode=numeric], .connection-clear-filters')];
+                      return {
+                        aligned: Math.abs(port.getBoundingClientRect().bottom - clear.getBoundingClientRect().bottom) < 1,
+                        corners: [...new Set(shape.map(control => getComputedStyle(control).borderRadius))],
+                        exact: [...e.querySelectorAll('.connection-match-toggle')].map(button => button.childElementCount),
+                        fits: e.scrollWidth <= e.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1,
+                      };
+                    }""")
+                    assert geometry_check == {'aligned': True, 'corners': ['10px'], 'exact': [0, 0], 'fits': True}, (engine, width, geometry_check)
+                page.set_viewport_size(viewport)
                 page.get_by_role('button',name='Filter',exact=True).click()
                 layouts=0
                 for language in ('en','zh'):

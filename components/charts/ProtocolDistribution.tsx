@@ -15,11 +15,14 @@ const COLORS = [
 ];
 const usage = (bytes: number) => `${(bytes / 1_000_000_000).toFixed(1)} GB`;
 
-export function ProtocolDistribution({ data, totalBytes }: { data: TrafficBreakdown[]; totalBytes: number }) {
+export function ProtocolDistribution({ data, interfaceTotal }: { data: TrafficBreakdown[]; interfaceTotal: number | null }) {
   const { t } = useI18n();
   const [active, setActive] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const moreId = useId();
+  const totalBytes = data.reduce((sum, item) => sum + item.value, 0);
+  const usesInterfaceTotal = interfaceTotal !== null && interfaceTotal === totalBytes;
+  const totalLabel = usesInterfaceTotal ? t("网卡账期用量", "Interface billing-period usage") : t("核心已知用量", "Known core traffic");
   const hasMore = data.length > LEGEND_LIMIT;
   const visible = hasMore ? LEGEND_LIMIT - 1 : LEGEND_LIMIT;
   const entries = data.map((item, index) => ({ ...item, label: t(item.nameZh ?? item.name, item.nameEn ?? item.name), color: COLORS[index % COLORS.length] }));
@@ -39,9 +42,13 @@ export function ProtocolDistribution({ data, totalBytes }: { data: TrafficBreakd
 
   return <div className="protocol-distribution">
     <div className="protocol-distribution__reading">
-      <span>{selected?.label ?? t("分布合计", "Distribution total")}</span><strong>{usage(selected?.value ?? totalBytes)}</strong>
+      <span>{selected?.label ?? totalLabel}</span>
+      <strong>{selected || entries.length || usesInterfaceTotal ? usage(selected?.value ?? totalBytes) : "—"}</strong>
     </div>
-    <div className="protocol-distribution__bar" role="group" aria-label={t("协议流量占比", "Protocol traffic shares")}>
+    {interfaceTotal !== null && !usesInterfaceTotal ? <div className="protocol-distribution__reading muted">
+      <span>{t("网卡账期用量", "Interface billing-period usage")}</span><strong>{usage(interfaceTotal)}</strong>
+    </div> : null}
+    <div className="protocol-distribution__bar" role="group" aria-label={t("流量占比", "Traffic shares")}>
       {totalBytes > 0 ? entries.filter((item) => item.value > 0).map((item) => <button
         key={item.name}
         type="button"
@@ -54,10 +61,10 @@ export function ProtocolDistribution({ data, totalBytes }: { data: TrafficBreakd
     <div className="protocol-distribution__legend">
       {entries.slice(0, visible).map(legendEntry)}
       {hasMore ? <button type="button" className="protocol-distribution__more" aria-expanded={more} aria-controls={moreId} onClick={() => { setMore(!more); setActive(null); }}>
-        <Icon name="expand_more" size={18} /><span>{t("更多协议", "More protocols")}</span><b>+{entries.length - visible}</b>
+        <Icon name="expand_more" size={18} /><span>{t("更多项目", "More entries")}</span><b>+{entries.length - visible}</b>
       </button> : null}
     </div>
     {hasMore ? <Collapse expanded={more}><div className="protocol-distribution__legend" id={moreId}>{entries.slice(visible).map(legendEntry)}</div></Collapse> : null}
-    {!entries.length ? <p className="muted">{t("暂无协议流量记录", "No protocol traffic records yet")}</p> : null}
+    {!entries.length && !usesInterfaceTotal ? <p className="muted">{t("暂无流量记录", "No traffic records yet")}</p> : null}
   </div>;
 }

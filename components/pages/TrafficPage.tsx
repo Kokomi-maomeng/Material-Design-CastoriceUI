@@ -15,7 +15,7 @@ import { Card, CardHeader } from "../ui/Card";
 import { Icon } from "../ui/Icon";
 import { PageHeader } from "../ui/Page";
 
-export function TrafficPage({ traffic, integration, onConfigure, activity }: { traffic: DashboardPayload["traffic"]; integration?: IntegrationStatus; onConfigure: () => void; activity?: ComponentProps<typeof ActiveConnections> }) {
+export function TrafficPage({ traffic, quotaAvailable, integration, onConfigure, activity }: { traffic: DashboardPayload["traffic"]; quotaAvailable?: boolean; integration?: IntegrationStatus; onConfigure: () => void; activity?: ComponentProps<typeof ActiveConnections> }) {
   const { language, t } = useI18n();
   const [range, setRange] = useState<TrafficRange>("24h");
   const [expanded, setExpanded] = useState(true);
@@ -24,6 +24,11 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
   const recent = traffic.recentUsage;
   const mode = traffic.countMode === "max" ? t("取较大方向", "larger direction") : t("双向求和", "RX + TX");
   const covered = (item?: { firstSampleAt?: number | null }) => item?.firstSampleAt !== null;
+  const interfaceTotal = quotaAvailable !== false && covered(traffic.coverage) ? traffic.totalBytes : null;
+  const remainder = interfaceTotal === null ? 0 : interfaceTotal - traffic.protocolTotalBytes;
+  const distribution = remainder > 0
+    ? [...traffic.protocol, { name: t("未归属差额", "Unattributed difference"), value: remainder }]
+    : traffic.protocol;
   const connections = activity?.connections ?? [];
   const rateKnown = connections.reduce((count, item) => count + (item.rateCoverage?.known ?? (item.uploadBps != null ? item.connections : 0)), 0);
   const rateTotal = connections.reduce((count, item) => count + (item.rateCoverage?.total ?? item.connections), 0);
@@ -81,9 +86,8 @@ export function TrafficPage({ traffic, integration, onConfigure, activity }: { t
             </div>
           </Card>
           <Card variant="filled" className="protocol-panel">
-            <CardHeader title={t("协议核心累计", "Protocol core counters")}
-              description={t("核心各自累计、可重置，不对应网卡账期。", "Each core has its own resettable counter; these are separate from interface billing periods.")} />
-            <ProtocolDistribution data={traffic.protocol} totalBytes={traffic.protocolTotalBytes} />
+            <CardHeader title={t("总流量分布", "Total traffic distribution")} />
+            <ProtocolDistribution data={distribution} interfaceTotal={interfaceTotal} />
           </Card>
         </div>
     </TrafficSection>

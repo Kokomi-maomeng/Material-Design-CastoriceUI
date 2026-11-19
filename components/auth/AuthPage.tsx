@@ -9,7 +9,13 @@ import { useLoginBackground } from "./useLoginBackground";
 import { LiquidGlass } from "./LiquidGlass";
 import { useGlassLight } from "./useGlassLight";
 
-export function AuthPage({ bootstrap, onAuthenticated, background: documentBackground }: { bootstrap: BootstrapState; onAuthenticated: (session: SessionState) => void; background?: string }) {
+export function AuthPage({ bootstrap, onAuthenticated, background: documentBackground, finishing = false, onSignInStart }: {
+  bootstrap: BootstrapState;
+  onAuthenticated: (session: SessionState) => void;
+  background?: string;
+  finishing?: boolean;
+  onSignInStart?: () => void;
+}) {
   const { language, preference, setPreference, t } = useI18n();
   const { label: languageLabel, options: languageOptions } = languageSelect(language);
   const [username, setUsername] = useState("");
@@ -33,9 +39,11 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (busy || finishing) return;
     setBusy(true);
     setError("");
     try {
+      if (!initialize) onSignInStart?.();
       const session = initialize
         ? await initializeAdministrator({ bootstrapToken, username, password })
         : await login(username, password);
@@ -72,7 +80,9 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
         <label className="field"><span>{t("用户名", "Username")}</span><div className="auth-input"><Icon name="person" size={20} /><input aria-label={t("用户名", "Username")} required minLength={3} maxLength={64} autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></div></label>
         <label className="field"><span>{t("密码", "Password")}</span><div className="auth-input"><Icon name="lock" size={20} /><input aria-label={t("密码", "Password")} type="password" required minLength={initialize ? 12 : undefined} autoComplete={initialize ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} /></div>{initialize ? <small className="field-hint">{t("至少 12 位，并包含大小写字母、数字、符号中的三类。", "Use at least 12 characters and three of uppercase, lowercase, numbers, and symbols.")}</small> : null}</label>
         {error ? <div className="auth-error" role="alert"><Icon name="error" size={20} /><span>{error}</span></div> : null}
-        <Button type="submit" icon={initialize ? "arrow_forward" : "login"} disabled={busy || (initialize && !bootstrap.bootstrapAvailable)}>{busy ? t("正在验证…", "Verifying…") : initialize ? t("创建并继续", "Create and continue") : t("登录", "Sign in")}</Button>
+        <Button type="submit" icon={initialize ? "arrow_forward" : "login"} disabled={busy || finishing || (initialize && !bootstrap.bootstrapAvailable)}>
+          <span aria-live="polite">{finishing ? t("正在打开控制台…", "Opening the console…") : busy ? t("正在验证…", "Verifying…") : initialize ? t("创建并继续", "Create and continue") : t("登录", "Sign in")}</span>
+        </Button>
       </form>
       <div className="auth-footer auth-footer--language"><div className="auth-language-select"><MaterialSelect ariaLabel={languageLabel} triggerLabel={preference === "system" ? languageLabel : undefined} value={preference} options={languageOptions} onChange={(value) => { if (isLanguagePreference(value)) setPreference(value); }} /></div></div>
     </section>

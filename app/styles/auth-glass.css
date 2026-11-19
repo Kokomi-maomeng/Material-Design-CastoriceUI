@@ -4,6 +4,7 @@
 .auth-background-placeholder { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: var(--auth-backdrop); opacity: 1; transition: opacity 480ms var(--motion-standard); }
 .auth-page[data-background-state="ready"] .auth-background-placeholder { opacity: 0; }
 .auth-card {
+  --auth-ink: var(--on-surface);
   --auth-input-fill: color-mix(in srgb, var(--surface-container-lowest) 82%, var(--surface-container-high));
   isolation: isolate;
   position: relative;
@@ -15,9 +16,10 @@
 }
 .auth-card > :not(.auth-glass-optics) { position: relative; z-index: 1; }
 .auth-card:not([data-glass="solid"]) {
-  --glass-wash: rgb(14 20 32 / .18);
+  --glass-wash: rgb(14 20 32 / .67);
   --auth-ink: #f8faff;
-  --auth-input-fill: rgb(16 22 34 / .64);
+  --auth-input-fill: rgb(16 22 34 / .82);
+  --auth-text-shadow: 0 1px 2px rgb(0 0 0 / .35);
   background: var(--glass-wash);
   color: var(--auth-ink);
   border-color: rgb(255 255 255 / .4);
@@ -25,45 +27,33 @@
   -webkit-backdrop-filter: blur(1.2px) saturate(115%);
   backdrop-filter: blur(1.2px) saturate(115%);
 }
-.auth-card[data-glass-tone="light"]:not([data-glass="solid"]) { --glass-wash: rgb(255 255 255 / .16); --auth-ink: #151b27; --auth-input-fill: rgb(250 252 255 / .76); }
-.auth-page[data-background-state="pending"] .auth-card:not([data-glass="solid"]) { --glass-wash: color-mix(in srgb, var(--surface-container-high) 82%, transparent); --auth-ink: var(--on-surface); --auth-input-fill: color-mix(in srgb, var(--surface-container-lowest) 82%, var(--surface-container-high)); }
-.auth-card[data-glass="clear"] { --glass-wash: rgb(14 20 32 / .055); -webkit-backdrop-filter: blur(.25px); backdrop-filter: blur(.25px); }
-.auth-card[data-glass="clear"][data-glass-tone="light"] { --glass-wash: rgb(255 255 255 / .055); }
-.auth-card[data-glass="tinted"] { --glass-wash: color-mix(in srgb, var(--primary) 16%, rgb(14 20 32 / .3)); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
-.auth-card[data-glass="tinted"][data-glass-tone="light"] { --glass-wash: color-mix(in srgb, var(--primary) 12%, rgb(255 255 255 / .3)); }
-.auth-card:not([data-glass="solid"])::after { content: ""; position: absolute; z-index: 0; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse at var(--glass-light-x, 18%) var(--glass-light-y, 0%), rgb(255 255 255 / .22), transparent 58%), linear-gradient(130deg, rgb(255 255 255 / .32), transparent 18%, transparent 76%, rgb(255 255 255 / .12)); opacity: .65; }
+.auth-card[data-glass-tone="light"]:not([data-glass="solid"]) { --glass-wash: rgb(255 255 255 / .66); --auth-ink: #151b27; --auth-input-fill: rgb(250 252 255 / .84); --auth-text-shadow: 0 1px 2px rgb(255 255 255 / .4); }
+.auth-card[data-glass="clear"] { --glass-wash: rgb(14 20 32 / .62); -webkit-backdrop-filter: blur(.25px); backdrop-filter: blur(.25px); }
+.auth-card[data-glass="clear"][data-glass-tone="light"] { --glass-wash: rgb(255 255 255 / .61); }
+.auth-card[data-glass="tinted"] { --glass-wash: color-mix(in srgb, var(--primary) 10%, rgb(14 20 32 / .74)); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.auth-card[data-glass="tinted"][data-glass-tone="light"] { --glass-wash: color-mix(in srgb, var(--primary) 10%, rgb(255 255 255 / .73)); }
+.auth-page[data-background-state="pending"] .auth-card:not([data-glass="solid"]) { --glass-wash: color-mix(in srgb, var(--surface-container-high) 90%, transparent); --auth-ink: var(--on-surface); --auth-input-fill: var(--surface-container-lowest); --auth-text-shadow: none; }
+.auth-card:not([data-glass="solid"])::after { content: ""; position: absolute; z-index: 0; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse at var(--glass-light-x, 18%) var(--glass-light-y, 0%), rgb(255 255 255 / .22), transparent 58%), linear-gradient(130deg, rgb(255 255 255 / .32), transparent 18%, transparent 76%, rgb(255 255 255 / .12)); opacity: .42; }
 .auth-card:not([data-glass="solid"])::before { content: ""; position: absolute; z-index: 2; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; background: linear-gradient(135deg, rgb(255 255 255 / .95), rgb(255 255 255 / .12) 24%, rgb(0 0 0 / .2) 48%, rgb(255 255 255 / .16) 70%, rgb(255 255 255 / .65)); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; }
 .auth-glass-optics { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity 480ms var(--motion-standard); }
 .auth-page[data-background-state="ready"] .auth-glass-optics { opacity: 1; }
 .auth-glass-wash { fill: var(--glass-wash); }
-/* Local backing keeps the full form legible over both sides of a split photo.
-   The rim and spacing between controls retain the selected glass treatment. */
-.auth-card:not([data-glass="solid"]) { --auth-readable-surface: #202432; --auth-ink: #f8faff; --auth-input-fill: #202432; }
-.auth-card[data-glass-tone="light"]:not([data-glass="solid"]) { --auth-readable-surface: #faf8ff; --auth-ink: #151b27; --auth-input-fill: #faf8ff; }
-.auth-card:not([data-glass="solid"]) :is(.auth-brand > div, .auth-heading > div, .field > span, .field-hint) {
-  background-color: var(--auth-readable-surface);
+.auth-card :is(.auth-heading p, .auth-heading > div > span, .auth-brand > div > span, .field > span, .field-hint) {
   color: var(--auth-ink);
-  padding: 2px 5px;
-  border-radius: 5px;
-  justify-self: start;
-  width: fit-content;
 }
-.auth-card .auth-heading p, .auth-card .auth-brand > div > span, .auth-card .field > span { color: var(--on-surface); }
-.auth-card .auth-heading p { opacity: .85; }
-.auth-card:not([data-glass="solid"]) :is(.auth-heading p, .auth-heading > div > span, .auth-brand > div > span, .field > span, .auth-input, .auth-input input, .auth-input input:focus, .auth-input > .material-symbols-rounded) { color: var(--auth-ink); opacity: 1; }
-.auth-card:not([data-glass="solid"]) .auth-input { --focus-ring: var(--auth-ink); }
-.auth-card:not([data-glass="solid"]) .auth-input input::placeholder { color: var(--auth-ink); opacity: 1; }
+.auth-card :is(.auth-brand > div, .auth-heading > div, .field > span, .field-hint) { text-shadow: var(--auth-text-shadow, none); }
 .auth-card .auth-brand > .brand-mark, .auth-card .md-button--filled { background: var(--primary-container); color: var(--on-primary-container); }
 .auth-card .auth-input {
+  --focus-ring: var(--auth-ink);
   min-width: 0;
   gap: 0;
   padding: 0;
   overflow: hidden;
   background: var(--auth-input-fill);
-  border-color: color-mix(in srgb, var(--on-surface) 35%, transparent);
+  border-color: color-mix(in srgb, var(--auth-ink) 35%, transparent);
   transition: background-color 480ms var(--motion-standard), color 240ms var(--motion-standard);
 }
-.auth-card .auth-input > .material-symbols-rounded { flex: 0 0 44px; color: var(--on-surface); }
+.auth-card .auth-input > .material-symbols-rounded { flex: 0 0 44px; color: var(--auth-ink); }
 .auth-card .auth-input input, .auth-card .auth-input input:focus {
   flex: 1;
   min-width: 0;
@@ -72,13 +62,12 @@
   border-radius: 0;
   outline: 0;
   padding: 13px 12px 13px 0;
-  color: var(--on-surface);
+  color: var(--auth-ink);
   background: transparent;
   box-shadow: none;
 }
-.auth-card .auth-input input:autofill { box-shadow: 0 0 0 1000px var(--auth-input-fill) inset; color: var(--on-surface); }
-.auth-card .auth-input input:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--auth-input-fill) inset; -webkit-text-fill-color: var(--on-surface); caret-color: var(--on-surface); }
-.auth-card:not([data-glass="solid"]) .auth-input input:-webkit-autofill { -webkit-text-fill-color: var(--auth-ink); caret-color: var(--auth-ink); }
+.auth-card .auth-input input:autofill { box-shadow: 0 0 0 1000px var(--auth-input-fill) inset; color: var(--auth-ink); }
+.auth-card .auth-input input:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px var(--auth-input-fill) inset; -webkit-text-fill-color: var(--auth-ink); caret-color: var(--auth-ink); }
 .auth-language-select .md-select-trigger { background: var(--surface-container-lowest); color: var(--on-surface); }
 .auth-language-select .md-select-trigger:is(:hover, :focus-visible, :active, .is-open) { background: var(--surface-container-high); color: var(--on-surface); }
 .background-layout-controls { align-items: start; }
@@ -104,7 +93,7 @@
   .auth-card:not([data-glass="solid"]) { background: var(--glass-wash); }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .auth-card:not([data-glass="solid"])[data-glass-tone] { --auth-ink: var(--on-surface); --auth-input-fill: var(--surface-container-lowest); background: var(--surface-container-high); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .auth-card:not([data-glass="solid"])[data-glass-tone] { --auth-ink: var(--on-surface); --auth-input-fill: var(--surface-container-lowest); --auth-text-shadow: none; background: var(--surface-container-high); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .auth-card::before, .auth-card::after, .auth-glass-optics { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
