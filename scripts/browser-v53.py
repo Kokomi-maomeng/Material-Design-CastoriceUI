@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
 from qa_browser import settled
-from qa_login import verify_arrival, verify_language_control, verify_light, verify_navigation_focus
+from qa_login import verify_arrival, verify_glass_slider_focus, verify_language_control, verify_light, verify_mobile_navigation_focus, verify_navigation_focus
 
 sys.path.insert(0, str(Path(__file__).parent))
 from importlib.util import spec_from_file_location, module_from_spec
@@ -213,6 +213,7 @@ def run(engine, context):
     page.get_by_role('button', name='Sign in', exact=True).click(); page.locator('.top-app-bar').wait_for()
     phase = 'navigation-focus'
     navigation_focus = verify_navigation_focus(page)
+    mobile_navigation_focus = verify_mobile_navigation_focus(page)
     phase = 'settings'
     page.get_by_role('button', name='Settings', exact=True).click(); page.get_by_text('Sign-in background', exact=True).click()
     source = page.get_by_role('button', name='Sign-in background source', exact=True)
@@ -224,6 +225,7 @@ def run(engine, context):
     if toggle.get_attribute('aria-checked') == 'true': toggle.click()
     expect(page.get_by_role('slider')).to_have_count(0)
     toggle.click(); expect(page.get_by_role('slider', name='Glass transparency')).to_be_visible()
+    slider_focus = verify_glass_slider_focus(page, toggle)
     source.click(); page.get_by_role('option', name='Image API', exact=True).click()
     page.get_by_role('button', name='Cache duration', exact=True).click(); expect(page.get_by_role('option', name='No cache', exact=True)).to_be_visible(); page.keyboard.press('Escape')
     metrics = page.locator('.settings-dialog').evaluate("""e=>({
@@ -243,7 +245,7 @@ def run(engine, context):
     phase = 'shared-controls'
     controls = verify_controls(page, state, appearance, configured_url='https://images.example.com/random')
     assert not errors, errors
-    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'photoArrival': arrival, 'glassLighting': lighting, 'languageControl': language_control, 'navigationFocus': navigation_focus, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
+    print(json.dumps({'engine': engine, 'passed': True, 'cachePersistence': persistent, 'documentLifecycle': lifecycle, 'photoArrival': arrival, 'glassLighting': lighting, 'languageControl': language_control, 'navigationFocus': navigation_focus, 'mobileNavigationFocus': mobile_navigation_focus, 'glassSliderFocus': slider_focus, 'opticalCases': optical, 'opticalProof': optical_proof, 'controls': controls, 'settings': metrics, 'backgroundRequests': state['requests'], 'pageErrors': errors}), flush=True)
 
 
 if __name__ == '__main__':

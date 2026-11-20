@@ -159,3 +159,54 @@ def verify_navigation_focus(page):
         rows.append({'width':width,'height':height,'page':'traffic/connections','outlineVisible':True})
     page.set_viewport_size({'width':1536,'height':960}); settled(page)
     return rows
+
+
+def verify_mobile_navigation_focus(page):
+    page.set_viewport_size({'width': 390, 'height': 700})
+    menu = page.locator('.menu-button')
+    drawer = page.locator('.navigation-rail')
+    expect(drawer).to_have_attribute('inert', '')
+    menu.press('Tab')
+    assert page.evaluate("!document.activeElement.closest('.navigation-rail')")
+    menu.press('Enter')
+    expect(menu).to_have_attribute('aria-expanded', 'true')
+    items = drawer.get_by_role('navigation').get_by_role('button')
+    active_item = drawer.locator('nav button[aria-current="page"]')
+    expect(active_item).to_be_focused()
+    expect(page.locator('.app-main')).to_have_attribute('inert', '')
+    settled(page)
+    previous = active_item.evaluate('e => Array.from(e.parentNode.children).indexOf(e) - 1')
+    assert previous >= 0
+    page.keyboard.press('Shift+Tab')
+    expect(items.nth(previous)).to_be_focused()
+    page.keyboard.press('Escape')
+    expect(menu).to_be_focused()
+    expect(drawer).to_have_attribute('inert', '')
+    page.set_viewport_size({'width': 1536, 'height': 960})
+    settled(page)
+    return True
+
+
+def verify_glass_slider_focus(page, toggle):
+    for width, height in ((1536, 960), (390, 700)):
+        page.set_viewport_size({'width': width, 'height': height})
+        settled(page)
+        toggle.press('Tab')
+        slider = page.get_by_role('slider', name='Glass transparency', exact=True)
+        expect(slider).to_be_focused()
+        assert slider.evaluate("""e => {
+          const owner = e.closest('.md-preset-slider__control');
+          const clip = owner.closest('.motion-collapse__content');
+          const style = getComputedStyle(owner);
+          const bounds = owner.getBoundingClientRect(), limit = clip.getBoundingClientRect();
+          return e.matches(':focus-visible') && style.outlineStyle === 'solid' && parseFloat(style.outlineWidth) >= 2
+            && parseFloat(style.outlineOffset) <= -parseFloat(style.outlineWidth)
+            && bounds.left >= limit.left - .5 && bounds.right <= limit.right + .5
+            && bounds.left >= 0 && bounds.right <= innerWidth;
+        }"""), (width, height)
+        slider.press('End')
+        expect(slider).to_have_attribute('aria-valuetext', 'Tinted')
+        slider.press('ArrowLeft')
+        expect(slider).to_have_attribute('aria-valuetext', 'Default')
+    page.set_viewport_size({'width': 1536, 'height': 960})
+    return True

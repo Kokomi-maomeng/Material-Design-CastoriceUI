@@ -1,5 +1,5 @@
 /* Authentication invalidates immediately; only the new scene is animated. */
-.auth-page, .app-shell, .boot-state { animation: scene-enter var(--motion-enter-duration) var(--motion-standard) backwards; }
+.auth-page, .app-shell, .boot-state, .first-run-page { animation: scene-enter var(--motion-enter-duration) var(--motion-standard) backwards; }
 .auth-card { animation: auth-card-enter 360ms var(--motion-standard) both; }
 .app-shell { transition: opacity 180ms var(--motion-standard); }
 .app-shell.is-signing-out { opacity: .65; }
@@ -30,8 +30,9 @@
 
 /* Animate new records and state messages once; numeric polling stays still. */
 :is(.network-target-card, .alert-row, .network-alerts-card__list > div, .table-empty, .record-load-error, .integration-gate) { animation: record-enter 180ms var(--motion-standard) backwards; }
-.service-card, .wizard-overview, .wizard-form, .wizard-success, .wizard-form .dialog-error { animation: record-enter var(--motion-enter-duration) var(--motion-standard) backwards; }
-.wizard-progress > div > span { transition: background-color 180ms var(--motion-standard), color 180ms var(--motion-standard); }
+.service-card, .wizard-overview, .wizard-form, .wizard-success, .wizard-form .dialog-error,
+.first-run-page .dialog-error, .auth-error { animation: record-enter var(--motion-enter-duration) var(--motion-standard) backwards; }
+:is(.wizard-progress > div > span, .first-run-steps b) { transition: background-color 180ms var(--motion-standard), color 180ms var(--motion-standard), border-color 180ms var(--motion-standard); }
 .connection-target { transition: background-color 180ms var(--motion-standard), color 180ms var(--motion-standard); }
 @keyframes record-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -40,11 +41,12 @@
   .app-shell--navigation-hidden .app-main { margin-left: calc(var(--nav-width) / 2); margin-right: calc(var(--nav-width) / 2); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .auth-page, .auth-card, .app-shell, .boot-state { animation: none; }
+  .auth-page, .auth-card, .app-shell, .boot-state, .first-run-page { animation: none; }
   .motion-collapse { transition: none; }
   :is(.network-target-card, .alert-row, .network-alerts-card__list > div, .table-empty, .record-load-error, .integration-gate) { animation: none; }
-  .service-card, .wizard-overview, .wizard-form, .wizard-success, .wizard-form .dialog-error { animation: none; }
-  .wizard-progress > div > span { transition: none; }
+  .service-card, .wizard-overview, .wizard-form, .wizard-success, .wizard-form .dialog-error,
+  .first-run-page .dialog-error, .auth-error { animation: none; }
+  :is(.wizard-progress > div > span, .first-run-steps b) { transition: none; }
   .connection-target { transition: none; }
   .md-date-picker__body, .md-select-list > button > .material-symbols-rounded, .color-options .is-selected .material-symbols-rounded { animation: none; }
   :is(button.md-chip, .segmented-control button, .md-select-list > button, .md-date-picker button, .theme-mode-grid > button, .color-options button, .md-pagination > button, .md-preset-slider__thumb, .md-preset-slider__track i, .md-preset-slider__labels > span) { transition: none !important; }

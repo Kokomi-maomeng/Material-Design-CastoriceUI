@@ -1,8 +1,17 @@
 /* Keep the whole keyboard indicator within scrollable and animated surfaces. */
+html { scroll-padding-block-start: calc(var(--topbar-height) + 8px); }
+:is(.md-dialog__content, .md-select-list) { scroll-padding-block: 8px; }
+
 :root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible {
   outline: 3px solid var(--focus-ring, var(--primary));
   outline-offset: -3px;
   scroll-margin: 6px;
+}
+
+:root :is(.network-chart__plot, .resource-chart, .traffic-chart-plot) svg:focus-visible {
+  outline-width: 2px;
+  outline-offset: -2px;
+  border-radius: 8px;
 }
 
 :is(.md-button--filled, .md-pagination > .is-current, .md-date-picker button.is-selected) { --focus-ring: var(--on-primary); }
@@ -16,16 +25,16 @@
 }
 
 /* Composite fields have a single ring on the visible field, including its adornments. */
-:is(.search-field, .auth-input, .md-select-search, .quota-input-stable):focus-within {
+:is(.search-field, .auth-input, .md-select-search, .quota-input-stable, .md-preset-slider__control):focus-within {
   outline: 2px solid var(--focus-ring, var(--primary));
   outline-offset: -2px;
 }
-:root :is(.search-field, .auth-input, .md-select-search, .quota-input-stable) input:focus {
+:root :is(.search-field, .auth-input, .md-select-search, .quota-input-stable, .md-preset-slider__control) input:focus {
   outline: none;
 }
 
 @media (forced-colors: active) {
   :root :is(button, a[href], input, textarea, select, summary, [tabindex]):focus-visible,
   :root :is(.field, .connection-search, .network-alert-editor, .network-editor-dialog, .md-pagination) :is(input, textarea):focus,
-  :is(.search-field, .auth-input, .md-select-search, .quota-input-stable):focus-within { outline-color: Highlight; }
+  :is(.search-field, .auth-input, .md-select-search, .quota-input-stable, .md-preset-slider__control):focus-within { outline-color: Highlight; }
 }

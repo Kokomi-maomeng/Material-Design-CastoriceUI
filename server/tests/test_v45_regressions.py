@@ -146,6 +146,31 @@ class AuditRegressions(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(session["setupComplete"])
 
+    def test_first_run_basics_save_together_and_resume_until_completed(self) -> None:
+        self.start_api()
+        self.initialize()
+        path = "/api/v2/initialization/basics"
+        original = self.dashboard.update_traffic_quota({"resetTime": "04:15"})
+        self.assertEqual(self.call("PUT", path, {"nodeName": "QA node", "quotaBytes": True})[0], 400)
+        self.assertIsNone(self.call("GET", "/api/v2/auth/session")[1]["setupBasics"])
+        self.assertEqual(self.dashboard.traffic_quota_state(), original)
+        basics = {"nodeName": "QA node", "quotaBytes": 12_500_000_000}
+        with patch.object(self.dashboard, "_validate_integration", side_effect=[None, ValueError("Traffic unavailable")]):
+            self.assertEqual(self.call("PUT", path, basics)[0], 400)
+        self.assertIsNone(self.call("GET", "/api/v2/auth/session")[1]["setupBasics"])
+        self.assertEqual(self.dashboard.traffic_quota_state(), original)
+        with patch.object(self.dashboard.system_collector, "snapshot", return_value=system_fixture()):
+            self.assertEqual(self.call("PUT", path, basics), (200, basics))
+        self.dashboard = DashboardService(copy.deepcopy(self.config), self.storage)
+        self.server.dashboard = self.dashboard
+        self.assertEqual(self.dashboard.traffic_quota_state()["resetTime"], "04:15")
+        self.assertEqual(self.call("GET", "/api/v2/auth/session")[1]["setupBasics"], basics)
+        for _ in range(2):
+            self.assertEqual(self.call("POST", "/api/v2/initialization/complete")[0], 200)
+        self.assertEqual(self.call("PUT", path, basics)[0], 409)
+        records = self.call("GET", "/api/v2/audits")[1]["items"]
+        self.assertEqual(sum(record["action"] == "完成初始化向导" for record in records), 1)
+
     def test_invalid_json_types_return_400_without_persisting(self) -> None:
         self.start_api()
         self.initialize()

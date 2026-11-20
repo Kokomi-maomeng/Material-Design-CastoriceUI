@@ -105,6 +105,8 @@ it("keeps the sign-in form in place while authenticated dashboard data loads", a
   vi.spyOn(api, "fetchDashboard").mockReturnValue(new Promise((resolve) => { finishDashboard = resolve; }));
   const view = render(<I18nProvider><CastoriceApp /></I18nProvider>);
   const form = (await screen.findByRole("button", { name: "Sign in" })).closest("form")!;
+  fireEvent.change(screen.getByRole("textbox", { name: "Username" }), { target: { value: "qa-admin" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Synthetic-Password-123!" } });
   fireEvent.submit(form);
   expect(await screen.findByRole("button", { name: "Opening the console…" })).toHaveProperty("disabled", true);
   expect(view.container.querySelector(".page-loading")).toBeNull();

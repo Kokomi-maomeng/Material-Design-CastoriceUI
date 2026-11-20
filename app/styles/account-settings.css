@@ -39,7 +39,7 @@
 .md-select-search > button:hover { background: var(--surface-container-high); }
 .md-select-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .md-select-list > button { width: 100%; min-height: 46px; border: 0; border-radius: 10px; background: transparent; color: var(--on-surface); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; text-align: left; cursor: pointer; }
-.md-select-list > button:hover, .md-select-list > button:focus-visible { background: var(--surface-container-highest); outline: 0; }
+.md-select-list > button:is(:hover, :focus-visible) { background: var(--surface-container-highest); }
 .md-select-list > button[aria-selected="true"] { background: var(--secondary-container); color: var(--on-secondary-container); }
 .md-select-list > button > span:first-child { min-width: 0; display: grid; gap: 2px; }
 .md-select-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }

@@ -49,6 +49,7 @@ Authenticated endpoints:
 | PUT | `/api/v2/settings/ui` | Persist Setup visibility and optional panel visibility |
 | GET | `/api/v2/settings/background-options` | List allowed server images and current background setting |
 | PUT | `/api/v2/settings/login-background` | Save default, server-image, or HTTPS-URL background |
+| PUT | `/api/v2/initialization/basics` | Confirm the node name and byte quota together during first-run setup |
 | POST | `/api/v2/initialization/complete` | Finish first-run only after required settings exist |
 | POST | `/api/v2/alerts/:id/ack` | Acknowledge an alert and record the acting username |
 | GET | `/api/v2/subscriptions/:id/url` | Return one complete subscription URL only after explicit action |

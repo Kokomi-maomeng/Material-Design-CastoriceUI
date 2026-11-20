@@ -74,7 +74,7 @@
 .background-layout-controls .md-select-trigger { min-width: 0; min-height: 44px; }
 .glass-settings { margin-top: 0; }
 .glass-slider { padding: 8px 2px 12px; }
-.md-preset-slider__control { position: relative; height: 40px; }
+.md-preset-slider__control { position: relative; height: 40px; border-radius: 12px; }
 .md-preset-slider__control input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 40px; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer; touch-action: pan-y; }
 .md-preset-slider__track { position: absolute; top: 17px; left: 10px; right: 10px; height: 6px; border-radius: 999px; background: var(--secondary-container); overflow: hidden; }
 .md-preset-slider__track i { display: block; height: 100%; background: var(--primary); transform: scaleX(var(--slider-fraction)); transform-origin: left; transition: transform 180ms var(--motion-standard); }
@@ -82,7 +82,6 @@
 .md-preset-slider.is-dragging :is(.md-preset-slider__thumb, .md-preset-slider__track i) { transition: box-shadow 180ms var(--motion-standard), scale 180ms var(--motion-standard); }
 .md-preset-slider__control:is(:hover, :focus-within) .md-preset-slider__thumb { box-shadow: 0 0 0 7px color-mix(in srgb, var(--primary) 12%, transparent); }
 .md-preset-slider.is-dragging .md-preset-slider__thumb { scale: 1.12; }
-.md-preset-slider__control:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 12px; }
 .md-preset-slider__labels { display: flex; justify-content: space-between; gap: 8px; font-size: var(--text-xs); color: var(--on-surface-variant); }
 .md-preset-slider__labels > span { transition: color 180ms var(--motion-standard); }
 .md-preset-slider__labels > .is-selected { color: var(--primary); }

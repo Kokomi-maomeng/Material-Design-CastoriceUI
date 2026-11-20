@@ -1,4 +1,4 @@
-.active-connections .traffic-analysis__heading { scroll-margin-top: calc(var(--topbar-height) + 16px); }
+.active-connections .traffic-analysis__heading { scroll-margin-top: 8px; }
 .connection-section-content { padding: 0 12px 12px; }
 .connection-section-body { display: grid; gap: 10px; }
 html:has(.active-connections) { scrollbar-gutter: stable; }

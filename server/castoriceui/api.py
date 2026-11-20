@@ -355,7 +355,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "username": session["username"],
                     "csrfToken": session["csrf_token"],
                     "expiresAt": session["expires_at"],
-                    "setupComplete": bool(self.app.storage.get_setting("initial_setup_complete", False)),
+                    **self.app.dashboard.initialization_state(),
                 })
             return
         session = self.require_session()
@@ -445,6 +445,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         try:
             payload = self.read_json()
+            if path == "/api/v2/initialization/basics":
+                node_name = text(payload.get("nodeName", ""), "nodeName").strip()
+                if not 1 <= len(node_name) <= 80:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_node_name", "field": "nodeName"})
+                    return
+                quota_bytes = payload.get("quotaBytes")
+                if type(quota_bytes) is not int or not 1_000_000_000 <= quota_bytes <= 1_000_000_000_000_000:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_traffic_quota", "field": "quotaBytes"})
+                    return
+                basics = self.app.dashboard.save_initialization_basics(node_name, quota_bytes, self.source_ip(), str(session["username"]))
+                if basics is None:
+                    self.send_json(HTTPStatus.CONFLICT, {"error": "initialization_complete"})
+                else:
+                    self.send_json(HTTPStatus.OK, basics)
+                return
             if path in {"/api/v1/settings/traffic-limit", "/api/v2/settings/traffic-limit"}:
                 quota_setting = self.app.dashboard.update_traffic_quota(payload,
                     audit=("更新流量额度", "配置", "总流量额度已更新", self.source_ip(), str(session["username"])))
@@ -577,7 +592,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     token, csrf, expires_at = self.app.storage.create_session(user_id, self.app.config.session_lifetime_seconds)
                 self.app.clear_login_failures(self.source_ip())
                 self.app.storage.add_audit("登录成功", "认证", "管理员会话已创建", self.source_ip(), actor=username)
-                self.send_json(HTTPStatus.OK, {"username": username, "csrfToken": csrf, "expiresAt": expires_at, "setupComplete": bool(self.app.storage.get_setting("initial_setup_complete", False))}, {"Set-Cookie": self.session_cookie(token, self.app.config.session_lifetime_seconds)})
+                self.send_json(HTTPStatus.OK, {"username": username, "csrfToken": csrf, "expiresAt": expires_at, **self.app.dashboard.initialization_state()}, {"Set-Cookie": self.session_cookie(token, self.app.config.session_lifetime_seconds)})
                 return
         except AuthenticationBusy:
             self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "authentication_busy"}, {"Retry-After": "2"})
@@ -631,19 +646,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
         if path == "/api/v2/initialization/complete":
-            overrides = self.app.storage.get_setting("integration_overrides", {})
-            configured_system = overrides.get("system", {}) if isinstance(overrides, dict) else {}
-            if not isinstance(configured_system, dict):
-                configured_system = {}
-            system_values = configured_system.get("values", {})
-            quota = self.app.storage.get_setting("traffic_quota", {})
-            traffic = overrides.get("traffic", {}) if isinstance(overrides, dict) else {}
-            confirmed = self.app.storage.get_setting("traffic_quota_confirmed", False) or isinstance(traffic, dict) and traffic.get("configured")
-            if not isinstance(system_values, dict) or not str(system_values.get("nodeName", "")).strip() or not configured_system.get("configured") or not confirmed or not isinstance(quota, dict) or type(quota.get("bytes")) is not int or not 1_000_000_000 <= quota["bytes"] <= 1_000_000_000_000_000:
+            if not self.app.dashboard.complete_initialization(self.source_ip(), str(session["username"])):
                 self.send_json(HTTPStatus.CONFLICT, {"error": "basic_setup_required"})
                 return
-            self.app.storage.set_setting("initial_setup_complete", True)
-            self.app.storage.add_audit("完成初始化向导", "配置", "必要的面板设置已确认", self.source_ip(), actor=str(session["username"]))
             self.send_json(HTTPStatus.OK, {"ok": True})
             return
         if path in {"/api/v2/alerts/ack-all", "/api/v2/network/alerts/ack-all"}:

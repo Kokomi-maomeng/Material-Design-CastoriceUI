@@ -229,6 +229,7 @@ describe("v3.3 runtime behavior", () => {
         onConfigure={vi.fn()}
         onSaveBasics={vi.fn()}
         onComplete={vi.fn()}
+        onSignOut={vi.fn()}
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
@@ -236,7 +237,7 @@ describe("v3.3 runtime behavior", () => {
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
-    const onSaveBasics = vi.fn().mockResolvedValue(undefined);
+    const onSaveBasics = vi.fn().mockResolvedValue({ nodeName: "Tokyo edge", quotaBytes: 1_000_000_000_000 });
     const onComplete = vi.fn().mockResolvedValue(undefined);
     renderEnglish(
       <FirstRunConfiguration
@@ -245,13 +246,14 @@ describe("v3.3 runtime behavior", () => {
         onConfigure={vi.fn()}
         onSaveBasics={onSaveBasics}
         onComplete={onComplete}
+        onSignOut={vi.fn()}
       />,
     );
     const finish = screen.getByRole("button", { name: "Finish and open dashboard" });
     expect((finish as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByRole("textbox", { name: "Node display name" }), { target: { value: "Tokyo edge" } });
     fireEvent.click(screen.getByRole("button", { name: "Save basics" }));
-    await waitFor(() => expect(onSaveBasics).toHaveBeenCalledWith("Tokyo edge", "1000"));
+    await waitFor(() => expect(onSaveBasics).toHaveBeenCalledWith({ nodeName: "Tokyo edge", quotaBytes: 1_000_000_000_000 }));
     await waitFor(() => expect((finish as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(finish);
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());

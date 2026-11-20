@@ -1,4 +1,4 @@
-import type { AlertPageResponse, AuditPageResponse, BootstrapState, ConnectionTargets, DashboardPayload, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
+import type { AlertPageResponse, AuditPageResponse, BootstrapState, ConnectionTargets, DashboardPayload, InitializationBasics, IntegrationStatus, LoginAppearance, LoginBackgroundSettings, NetworkHistoryResponse, NetworkTarget, SessionState, TrafficQuotaSettings, UiSettings } from "./types";
 import { parseDashboard, validNetworkSamples, validNetworkTarget } from "./dashboard-validation";
 import { NETWORK_LIMITS } from "./network-editor";
 import type { NetworkTargetConfig } from "./types";
@@ -104,6 +104,10 @@ export function changePassword(currentPassword: string, newPassword: string) {
 
 export function completeInitialization() {
   return request<{ ok: boolean }>("/api/v2/initialization/complete", { method: "POST" }, true);
+}
+
+export function saveInitializationBasics(basics: InitializationBasics) {
+  return request<InitializationBasics>("/api/v2/initialization/basics", { method: "PUT", body: JSON.stringify(basics) }, true);
 }
 
 export function fetchDashboard(signal?: AbortSignal) {
