@@ -113,7 +113,16 @@ it("keeps the sign-in form in place while authenticated dashboard data loads", a
   expect(view.container.querySelector(".auth-card form")).toBe(form);
   fireEvent.submit(form);
   expect(signIn).toHaveBeenCalledTimes(1);
-  await act(async () => finishDashboard({ ...emptyDashboard, mode: "live" }));
+  await act(async () => finishDashboard({
+    ...emptyDashboard,
+    mode: "stale",
+    freshness: {
+      system: { status: "live", observedAt: "2026-01-01T00:00:00Z", ageSeconds: 0, ttlSeconds: 150, error: null },
+      runtime: { status: "initializing", observedAt: null, ageSeconds: null, ttlSeconds: 90, error: null },
+    },
+  }));
   await waitFor(() => expect(view.container.querySelector(".app-shell")).not.toBeNull());
+  expect(screen.getByText("Collecting the first service status").closest('[role="status"]')).not.toBeNull();
+  expect(screen.queryByText("Collection or connection fault; current data may be stale")).toBeNull();
   expect(view.container.querySelector(".auth-card")).toBeNull();
 });

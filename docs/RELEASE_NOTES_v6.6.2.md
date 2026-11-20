@@ -4,5 +4,6 @@
 - First-run setup saves the display name and traffic quota together, restores confirmed settings after a refresh or sign-in, and guides the user to fields that need attention.
 - The first-run language selector follows the same English, Chinese and system-language preferences as sign-in and the dashboard. Audit records and validation messages are localized.
 - Setup transitions and validation feedback respect the browser’s reduced-motion preference.
+- The dashboard distinguishes first-time service collection from a connection or collection fault.
 
 This release includes the v6.6.1 sign-in, traffic distribution, connection filtering, and audit retention updates. See [deployment and recovery](DEPLOYMENT.md) for installation and upgrade instructions.

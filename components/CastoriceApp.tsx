@@ -144,6 +144,7 @@ export function CastoriceApp() {
     readPreference("castorice-theme-color", THEME_COLORS, "violet"),
   );
   const [dashboard, setDashboard] = useState<DashboardPayload>(emptyDashboard);
+  const [dashboardRequestFailed, setDashboardRequestFailed] = useState(false);
   const alerts = dashboard.alerts;
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -296,6 +297,7 @@ export function CastoriceApp() {
     const alertGeneration = alertAcknowledgementGeneration.current;
     try {
       const payload = await fetchDashboard();
+      setDashboardRequestFailed(false);
       const currentAlerts = !alertWriteInFlight.current && alertGeneration === alertAcknowledgementGeneration.current;
       setDashboard((current) => ({ ...payload,
         networkTargets: networkGeneration === networkConfigurationGeneration.current ? payload.networkTargets : current.networkTargets,
@@ -310,6 +312,7 @@ export function CastoriceApp() {
         await signOut();
         return;
       }
+      setDashboardRequestFailed(true);
       if (hasLiveData.current)
         setDashboard((current) => ({ ...current, mode: "stale" }));
       else
@@ -746,6 +749,11 @@ export function CastoriceApp() {
     }
   })();
 
+  const collectingRuntime = !dashboardRequestFailed
+    && dashboard.mode === "stale"
+    && dashboard.freshness?.system?.status === "live"
+    && dashboard.freshness?.runtime?.status === "initializing";
+
   return (
     <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""} ${signingOut ? "is-signing-out" : ""}`} aria-busy={signingOut} inert={signingOut}>
       <aside ref={navigationRef} id="primary-navigation" className={`navigation-rail ${drawerVisible ? "is-open" : ""}`} inert={navigationHidden}>
@@ -870,7 +878,16 @@ export function CastoriceApp() {
           </div>
         </header>
         <main id="main-content">
-          {dashboard.mode === "stale" ? (
+          {collectingRuntime ? (
+            <div className="preview-mode-banner" role="status">
+              <Icon name="schedule" size={21} />
+              <div>
+                <strong>{t("正在采集首次运行状态", "Collecting the first service status")}</strong>
+                <span>{t("主机指标已可用。服务状态会在采集完成后自动更新。", "Host metrics are available. Service status will update when collection finishes.")}</span>
+              </div>
+            </div>
+          ) : null}
+          {dashboard.mode === "stale" && !collectingRuntime ? (
             <div className="preview-mode-banner" role="alert">
               <Icon name="cloud_off" size={21} />
               <div>

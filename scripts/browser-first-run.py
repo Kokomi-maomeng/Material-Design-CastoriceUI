@@ -82,7 +82,12 @@ def exercise(browser, generate_token, base=BASE):
     actual = context.request.get(f"{base}/api/v2/dashboard").json()
     assert actual["overview"]["trafficLimitBytes"] == 2_048_500_000_000
     assert actual["overview"]["memoryTotalBytes"] > 0 and actual["overview"]["uptimeSeconds"] > 0
-    assert actual["mode"] == "live"
+    deadline = time.monotonic() + 30
+    while actual["mode"] != "live" and actual["freshness"]["runtime"]["status"] == "initializing" and time.monotonic() < deadline:
+        assert actual["freshness"]["system"]["status"] == "live"
+        time.sleep(0.5)
+        actual = context.request.get(f"{base}/api/v2/dashboard").json()
+    assert actual["mode"] == "live", {source: actual["freshness"][source]["status"] for source in ("system", "runtime")}
     assert context.request.get(f"{base}/api/v2/auth/session").json()["setupComplete"] is True
     page.reload(wait_until="domcontentloaded")
     expect(overview).to_be_visible()
