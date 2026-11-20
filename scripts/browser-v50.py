@@ -11,7 +11,7 @@ import zlib
 
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
-from qa_browser import settled
+from qa_browser import PageErrorMonitor, settled
 
 BASE = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
@@ -26,8 +26,8 @@ def image(seed):
 
 def run(engine, context):
     context.add_init_script("localStorage.setItem('castorice-language','en');localStorage.setItem('castorice-theme-mode','dark')")
-    page = context.new_page(); errors = []
-    page.on("pageerror", lambda error: errors.append(str(error)))
+    page = context.new_page()
+    monitor = PageErrorMonitor(page, engine, BASE, ("/api/v2/alerts", "/api/v2/auth/background"))
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode="live", generatedAt="2026-01-01T00:00:00Z")
     state = {"authenticated": False, "failed": False, "corrupt": False, "images": 0, "profiles": [], "saved": None, "server_images": {}}
@@ -120,21 +120,21 @@ def run(engine, context):
     # coverage verifies that path), and current-tab memory on decode failures.
     page.wait_for_function("async()=> (await (await caches.open('castorice-login-background-v7')).keys()).length>0", timeout=5000)
     page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v7');await c.put('/__qa_cache_probe',new Response('independent-persistence-probe'))}")
-    page.reload(wait_until="networkidle")
+    monitor.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     persistent_cache = page.evaluate("async()=>{const c=await caches.open('castorice-login-background-v7');const r=await c.match('/__qa_cache_probe');const persisted=r&&await r.text()==='independent-persistence-probe';await c.delete('/__qa_cache_probe');return !!persisted}")
     print(json.dumps({"engine": engine, "independentCachePersistence": persistent_cache}), flush=True)
     state["server_fallback"] = not persistent_cache
     count = state["images"]
     state["failed"] = True
-    page.reload(wait_until="networkidle")
+    monitor.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     state["failed"] = False
     page.wait_for_timeout(2300)
     assert state["images"] == count + 1, "visible fallback triggered a delayed image swap"
     state["corrupt"] = True
     if persistent_cache:
-        page.reload(wait_until="networkidle")
+        monitor.reload(wait_until="networkidle")
     else:
         # Storage-disabled WebKit cannot retain a blob across navigation.
         # Resize must now keep this document's image without any request;
@@ -146,7 +146,7 @@ def run(engine, context):
         assert page.locator(".auth-page").get_attribute("style") == previous, "resize cleared the current image"
         assert state["images"] == count, "resize requested another background"
         with page.expect_response(lambda response: "profile=landscape-1280" in response.url and "retry=1" in response.url):
-            page.reload(wait_until="domcontentloaded")
+            monitor.reload(wait_until="domcontentloaded")
         page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
         assert state["images"] == count + 2, "cold corrupt image did not recover with one decode retry"
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
@@ -166,7 +166,7 @@ def run(engine, context):
     page.wait_for_timeout(2300)
     assert page.locator(".auth-page").get_attribute("style") == previous, "resize replaced the document image"
     assert state["images"] == count, "resize requested a new document image"
-    page.reload(wait_until="networkidle")
+    monitor.reload(wait_until="networkidle")
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.wait_for_timeout(500)
@@ -228,7 +228,7 @@ def run(engine, context):
     assert not any(row["acknowledged"] for row in warnings)
     # Authenticated reload prepares the document image without mounting login.
     count = state["images"]
-    page.reload(wait_until="networkidle")
+    monitor.reload(wait_until="networkidle")
     page.locator(".top-app-bar").wait_for()
     assert state["images"] == count + 1
     assert page.locator(".auth-page").count() == 0
@@ -269,8 +269,8 @@ def run(engine, context):
     page.locator(".auth-card").wait_for()
     page.wait_for_function("document.querySelector('.auth-page')?.style.backgroundImage.includes('blob:')")
     assert state["images"] == logout_images, "logout replaced the document image before a page refresh"
-    assert not errors, errors
-    print(json.dumps({"engine": engine, "glassThemeViewportCases": cases, "backgroundRequests": state["images"], "distinctProfiles": len(set(state["profiles"])), "pageErrors": len(errors), "cachePersistence": persistent_cache, "reloadFallback": "browser-cache" if persistent_cache else "server-cache", "synthetic": True}))
+    assert not monitor.errors, monitor.errors
+    print(json.dumps({"engine": engine, "glassThemeViewportCases": cases, "backgroundRequests": state["images"], "distinctProfiles": len(set(state["profiles"])), "pageErrors": len(monitor.errors), "reloadDiagnostics": monitor.reload_diagnostics, "cachePersistence": persistent_cache, "reloadFallback": "browser-cache" if persistent_cache else "server-cache", "synthetic": True}))
 
 
 if __name__ == "__main__":
