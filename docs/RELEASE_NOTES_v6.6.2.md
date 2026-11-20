@@ -5,4 +5,4 @@
 - The first-run language selector follows the same English, Chinese and system-language preferences as sign-in and the dashboard. Audit records and validation messages are localized.
 - Setup transitions and validation feedback respect the browser’s reduced-motion preference.
 
-This release includes the [v6.6.1 changes](RELEASE_NOTES_v6.6.1.md). See [deployment and recovery](DEPLOYMENT.md) for installation and upgrade instructions.
+This release includes the v6.6.1 sign-in, traffic distribution, connection filtering, and audit retention updates. See [deployment and recovery](DEPLOYMENT.md) for installation and upgrade instructions.
