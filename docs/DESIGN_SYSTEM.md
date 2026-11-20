@@ -2,6 +2,8 @@
 
 CastoriceUI follows Material Design 3 principles without depending on a heavyweight component framework.
 
+![Light theme overview with synthetic host and traffic data](images/dashboard-desktop.png)
+
 ## Foundations
 
 - **Typography:** locally packaged Roboto Variable with system CJK fallbacks.
@@ -27,6 +29,7 @@ CastoriceUI follows Material Design 3 principles without depending on a heavywei
 - Data tables become labeled cards on small screens rather than horizontal micro-text.
 - Charts use semantic tokens and remain legible in both color schemes.
 - Dialogs use a small project-owned modal with focus trapping, Escape handling, focus restoration, and a browser-independent backdrop.
+- Focus indicators on controls within scrollable or animated containers stay inside the focused surface. Collapsed navigation stays outside the Tab order, and dismissing the mobile drawer restores focus to the menu button.
 - Status is never communicated through color alone; every indicator includes text or an icon.
 
 ## Adding a theme color
