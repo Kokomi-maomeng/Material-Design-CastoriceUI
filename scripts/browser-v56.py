@@ -15,7 +15,7 @@ import time
 import urllib.request
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from qa_browser import settled, open_page
+from qa_browser import PageErrorMonitor, open_page, settled
 from qa_network import network_product
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,8 +78,9 @@ def main():
                 browser = getattr(playwright, engine).launch()
                 context = browser.new_context(ignore_https_errors=True, viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
                 context.add_init_script("if(!localStorage.getItem('castorice-language'))localStorage.setItem('castorice-language','en')")
-                page = context.new_page(); page_errors = []
-                page.on('pageerror', lambda e: page_errors.append(str(e)))
+                page = context.new_page()
+                monitor = PageErrorMonitor(page, engine, origin, ('/api/v2/alerts', '/api/v2/network', '/api/v2/auth/background'))
+                reload_page = monitor.reload
                 page.goto(origin, wait_until='networkidle')
                 page.get_by_label('Username', exact=True).fill('qa-browser')
                 page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
@@ -90,7 +91,7 @@ def main():
                 capacity_cases = []
                 for percent, attention, expected in ((89.9, False, False), (90, False, True), (91, False, True), (50, True, True)):
                     refresh(percent, attention)
-                    page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
+                    reload_page(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
                     body = context.request.get(origin + '/api/v2/dashboard').json()
                     assert page.locator('.boot-state').count() == 0
                     capacity = [a for a in body['alerts'] if a['id'] == 'storage-capacity']
@@ -102,11 +103,11 @@ def main():
                 episode = next(a for a in body['alerts'] if a['id'] == 'storage-capacity')['episodeId']
                 assert context.request.post(origin + '/api/v2/alerts/' + episode + '/ack', data={}, headers=headers).ok
                 refresh(size=None)
-                page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
+                reload_page(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
                 open_page(page, 'services', 'Services')
                 page.get_by_text('Sample write succeeded · size unavailable', exact=True).wait_for()
                 refresh(size=4096)
-                page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
+                reload_page(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
                 assert page.get_by_text('Sample write succeeded · size unavailable', exact=True).count() == 0
                 connection_cases = []
                 for hy, sb, hy_ok, sb_ok, expected in ((1, 0, 1, 0, 'ready'), (0, 1, 0, 1, 'ready'), (1, 1, 1, 1, 'ready'), (1, 1, 1, 0, 'partial'), (0, 0, 0, 0, 'pending')):
@@ -120,7 +121,7 @@ def main():
                         dashboard._collection_result(name, observed_at=now, error=None if ok else 'adapter_unavailable')
                     dashboard.runtime_cache['integrations'] = dashboard.runtime_integrations(hy2, sb_data, [], dashboard.system_cache, {'configured': False, 'ready': False, 'count': 0})
                     refresh()
-                    page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
+                    reload_page(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
                     open_page(page, 'traffic/connections', 'Traffic analytics')
                     response = context.request.get(origin + '/api/v2/dashboard').json()
                     state = next(i for i in response['integrations'] if i['id'] == 'connections')
@@ -131,7 +132,7 @@ def main():
                 target = {'name': 'Synthetic DNS', 'address': '2606:4700:4700::1111', 'ipVersion': 6, 'order': 1, 'latencyMs': 321, 'lossPercent': 7, 'tcpPort': 443, 'dnsPort': 53, 'dnsName': 'example.com'}
                 assert context.request.put(origin + '/api/v2/settings/network-targets', data={'targets': [target], 'globalThresholds': {'latencyMs': 321, 'lossPercent': 7}}, headers=headers).ok
                 refresh()
-                page.reload(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
+                reload_page(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
                 open_page(page, 'setup', 'Setup')
                 page.locator('.setup-list button, .setup-completed button').filter(has=page.get_by_text('Alerts', exact=True)).click()
                 wizard = page.get_by_role('dialog'); wizard.wait_for()
@@ -181,9 +182,9 @@ def main():
                     result = context.request.put(origin + '/api/v2/settings/login-background', data={**original, 'value': 'https://images.example.com:' + invalid + '/image'}, headers=headers)
                     assert result.status == 400 and result.json()['field'] == 'value'
                     assert storage.get_setting('login_background', {}) == original
-                network = network_product(page, context, dashboard, storage, origin, headers, refresh)
-                assert not page_errors and not errors, (engine, page_errors, errors)
-                reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'networkProduct': network, 'pageErrors': page_errors})
+                network = network_product(page, context, dashboard, storage, origin, headers, refresh, reload_page)
+                assert not monitor.errors and not errors, (engine, monitor.errors, errors)
+                reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'networkProduct': network, 'pageErrors': monitor.errors, 'reloadDiagnostics': monitor.reload_diagnostics})
                 context.close(); browser.close()
     print(json.dumps({'auditFixes': reports, 'apiRoutesMocked': False, 'backendErrors': errors, 'passed': True}), flush=True)
 

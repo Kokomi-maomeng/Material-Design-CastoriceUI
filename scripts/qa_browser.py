@@ -1,6 +1,57 @@
 """Shared browser readiness and native animation sampling; no application mocks."""
 import os
 import sys
+from urllib.parse import urlsplit
+
+
+class PageErrorMonitor:
+    """Track script errors and WebKit's native diagnostics during document replacement."""
+
+    def __init__(self, page, engine, origin, reload_paths):
+        self.page = page
+        self.origin = urlsplit(origin)
+        self.webkit_reload_diagnostics = engine == 'webkit' and self.origin.hostname in ('127.0.0.1', '::1', 'localhost')
+        self.reload_paths = set(reload_paths)
+        self.errors = []
+        self.reload_diagnostics = []
+        self.replacing = False
+        page.on('pageerror', self._page_error)
+        if self.webkit_reload_diagnostics:
+            page.on('framenavigated', self._frame_navigated)
+            page.expose_function('__qaBrowserError', lambda message: self.errors.append(message))
+            page.add_init_script("""(() => {
+                const report = message => window.__qaBrowserError(message).catch(() => {});
+                window.addEventListener('error', event => report(event.message));
+                window.addEventListener('unhandledrejection', event => report(String(event.reason)));
+            })();""")
+
+    def _frame_navigated(self, frame):
+        if frame == self.page.main_frame:
+            self.replacing = False
+
+    def _page_error(self, error):
+        # WebKit reports a blocked old-document fetch as a JavaScript-source
+        # console error. Playwright forwards it as pageerror (issue #43120).
+        if self.replacing and error.name == f'Fetch API cannot load {self.origin.scheme}':
+            prefix = '/' + self.origin.netloc
+            suffix = ' due to access control checks.'
+            if error.message.startswith(prefix + '/') and error.message.endswith(suffix):
+                path = error.message[len(prefix):-len(suffix)].partition('?')[0]
+                if path in self.reload_paths:
+                    self.reload_diagnostics.append(path)
+                    return
+        self.errors.append(str(error))
+
+    def reload(self, *, wait_until):
+        if not self.webkit_reload_diagnostics:
+            return self.page.reload(wait_until=wait_until)
+        self.replacing = True
+        try:
+            response = self.page.reload(wait_until='commit')
+        finally:
+            self.replacing = False
+        self.page.wait_for_load_state(wait_until)
+        return response
 
 
 def settled(page):
