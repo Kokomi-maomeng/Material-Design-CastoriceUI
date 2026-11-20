@@ -94,7 +94,7 @@ describe("v4.1 navigation and protocol inspection", () => {
     expect(navigate).toHaveBeenCalledWith("traffic");
   });
   it("synchronizes the protocol bar and legend and clears inspection on blur", () => {
-    const traffic = { ...emptyDashboard.traffic, protocolTotalBytes: 3e9, protocol: [{ name: "AnyTLS", value: 1e9 }, { name: "Hysteria2", value: 2e9 }] };
+    const traffic = { ...emptyDashboard.traffic, totalBytes: 5e9, protocolTotalBytes: 3e9, protocol: [{ name: "AnyTLS", value: 1e9 }, { name: "Hysteria2", value: 2e9 }] };
     const { container } = renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);
     const segment = container.querySelector('.protocol-distribution__bar button')!;
     const reading = container.querySelector('.protocol-distribution__reading')!;
@@ -102,13 +102,28 @@ describe("v4.1 navigation and protocol inspection", () => {
     expect(reading.textContent).toContain("AnyTLS1.0 GB");
     expect(container.querySelector('.protocol-distribution__legend > button.is-active')?.textContent).toContain("AnyTLS");
     fireEvent.blur(segment);
-    expect(reading.textContent).toContain("Distribution total3.0 GB");
+    expect(reading.textContent).toContain("Interface billing-period usage5.0 GB");
     expect(container.querySelector('.protocol-distribution__bar > button.is-active')).toBeNull();
     const legend = container.querySelector('.protocol-distribution__legend button:nth-child(2)')!;
     fireEvent.focus(legend);
     expect(reading.textContent).toContain("Hysteria2");
     fireEvent.blur(legend);
-    expect(reading.textContent).toContain("Distribution total");
+    expect(reading.textContent).toContain("Interface billing-period usage");
+    expect(screen.getByRole("button", { name: "Unattributed difference · 2.0 GB" })).toHaveProperty("style.flexBasis", "40%");
+  });
+  it("shows measured interface usage separately if core counters are greater", () => {
+    const traffic = { ...emptyDashboard.traffic, totalBytes: 2e9, protocolTotalBytes: 3e9, protocol: [{ name: "Hysteria2", value: 3e9 }] };
+    renderEnglish(<TrafficPage traffic={traffic} onConfigure={vi.fn()} />);
+    expect(screen.getByText("Known core traffic").nextElementSibling?.textContent).toBe("3.0 GB");
+    expect(screen.getByText("Interface billing-period usage").nextElementSibling?.textContent).toBe("2.0 GB");
+    expect(screen.queryByText("Unattributed difference")).toBeNull();
+  });
+  it("does not add a ledger remainder when collection is unavailable", () => {
+    const traffic = { ...emptyDashboard.traffic, totalBytes: 2e9 };
+    renderEnglish(<TrafficPage traffic={traffic} quotaAvailable={false} onConfigure={vi.fn()} />);
+    expect(screen.getByText("Known core traffic").nextElementSibling?.textContent).toBe("—");
+    expect(screen.queryByText("Interface billing-period usage")).toBeNull();
+    expect(screen.queryByText("Unattributed difference")).toBeNull();
   });
   it("uses a responsive protocol overflow surface and an anchored coverage detail", async () => {
     const names = ["Hysteria2", "AnyTLS", "VLESS", "SOCKS5", "Shadowsocks", "Unattributed"];
@@ -123,7 +138,7 @@ describe("v4.1 navigation and protocol inspection", () => {
     expect(container.querySelector(".traffic-analysis__grid > .traffic-analysis__trend")).toBeTruthy();
     expect(container.querySelector(".traffic-analysis__grid > .monthly-traffic-panel")).toBeTruthy();
     expect(container.querySelector(".traffic-analysis__grid > .protocol-panel")).toBeTruthy();
-    const more = screen.getByRole("button", { name: /More protocols/ });
+    const more = screen.getByRole("button", { name: /More entries/ });
     expect(more.textContent).toContain("+2");
     fireEvent.click(more);
     const overflow = document.getElementById(more.getAttribute("aria-controls")!)!;
@@ -214,6 +229,7 @@ describe("v3.3 runtime behavior", () => {
         onConfigure={vi.fn()}
         onSaveBasics={vi.fn()}
         onComplete={vi.fn()}
+        onSignOut={vi.fn()}
       />,
     );
     expect(screen.getByRole("spinbutton")).toHaveProperty("value", "1000");
@@ -221,7 +237,7 @@ describe("v3.3 runtime behavior", () => {
   });
 
   it("keeps first-run completion locked until valid basics are saved", async () => {
-    const onSaveBasics = vi.fn().mockResolvedValue(undefined);
+    const onSaveBasics = vi.fn().mockResolvedValue({ nodeName: "Tokyo edge", quotaBytes: 1_000_000_000_000 });
     const onComplete = vi.fn().mockResolvedValue(undefined);
     renderEnglish(
       <FirstRunConfiguration
@@ -230,13 +246,14 @@ describe("v3.3 runtime behavior", () => {
         onConfigure={vi.fn()}
         onSaveBasics={onSaveBasics}
         onComplete={onComplete}
+        onSignOut={vi.fn()}
       />,
     );
     const finish = screen.getByRole("button", { name: "Finish and open dashboard" });
     expect((finish as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByRole("textbox", { name: "Node display name" }), { target: { value: "Tokyo edge" } });
     fireEvent.click(screen.getByRole("button", { name: "Save basics" }));
-    await waitFor(() => expect(onSaveBasics).toHaveBeenCalledWith("Tokyo edge", "1000"));
+    await waitFor(() => expect(onSaveBasics).toHaveBeenCalledWith({ nodeName: "Tokyo edge", quotaBytes: 1_000_000_000_000 }));
     await waitFor(() => expect((finish as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(finish);
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());

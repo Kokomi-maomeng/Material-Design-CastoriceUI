@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { integrationDefinitions } from "../../lib/integrations";
 import { useI18n, withoutTerminalPeriod } from "../../lib/i18n";
 import type { IntegrationId, IntegrationStatus } from "../../lib/types";
@@ -19,6 +19,10 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<IntegrationStatus | null>(null);
   const [validationError, setValidationError] = useState("");
+  const formId = useId();
+  const stepPanelRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const previousStep = useRef(0);
   useEffect(() => {
     let frame = 0;
     if (selected && (previousSelected.current === null || previousSelected.current !== selected)) frame = window.requestAnimationFrame(() => {
@@ -31,6 +35,13 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
     previousSelected.current = selected;
     return () => window.cancelAnimationFrame(frame);
   }, [selected]);
+  useLayoutEffect(() => {
+    if (selected && previousStep.current !== step) {
+      const firstField = formRef.current?.querySelector<HTMLElement>("input, textarea, .md-select-trigger");
+      (firstField ?? formRef.current ?? stepPanelRef.current)?.focus();
+    }
+    previousStep.current = step;
+  }, [selected, step]);
   if (!definition || !renderedSelected) return null;
   const local = (value: { zh: string; en: string }) => withoutTerminalPeriod(value[language]);
   const values = drafts[renderedSelected] ?? {};
@@ -40,6 +51,7 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
     resolvedValues[field.id]?.trim() || (renderedSelected === "subscriptions" && field.id === "baseUrl" && status?.configured),
   );
   const save = async () => {
+    if (saving || (!requiredComplete && !isProtocol)) return;
     setSaving(true);
     setValidationError("");
     try {
@@ -63,7 +75,7 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
         network_unavailable: t("浏览器无法连接后端，请检查网络。", "The browser cannot reach the backend. Check the network."),
         request_timeout: t("验证请求超时，服务器未确认保存。", "The validation request timed out; the save was not confirmed."),
       };
-      const fieldMessage = fieldMessages[code] ?? "";
+      const fieldMessage = Object.hasOwn(fieldMessages, code) ? fieldMessages[code] : "";
       setValidationError(fieldMessage || (selected === "subscriptions"
         ? t("订阅发布器未通过服务器可达性与节点格式验证，配置未保存。请检查 TLS、地址、受保护订阅记录和返回内容。此验证不代表客户端导入或代理连通性。", "The publisher failed server-side reachability and node-format validation, so nothing was saved. Check TLS, the address, protected subscription records, and response content. This does not prove client import or proxy connectivity.")
         : isProtocol
@@ -75,11 +87,26 @@ export function SetupWizard({ selected, status, drafts, onDraft, onClose, onSave
   };
   const steps = [t("了解流程", "Overview"), t("填写参数", "Parameters"), t("验证结果", "Result")];
   const validation = result?.subscriptionValidation;
-  return <Dialog open={Boolean(selected)} title={t(`${local(definition.name)} 配置向导`, `Configure ${local(definition.name)}`)} description={local(definition.summary)} onClose={onClose} size="large" actions={<><Button variant="text" onClick={onClose}>{status?.configured || step === 2 ? t("完成", "Done") : t("稍后继续", "Continue later")}</Button>{step > 0 && step < 2 ? <Button variant="outlined" onClick={() => setStep(step - 1)}>{t("上一步", "Back")}</Button> : null}{step === 0 ? <Button trailingIcon="arrow_forward" onClick={() => setStep(1)}>{t("开始配置", "Start")}</Button> : null}{step === 1 ? <Button icon="save" disabled={(!requiredComplete && !isProtocol) || saving} onClick={() => void save()}>{saving ? t("正在验证", "Validating") : t("保存并验证", "Save and validate")}</Button> : null}</>}>
+  return <Dialog open={Boolean(selected)} title={t(`${local(definition.name)} 配置向导`, `Configure ${local(definition.name)}`)} description={local(definition.summary)} onClose={onClose} size="large" actions={<><Button variant="text" onClick={onClose}>{status?.configured || step === 2 ? t("完成", "Done") : t("稍后继续", "Continue later")}</Button>{step > 0 && step < 2 ? <Button variant="outlined" disabled={saving} onClick={() => setStep(step - 1)}>{t("上一步", "Back")}</Button> : null}{step === 0 ? <Button trailingIcon="arrow_forward" onClick={() => setStep(1)}>{t("开始配置", "Start")}</Button> : null}{step === 1 ? <Button icon="save" type="submit" form={formId} disabled={(!requiredComplete && !isProtocol) || saving}>{saving ? t("正在验证", "Validating") : t("保存并验证", "Save and validate")}</Button> : null}</>}>
     <div className="wizard-progress" role="group" aria-label={t(`步骤 ${step + 1}/3`, `Step ${step + 1} of 3`)}>{steps.map((label, index) => <div key={index} className={index <= step ? "is-active" : ""} aria-current={index === step ? "step" : undefined}><span>{index < step ? <Icon name="check" size={16} /> : index + 1}</span><small>{label}</small></div>)}</div>
-    {step === 0 ? <div className="wizard-overview"><div className="wizard-outcome"><Icon name={definition.icon} size={28} /><div><span>{t("配置完成后", "After configuration")}</span><strong>{local(definition.outcome)}</strong></div></div><ol>{definition.steps.map((item) => <li key={item.zh}>{local(item)}</li>)}</ol><div className="wizard-security"><Icon name="shield" /><p>{renderedSelected === "subscriptions" ? t("订阅验证地址通过当前 HTTPS 管理会话提交，仅用于一次实际请求；后端不会把它写入 SQLite、响应或审计记录。长期使用的完整地址仍只保存在服务器受保护配置。", "The subscription URL is submitted through the current HTTPS admin session for one live request only. It is not written to SQLite, responses, or audit records; long-lived full URLs remain only in protected server configuration.") : t("上游 Secret 只从服务器受限配置读取，不经网页提交、不写入 SQLite，也不会出现在响应或审计记录中。", "Upstream secrets are read only from protected server configuration. They are never submitted by the browser, written to SQLite, or returned in responses or audit records.")}</p></div></div> : null}
-    {step === 1 ? <div className="wizard-form">{definition.fields.length ? definition.fields.map((field) => <div className="field" key={field.id}><span>{local(field.label)}{field.required ? " *" : ""}</span>{field.type === "textarea" ? <textarea rows={4} value={values[field.id] ?? ""} placeholder={field.placeholder} onChange={(event) => onDraft(renderedSelected, field.id, event.target.value)} /> : field.type === "select" ? <MaterialSelect ariaLabel={local(field.label)} value={values[field.id] ?? field.options?.[0]?.value ?? ""} options={(field.options ?? []).map((option) => ({ value: option.value, label: local(option.label) }))} onChange={(value) => onDraft(renderedSelected, field.id, value)} /> : <input aria-label={local(field.label)} type={field.type ?? "text"} value={values[field.id] ?? ""} placeholder={field.placeholder} onChange={(event) => onDraft(renderedSelected, field.id, event.target.value)} />}<small>{local(field.hint)}</small></div>) : <div className="wizard-auto"><Icon name="autorenew" size={30} /><strong>{t("无需手动参数", "No manual parameters")}</strong><p>{t("后端会自动识别本机资源并执行只读验证。", "The backend detects local resources and performs read-only checks.")}</p></div>}{validationError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{validationError}</span></div> : null}</div> : null}
-    {step === 2 ? <div className={`wizard-success ${result?.status === "ready" ? "" : "is-warning"}`}><Icon name={result?.status === "ready" ? "check_circle" : "warning"} size={52} filled /><h3>{result?.status === "ready" ? t("配置已保存并通过实际验证", "Configuration saved and live-verified") : t("配置已保存，运行状态待确认", "Configuration saved. Live status needs attention.")}</h3><Chip staticChip tone={result?.status === "ready" ? "success" : "warning"}>{result?.status === "ready" ? t("验证通过", "Verified") : t("需要检查", "Needs attention")}</Chip>{result ? <p>{t(result.summaryZh || result.summary, result.summaryEn || result.summary)}</p> : null}
+    {step === 0 ? <div ref={stepPanelRef} className="wizard-overview" tabIndex={-1} aria-label={steps[0]}><div className="wizard-outcome"><Icon name={definition.icon} size={28} /><div><span>{t("配置完成后", "After configuration")}</span><strong>{local(definition.outcome)}</strong></div></div><ol>{definition.steps.map((item) => <li key={item.zh}>{local(item)}</li>)}</ol><div className="wizard-security"><Icon name="shield" /><p>{renderedSelected === "subscriptions" ? t("订阅验证地址通过当前 HTTPS 管理会话提交，仅用于一次实际请求；后端不会把它写入 SQLite、响应或审计记录。长期使用的完整地址仍只保存在服务器受保护配置。", "The subscription URL is submitted through the current HTTPS admin session for one live request only. It is not written to SQLite, responses, or audit records; long-lived full URLs remain only in protected server configuration.") : t("上游 Secret 只从服务器受限配置读取，不经网页提交、不写入 SQLite，也不会出现在响应或审计记录中。", "Upstream secrets are read only from protected server configuration. They are never submitted by the browser, written to SQLite, or returned in responses or audit records.")}</p></div></div> : null}
+    {step === 1 ? <form ref={formRef} id={formId} className="wizard-form" tabIndex={-1} aria-label={steps[1]} onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      {definition.fields.length ? definition.fields.map((field) => {
+        const label = local(field.label);
+        const hintId = `${formId}-${field.id}`;
+        const value = resolvedValues[field.id];
+        const change = (next: string) => onDraft(renderedSelected, field.id, next);
+        return <div className="field" key={field.id}>
+          <span>{label}{field.required ? " *" : ""}</span>
+          {field.type === "textarea" ? <textarea rows={4} aria-label={label} aria-describedby={hintId} value={value} placeholder={field.placeholder} onChange={(event) => change(event.target.value)} />
+            : field.type === "select" ? <MaterialSelect ariaLabel={label} describedBy={hintId} value={value} options={(field.options ?? []).map((option) => ({ value: option.value, label: local(option.label) }))} onChange={change} />
+              : <input aria-label={label} aria-describedby={hintId} type={field.type ?? "text"} value={value} placeholder={field.placeholder} onChange={(event) => change(event.target.value)} />}
+          <small id={hintId}>{local(field.hint)}</small>
+        </div>;
+      }) : <div className="wizard-auto"><Icon name="autorenew" size={30} /><strong>{t("无需手动参数", "No manual parameters")}</strong><p>{t("后端会自动识别本机资源并执行只读验证。", "The backend detects local resources and performs read-only checks.")}</p></div>}
+      {validationError ? <div className="dialog-error" role="alert"><Icon name="error" size={19} /><span>{validationError}</span></div> : null}
+    </form> : null}
+    {step === 2 ? <div ref={stepPanelRef} className={`wizard-success ${result?.status === "ready" ? "" : "is-warning"}`} tabIndex={-1} aria-label={steps[2]}><Icon name={result?.status === "ready" ? "check_circle" : "warning"} size={52} filled /><h3>{result?.status === "ready" ? t("配置已保存并通过实际验证", "Configuration saved and live-verified") : t("配置已保存，运行状态待确认", "Configuration saved. Live status needs attention.")}</h3><Chip staticChip tone={result?.status === "ready" ? "success" : "warning"}>{result?.status === "ready" ? t("验证通过", "Verified") : t("需要检查", "Needs attention")}</Chip>{result ? <p>{t(result.summaryZh || result.summary, result.summaryEn || result.summary)}</p> : null}
       {validation?.temporary ? <p>{t(
         `临时地址：${validation.temporary.nodeCount} 个有效节点，跳过 ${validation.temporary.invalidNodeCount} 条记录。`,
         `Temporary URL · ${validation.temporary.nodeCount} valid nodes, ${validation.temporary.invalidNodeCount} skipped records.`,

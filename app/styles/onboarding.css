@@ -87,3 +87,12 @@
 @keyframes md-dialog-in { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes md-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes md-dialog-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(10px) scale(.98); } }
+.first-run-header { flex-wrap: wrap; gap: 12px; }
+.first-run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.first-run-actions .md-select-trigger { width: auto; }
+.first-run-steps b { flex: 0 0 28px; }
+.first-run-basics > .dialog-error { grid-column: 1 / -1; }
+.first-run-basics input[aria-invalid="true"] { --focus-ring: var(--error); }
+.first-run-content .first-run-complete { flex-wrap: wrap; }
+.first-run-content .first-run-complete > .dialog-error { width: 100%; }
+.first-run-content .first-run-complete .md-button > span { margin: 0; font-size: inherit; }

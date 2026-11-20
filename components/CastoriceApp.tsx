@@ -13,6 +13,7 @@ import {
   acknowledgeNetworkAlerts,
   ApiError,
   completeInitialization,
+  saveInitializationBasics,
   configureIntegration,
   fetchBootstrap,
   fetchDashboard,
@@ -53,11 +54,16 @@ import { Toast } from "./ui/Toast";
 import { DataBoundary } from "./ui/DataBoundary";
 
 const PAGE_IDS = new Set<PageId>(navigation.map((item) => item.id));
-const OverviewPage = lazy(() =>
+const loadOverviewPage = () =>
   import("./pages/OverviewPage").then((module) => ({
     default: module.OverviewPage,
-  })),
-);
+  }));
+const OverviewPage = lazy(loadOverviewPage);
+
+function preloadOverviewPage() {
+  void loadOverviewPage().catch(() => {});
+}
+
 const AccountsPage = lazy(() =>
   import("./pages/AccountsPage").then((module) => ({
     default: module.AccountsPage,
@@ -113,11 +119,15 @@ export function CastoriceApp() {
   // AuthPage remounts on logout; its lifecycle must not renew the image.
   const loginBackground = useLoginBackground(bootstrap?.appearance ?? { type: "default", url: "", fit: "cover" }, pageEnteredAt);
   const [session, setSession] = useState<SessionState | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
   const [bootError, setBootError] = useState(false);
   const [route, setRoute] = useState<PageRoute>("overview");
   const page = route === "traffic/connections" ? "traffic" : route;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [mobileNavigation, setMobileNavigation] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const drawerVisible = mobileNavigation && drawerOpen;
   const [desktopNavigationHidden, setDesktopNavigationHidden] = useState(() => readBooleanPreference("castorice-desktop-navigation-hidden", false));
+  const navigationHidden = mobileNavigation ? !drawerVisible : desktopNavigationHidden;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [networkEditorOpen, setNetworkEditorOpen] = useState(false);
   const networkConfigurationGeneration = useRef(0);
@@ -134,6 +144,7 @@ export function CastoriceApp() {
     readPreference("castorice-theme-color", THEME_COLORS, "violet"),
   );
   const [dashboard, setDashboard] = useState<DashboardPayload>(emptyDashboard);
+  const [dashboardRequestFailed, setDashboardRequestFailed] = useState(false);
   const alerts = dashboard.alerts;
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -149,18 +160,50 @@ export function CastoriceApp() {
   const toastSequence = useRef(0);
   const dateMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const drawerButtonRef = useRef<HTMLButtonElement>(null);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    window.requestAnimationFrame(() => drawerButtonRef.current?.focus({ preventScroll: true }));
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const update = () => {
+      setMobileNavigation(query.matches);
+      if (!query.matches) setDrawerOpen(false);
+    };
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!drawerVisible) return;
+    const navigation = navigationRef.current;
+    (navigation?.querySelector<HTMLButtonElement>('[aria-current="page"]') ?? navigation?.querySelector("button"))?.focus({ preventScroll: true });
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing && !document.querySelector(".md-dialog-layer.is-open")) closeDrawer();
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [drawerVisible, closeDrawer]);
 
   const start = useCallback(async () => {
+    const pendingSession = fetchSession().then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
     try {
       const state = await fetchBootstrap();
-      // Start the image/cache lookup while session verification is in flight.
-      // Keep the boot screen until auth is known to avoid a sign-in flash.
       setBootstrap(state);
       if (!state.setupRequired) {
-        try {
-          setSession(await fetchSession());
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 401)) throw error;
+        const result = await pendingSession;
+        if ("value" in result) {
+          if (routeFromHash() === "overview" && result.value.setupComplete) preloadOverviewPage();
+          setSession(result.value);
+        } else if (!(result.error instanceof ApiError && result.error.status === 401)) {
+          throw result.error;
         }
       }
       setBooting(false);
@@ -235,11 +278,13 @@ export function CastoriceApp() {
     }
     setSigningOut(false);
     setSession(null);
+    setSigningIn(false);
     alertAcknowledgementGeneration.current += 1;
     setDashboard(emptyDashboard);
     setConnections([]);
     setNetworkEditorOpen(false);
     setSettingsOpen(false);
+    setDrawerOpen(false);
     hasLiveData.current = false;
     setUserMenuOpen(false);
     setRoute("overview");
@@ -252,6 +297,7 @@ export function CastoriceApp() {
     const alertGeneration = alertAcknowledgementGeneration.current;
     try {
       const payload = await fetchDashboard();
+      setDashboardRequestFailed(false);
       const currentAlerts = !alertWriteInFlight.current && alertGeneration === alertAcknowledgementGeneration.current;
       setDashboard((current) => ({ ...payload,
         networkTargets: networkGeneration === networkConfigurationGeneration.current ? payload.networkTargets : current.networkTargets,
@@ -266,6 +312,7 @@ export function CastoriceApp() {
         await signOut();
         return;
       }
+      setDashboardRequestFailed(true);
       if (hasLiveData.current)
         setDashboard((current) => ({ ...current, mode: "stale" }));
       else
@@ -523,12 +570,16 @@ export function CastoriceApp() {
       </main>
     );
   if (!bootstrap || booting) return <PageLoading />;
-  if (!session)
+  const finishingSignIn = signingIn && dashboard.mode === "loading";
+  if (!session || finishingSignIn)
     return (
       <AuthPage
         bootstrap={bootstrap}
         background={loginBackground}
+        finishing={finishingSignIn}
+        onSignInStart={route === "overview" ? preloadOverviewPage : undefined}
         onAuthenticated={(next) => {
+          setSigningIn(true);
           setSession(next);
           setBootstrap((current) =>
             current ? { ...current, setupRequired: false } : current,
@@ -552,11 +603,14 @@ export function CastoriceApp() {
         <FirstRunConfiguration
           metrics={dashboard.overview}
           integrations={dashboard.integrations}
+          initialBasics={session.setupBasics}
+          signingOut={signingOut}
+          onSignOut={() => void signOut()}
           onConfigure={configurePage}
-          onSaveBasics={async (nodeName, quotaGb) => {
-            await saveIntegration("system", { nodeName });
-            await updateTrafficLimit({ bytes: Math.round(Number(quotaGb) * 1_000_000_000) });
-            await saveIntegration("traffic", {});
+          onSaveBasics={async (basics) => {
+            const confirmed = await saveInitializationBasics(basics);
+            void loadDashboard();
+            return confirmed;
           }}
           onComplete={async () => {
             await completeInitialization();
@@ -607,6 +661,7 @@ export function CastoriceApp() {
         return (
           <TrafficPage
             traffic={dashboard.traffic}
+            quotaAvailable={dashboard.overview.trafficQuotaAvailable}
             integration={integrationFor("traffic")}
             onConfigure={() => configurePage("traffic")}
             activity={{
@@ -694,9 +749,14 @@ export function CastoriceApp() {
     }
   })();
 
+  const collectingRuntime = !dashboardRequestFailed
+    && dashboard.mode === "stale"
+    && dashboard.freshness?.system?.status === "live"
+    && dashboard.freshness?.runtime?.status === "initializing";
+
   return (
     <div className={`app-shell ${desktopNavigationHidden ? "app-shell--navigation-hidden" : ""} ${signingOut ? "is-signing-out" : ""}`} aria-busy={signingOut} inert={signingOut}>
-      <aside className={`navigation-rail ${drawerOpen ? "is-open" : ""}`}>
+      <aside ref={navigationRef} id="primary-navigation" className={`navigation-rail ${drawerVisible ? "is-open" : ""}`} inert={navigationHidden}>
         <div className="brand">
           <span className="brand-mark">
             <Icon name="ac_unit" size={25} filled />
@@ -733,19 +793,21 @@ export function CastoriceApp() {
         </div>
       </aside>
       <button
-          className={`drawer-scrim ${drawerOpen ? "is-open" : ""}`}
-          onClick={() => setDrawerOpen(false)}
+          className={`drawer-scrim ${drawerVisible ? "is-open" : ""}`}
+          onClick={closeDrawer}
           aria-label={t("关闭导航", "Close navigation")}
-          aria-hidden={!drawerOpen}
-          tabIndex={drawerOpen ? 0 : -1}
+          aria-hidden={!drawerVisible}
+          tabIndex={-1}
         />
-      <div className="app-main">
+      <div className="app-main" inert={drawerVisible}>
         <header className="top-app-bar">
           <div className="top-app-bar__start">
             <Button
               variant="text"
               icon={desktopNavigationHidden ? "left_panel_open" : "left_panel_close"}
               className="desktop-navigation-toggle"
+              aria-controls="primary-navigation"
+              aria-expanded={!desktopNavigationHidden}
               aria-label={desktopNavigationHidden ? t("显示侧边栏", "Show sidebar") : t("隐藏侧边栏", "Hide sidebar")}
               title={desktopNavigationHidden ? t("显示侧边栏", "Show sidebar") : t("隐藏侧边栏", "Hide sidebar")}
               onClick={() => setDesktopNavigationHidden((hidden) => !hidden)}
@@ -754,7 +816,10 @@ export function CastoriceApp() {
               variant="text"
               icon="menu"
               className="menu-button"
+              ref={drawerButtonRef}
               aria-label={t("打开导航", "Open navigation")}
+              aria-controls="primary-navigation"
+              aria-expanded={drawerVisible}
               onClick={() => setDrawerOpen(true)}
             />
             <div className="mobile-brand">
@@ -813,7 +878,16 @@ export function CastoriceApp() {
           </div>
         </header>
         <main id="main-content">
-          {dashboard.mode === "stale" ? (
+          {collectingRuntime ? (
+            <div className="preview-mode-banner" role="status">
+              <Icon name="schedule" size={21} />
+              <div>
+                <strong>{t("正在采集首次运行状态", "Collecting the first service status")}</strong>
+                <span>{t("主机指标已可用。服务状态会在采集完成后自动更新。", "Host metrics are available. Service status will update when collection finishes.")}</span>
+              </div>
+            </div>
+          ) : null}
+          {dashboard.mode === "stale" && !collectingRuntime ? (
             <div className="preview-mode-banner" role="alert">
               <Icon name="cloud_off" size={21} />
               <div>
@@ -908,14 +982,9 @@ export function CastoriceApp() {
 function PageLoading() {
   const { t } = useI18n();
   return (
-    <div
-      className="page-loading"
-      role="status"
-      aria-label={t("正在加载页面", "Loading page")}
-    >
-      <span />
-      <span />
-      <span />
+    <div className="page-loading" role="status">
+      <span className="page-loading__indicator" aria-hidden="true" />
+      {t("正在加载页面…", "Loading page…")}
     </div>
   );
 }

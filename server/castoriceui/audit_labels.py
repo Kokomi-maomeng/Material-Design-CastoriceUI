@@ -12,10 +12,13 @@ ACTIONS_EN = {
     "退出登录": "Signed out",
     "修改密码": "Changed password",
     "修改密码失败": "Password change failed",
+    "保存初始化基础设置": "Saved first-run settings",
     "完成初始化向导": "Completed initialization",
     "确认告警": "Acknowledged alert",
     "确认全部告警": "Acknowledged all alerts",
+    "确认网络告警": "Acknowledged network alerts",
     "清理旧版接入密钥": "Removed legacy integration secret",
+    "清理无效身份映射": "Removed invalid identity mappings",
     "更新数据接入": "Updated data integration",
     "更新网络探测目标": "Updated network probe targets",
 }
@@ -30,8 +33,10 @@ DETAILS_EN = {
     "管理员会话已注销": "The administrator session was invalidated",
     "旧密码验证失败": "The current password was incorrect",
     "管理员密码已更新，其他会话已失效": "The administrator password was changed and other sessions were invalidated",
+    "节点名称与流量额度已确认": "The node name and traffic quota were confirmed",
     "必要的面板设置已确认": "Required panel settings were confirmed",
     "已从 SQLite 覆盖项中移除 v1.2 遗留的明文 Secret": "A legacy v1.2 plaintext secret was removed from SQLite overrides",
+    "已停用无效的旧覆盖项，使用受保护配置中的 Hysteria2 身份映射": "Disabled invalid legacy overrides and restored Hysteria2 identity mappings from protected configuration",
 }
 
 DETAIL_PATTERNS = (

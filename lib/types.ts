@@ -297,6 +297,12 @@ export interface SessionState {
   csrfToken: string;
   expiresAt: number;
   setupComplete: boolean;
+  setupBasics?: InitializationBasics | null;
+}
+
+export interface InitializationBasics {
+  nodeName: string;
+  quotaBytes: number;
 }
 
 export interface AlertItem {

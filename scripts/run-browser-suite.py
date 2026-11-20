@@ -54,13 +54,14 @@ def valid_reports(name, reports):
                     and r["documentLifecycle"].get("logoutCycles") == 3 and r["documentLifecycle"].get("authenticatedReloadPreloads")
                     and all(r.get("photoArrival", {}).get(k) for k in ("pendingGlass", "failedImageKeepsForm", "draftPreserved", "stableCardGeometry"))
                     and r["photoArrival"].get("revealFrames", 0) >= 3 and len(r.get("navigationFocus", [])) == 27
+                    and r.get("glassSliderFocus") and r.get("mobileNavigationFocus")
                     and all(r.get("glassLighting", {}).get(k) for k in ("smoothReentry", "returnsToRest", "touchStaysStill", "reducedMotionStaysStill")))
     if name == "browser-v50.py":
         return one("glassThemeViewportCases", lambda r: r["glassThemeViewportCases"] == 32 and r.get("pageErrors") == 0)
     if name == "browser-v521.py":
         return one("chartCases", lambda r: len(r["chartCases"]) == 20 and r.get("pageErrors") == 0 and all(c.get("ranges") == 5 for c in r["chartCases"]))
     if name == "browser-first-run.py":
-        return one("realBackendFirstRun", lambda r: r["realBackendFirstRun"] and not r.get("pageErrors"))
+        return one("realBackendFirstRun", lambda r: all(r.get(key) for key in ("realBackendFirstRun", "resumedAfterReload", "optionalWizard", "localeSwitch", "liveDashboard")) and r.get("pageErrors") == [])
     return bool(reports)
 
 

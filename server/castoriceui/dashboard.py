@@ -258,6 +258,63 @@ class DashboardService:
             legacy_count_mode=self.config.traffic_count_mode,
         )
 
+    def _confirmed_initialization_basics(self) -> dict[str, Any] | None:
+        overrides = self.storage.get_setting("integration_overrides", {})
+        if not isinstance(overrides, dict):
+            return None
+        system = overrides.get("system", {})
+        values = system.get("values", {}) if isinstance(system, dict) and system.get("configured") else {}
+        name = values.get("nodeName") if isinstance(values, dict) else None
+        traffic = overrides.get("traffic", {})
+        confirmed = self.storage.get_setting("traffic_quota_confirmed", False) or isinstance(traffic, dict) and traffic.get("configured")
+        quota = self.storage.get_setting("traffic_quota", {})
+        quota_bytes = quota.get("bytes") if isinstance(quota, dict) else None
+        if isinstance(name, str) and name.strip() and confirmed and type(quota_bytes) is int and 1_000_000_000 <= quota_bytes <= 1_000_000_000_000_000:
+            return {"nodeName": name.strip(), "quotaBytes": quota_bytes}
+        return None
+
+    def initialization_state(self) -> dict[str, Any]:
+        with self.settings_lock:
+            completed = bool(self.storage.get_setting("initial_setup_complete", False))
+            return {"setupComplete": True} if completed else {
+                "setupComplete": False, "setupBasics": self._confirmed_initialization_basics(),
+            }
+
+    def save_initialization_basics(self, node_name: str, quota_bytes: int, source_ip: str, actor: str) -> dict[str, Any] | None:
+        node_name = node_name.strip()
+        with self.settings_lock:
+            if self.storage.get_setting("initial_setup_complete", False):
+                return None
+            quota = self._candidate_traffic_quota({"bytes": quota_bytes})
+            system_values = {"nodeName": node_name}
+            self._validate_integration("system", system_values)
+            defaults = self.config.integrations.get("traffic", {}).get("values", {})
+            traffic_values = {"interface": defaults["interface"]} if "interface" in defaults else {}
+            self._validate_integration("traffic", traffic_values)
+            system = {"enabled": True, "configured": True, "status": "ready", "values": system_values, "summary": "Local system collection enabled"}
+            traffic = {"enabled": True, "configured": True, "status": "ready", "values": traffic_values, "summary": "Traffic sampling settings saved"}
+            self.storage.edit_settings({"integration_overrides": {}}, lambda current: {
+                "integration_overrides": {**self._without_legacy_quota_values(current["integration_overrides"]), "system": system, "traffic": traffic},
+                "traffic_quota": quota,
+                "traffic_quota_confirmed": True,
+            }, audit=("保存初始化基础设置", "配置", "节点名称与流量额度已确认", source_ip, actor))
+            self.config.integrations["system"].update(system)
+            self.config.integrations["traffic"].update(traffic)
+            self._apply_integration_values("system", system_values)
+            self._apply_integration_values("traffic", traffic_values)
+            self._publish_quota(quota)
+            return {"nodeName": node_name, "quotaBytes": quota["bytes"]}
+
+    def complete_initialization(self, source_ip: str, actor: str) -> bool:
+        with self.settings_lock:
+            if self.storage.get_setting("initial_setup_complete", False):
+                return True
+            if self._confirmed_initialization_basics() is None:
+                return False
+            self.storage.edit_settings({}, lambda _: {"initial_setup_complete": True},
+                audit=("完成初始化向导", "配置", "必要的面板设置已确认", source_ip, actor))
+            return True
+
     def update_traffic_quota(self, values: dict[str, Any], *, wizard: bool = False, audit=None) -> dict[str, Any]:
         with self.settings_lock:
             normalized = self._candidate_traffic_quota(values, wizard=wizard)

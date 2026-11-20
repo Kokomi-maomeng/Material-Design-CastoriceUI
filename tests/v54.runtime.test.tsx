@@ -8,7 +8,7 @@ import { SettingsDialog } from "../components/settings/SettingsDialog";
 import { PresetSlider } from "../components/ui/PresetSlider";
 import { I18nProvider } from "../lib/i18n";
 import { emptyDashboard } from "../lib/empty-dashboard";
-import type { LoginBackgroundSettings, LoginAppearance } from "../lib/types";
+import type { BootstrapState, DashboardPayload, LoginBackgroundSettings, LoginAppearance } from "../lib/types";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); });
 const appearance: LoginAppearance = { type: "url", url: "/api/v2/auth/background", fit: "cover", glass: "default", glassEnabled: false, cacheSeconds: 0, revision: "synthetic-v54" };
@@ -79,14 +79,50 @@ it("drags continuously, snaps on release, and uses full presets for keyboard inp
 it("starts image preparation before a slow session check without flashing the login page", async () => {
   localStorage.setItem("castorice-language", "en");
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-  vi.spyOn(api, "fetchBootstrap").mockResolvedValue({ setupRequired: false, bootstrapAvailable: false, appearance });
+  let finishBootstrap!: (value: BootstrapState) => void;
+  vi.spyOn(api, "fetchBootstrap").mockReturnValue(new Promise((resolve) => { finishBootstrap = resolve; }));
   let finish!: (value: Awaited<ReturnType<typeof api.fetchSession>>) => void;
-  vi.spyOn(api, "fetchSession").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+  const session = vi.spyOn(api, "fetchSession").mockReturnValue(new Promise((resolve) => { finish = resolve; }));
   const hook = vi.spyOn(backgrounds, "useLoginBackground").mockReturnValue("");
   render(<I18nProvider><CastoriceApp /></I18nProvider>);
+  await waitFor(() => expect(session).toHaveBeenCalledTimes(1));
+  await act(async () => finishBootstrap({ setupRequired: false, bootstrapAvailable: false, appearance }));
   await waitFor(() => expect(hook).toHaveBeenCalledWith(appearance, expect.any(Number)));
   expect(screen.queryByRole("heading", { name: "Welcome back" })).toBeNull();
   vi.spyOn(api, "fetchDashboard").mockResolvedValue({ ...emptyDashboard, mode: "live" });
   await act(async () => finish({ username: "qa-admin", csrfToken: "synthetic", expiresAt: Math.floor(Date.now() / 1000) + 3600, setupComplete: true }));
   await waitFor(() => expect(document.querySelector(".app-shell")).not.toBeNull());
+});
+
+it("keeps the sign-in form in place while authenticated dashboard data loads", async () => {
+  localStorage.setItem("castorice-language", "en");
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  vi.spyOn(api, "fetchBootstrap").mockResolvedValue({ setupRequired: false, bootstrapAvailable: false, appearance });
+  vi.spyOn(api, "fetchSession").mockRejectedValue(new api.ApiError(401, "unauthenticated"));
+  vi.spyOn(backgrounds, "useLoginBackground").mockReturnValue("");
+  const signIn = vi.spyOn(api, "login").mockResolvedValue({ username: "qa-admin", csrfToken: "synthetic", expiresAt: Math.floor(Date.now() / 1000) + 3600, setupComplete: true });
+  let finishDashboard!: (value: DashboardPayload) => void;
+  vi.spyOn(api, "fetchDashboard").mockReturnValue(new Promise((resolve) => { finishDashboard = resolve; }));
+  const view = render(<I18nProvider><CastoriceApp /></I18nProvider>);
+  const form = (await screen.findByRole("button", { name: "Sign in" })).closest("form")!;
+  fireEvent.change(screen.getByRole("textbox", { name: "Username" }), { target: { value: "qa-admin" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Synthetic-Password-123!" } });
+  fireEvent.submit(form);
+  expect(await screen.findByRole("button", { name: "Opening the console…" })).toHaveProperty("disabled", true);
+  expect(view.container.querySelector(".page-loading")).toBeNull();
+  expect(view.container.querySelector(".auth-card form")).toBe(form);
+  fireEvent.submit(form);
+  expect(signIn).toHaveBeenCalledTimes(1);
+  await act(async () => finishDashboard({
+    ...emptyDashboard,
+    mode: "stale",
+    freshness: {
+      system: { status: "live", observedAt: "2026-01-01T00:00:00Z", ageSeconds: 0, ttlSeconds: 150, error: null },
+      runtime: { status: "initializing", observedAt: null, ageSeconds: null, ttlSeconds: 90, error: null },
+    },
+  }));
+  await waitFor(() => expect(view.container.querySelector(".app-shell")).not.toBeNull());
+  expect(screen.getByText("Collecting the first service status").closest('[role="status"]')).not.toBeNull();
+  expect(screen.queryByText("Collection or connection fault; current data may be stale")).toBeNull();
+  expect(view.container.querySelector(".auth-card")).toBeNull();
 });
