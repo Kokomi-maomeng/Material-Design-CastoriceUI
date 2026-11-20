@@ -15,7 +15,7 @@ import time
 import urllib.request
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from qa_browser import open_page, reload_after_api_idle, settled
+from qa_browser import PageErrorMonitor, open_page, settled
 from qa_network import network_product
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,9 +78,9 @@ def main():
                 browser = getattr(playwright, engine).launch()
                 context = browser.new_context(ignore_https_errors=True, viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
                 context.add_init_script("if(!localStorage.getItem('castorice-language'))localStorage.setItem('castorice-language','en')")
-                page = context.new_page(); page_errors = []
-                page.on('pageerror', lambda e: page_errors.append(str(e)))
-                reload_page = reload_after_api_idle(page, origin)
+                page = context.new_page()
+                monitor = PageErrorMonitor(page, engine, origin, ('/api/v2/alerts', '/api/v2/network', '/api/v2/auth/background'))
+                reload_page = monitor.reload
                 page.goto(origin, wait_until='networkidle')
                 page.get_by_label('Username', exact=True).fill('qa-browser')
                 page.get_by_label('Password', exact=True).fill('Synthetic-Password-123!')
@@ -103,7 +103,7 @@ def main():
                 episode = next(a for a in body['alerts'] if a['id'] == 'storage-capacity')['episodeId']
                 assert context.request.post(origin + '/api/v2/alerts/' + episode + '/ack', data={}, headers=headers).ok
                 refresh(size=None)
-                reload_page(wait_until='networkidle', after_path='/api/v2/alerts'); page.locator('#main-content').wait_for(); settled(page)
+                reload_page(wait_until='networkidle'); page.locator('#main-content').wait_for(); settled(page)
                 open_page(page, 'services', 'Services')
                 page.get_by_text('Sample write succeeded · size unavailable', exact=True).wait_for()
                 refresh(size=4096)
@@ -183,8 +183,8 @@ def main():
                     assert result.status == 400 and result.json()['field'] == 'value'
                     assert storage.get_setting('login_background', {}) == original
                 network = network_product(page, context, dashboard, storage, origin, headers, refresh, reload_page)
-                assert not page_errors and not errors, (engine, page_errors, errors)
-                reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'networkProduct': network, 'pageErrors': page_errors})
+                assert not monitor.errors and not errors, (engine, monitor.errors, errors)
+                reports.append({'engine': engine, 'capacityCases': capacity_cases, 'nullCapacityRecovery': True, 'connectionCases': connection_cases, 'pendingThresholdPersistence': True, 'invalidPortsRejected': 5, 'networkProduct': network, 'pageErrors': monitor.errors, 'reloadDiagnostics': monitor.reload_diagnostics})
                 context.close(); browser.close()
     print(json.dumps({'auditFixes': reports, 'apiRoutesMocked': False, 'backendErrors': errors, 'passed': True}), flush=True)
 
