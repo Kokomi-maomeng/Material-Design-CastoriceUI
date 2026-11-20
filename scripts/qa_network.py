@@ -8,12 +8,12 @@ from playwright.sync_api import expect
 from qa_browser import frames, open_page, settled
 
 
-def network_product(page, context, dashboard, storage, origin, headers, refresh):
+def network_product(page, context, dashboard, storage, origin, headers, refresh, reload_page):
     targets = [{'name': 'First synthetic node', 'address': '192.0.2.1', 'order': 1},
                {'name': 'Second synthetic node', 'address': '192.0.2.2', 'order': 2}]
     assert context.request.put(origin + '/api/v2/settings/network-targets', data={'targets': targets}, headers=headers).ok
     refresh()
-    page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality')
+    reload_page(wait_until='domcontentloaded', after_path='/api/v2/network'); open_page(page, 'network', 'Network quality')
     page.get_by_role('button', name='Customize', exact=True).click()
     editor = page.get_by_role('dialog', name='Customize network probes', exact=True)
     editor.wait_for()
@@ -69,7 +69,7 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
             events = [{'id': f'network-qa-{i}', 'title': f'Synthetic network event {i}', 'description': 'RTT 1.3 ms · loss 0%', 'severity': 'warning', 'time': 'now', 'source': 'Synthetic', 'acknowledged': False} for i in range(25)]
             storage.reconcile_alerts(events)
             assert storage.network_alert_preview()['pending'] == 25, storage.network_alert_preview()
-            page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
+            reload_page(wait_until='domcontentloaded', after_path='/api/v2/network'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
             editor = page.get_by_role('dialog', name='Customize network probes' if language == 'en' else '自定义网络探测', exact=True)
             assert page.locator('.network-alerts-card [role=listitem]').count() == 5
             assert page.locator('.network-alerts-card__rules').count() == 0
@@ -108,7 +108,7 @@ def network_product(page, context, dashboard, storage, origin, headers, refresh)
                 page.keyboard.press('Escape'); editor.wait_for(state='hidden')
     # Recovery and both acknowledgment entry points use the same real SQLite episodes.
     storage.reconcile_alerts([])
-    page.reload(wait_until='domcontentloaded'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
+    reload_page(wait_until='domcontentloaded', after_path='/api/v2/network'); open_page(page, 'network', 'Network quality' if language == 'en' else '网络质量')
     card = page.locator('.network-alerts-card')
     assert card.locator('time').count() >= 10
     before = storage.network_alert_preview()['pending']; assert before == 25

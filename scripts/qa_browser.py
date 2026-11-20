@@ -1,6 +1,46 @@
 """Shared browser readiness and native animation sampling; no application mocks."""
 import os
 import sys
+import time
+
+
+def reload_after_api_idle(page, origin):
+    """Observe same-origin API requests before replacing the current document."""
+    prefix = origin + '/api/v2/'
+    pending = set()
+    last_activity = time.monotonic()
+
+    def started(request):
+        nonlocal last_activity
+        if request.url.startswith(prefix):
+            pending.add(request)
+            last_activity = time.monotonic()
+
+    def completed(request):
+        nonlocal last_activity
+        if request in pending:
+            pending.remove(request)
+            last_activity = time.monotonic()
+
+    page.on('request', started)
+    page.on('requestfinished', completed)
+    page.on('requestfailed', completed)
+
+    def reload(*, wait_until, after_path=None):
+        if after_path:
+            read = page.wait_for_event('requestfinished', lambda request: (
+                request.method == 'GET' and request.url.partition('?')[0] == origin + after_path
+            ), timeout=10000)
+            assert read.response().ok, 'API poll before reload failed'
+        # Let the old document finish reads before WebKit starts replacing it.
+        # Keep pageerror and application assertions active throughout the reload.
+        start = time.monotonic()
+        while pending or time.monotonic() - max(start, last_activity) < .15:
+            assert time.monotonic() - start < 10, 'API requests did not settle before reload'
+            page.wait_for_timeout(25)
+        return page.reload(wait_until=wait_until)
+
+    return reload
 
 
 def settled(page):

@@ -11,7 +11,7 @@ import zlib
 
 from playwright.sync_api import expect, sync_playwright
 from browser_fixture import empty_dashboard
-from qa_browser import settled
+from qa_browser import reload_after_api_idle, settled
 
 BASE = os.environ.get("CASTORICEUI_BROWSER_URL", "https://127.0.0.1:5173").rstrip("/")
 ENGINES = tuple(sys.argv[1:]) or ("chromium", "firefox", "webkit")
@@ -28,6 +28,7 @@ def run(engine, context):
     context.add_init_script("localStorage.setItem('castorice-language','en');localStorage.setItem('castorice-theme-mode','dark')")
     page = context.new_page(); errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
+    reload_page = reload_after_api_idle(page, BASE)
     dashboard = empty_dashboard(context, page, BASE)
     dashboard.update(mode="live", generatedAt="2026-01-01T00:00:00Z")
     state = {"authenticated": False, "failed": False, "corrupt": False, "images": 0, "profiles": [], "saved": None, "server_images": {}}
@@ -228,7 +229,7 @@ def run(engine, context):
     assert not any(row["acknowledged"] for row in warnings)
     # Authenticated reload prepares the document image without mounting login.
     count = state["images"]
-    page.reload(wait_until="networkidle")
+    reload_page(wait_until="networkidle", after_path="/api/v2/alerts")
     page.locator(".top-app-bar").wait_for()
     assert state["images"] == count + 1
     assert page.locator(".auth-page").count() == 0
