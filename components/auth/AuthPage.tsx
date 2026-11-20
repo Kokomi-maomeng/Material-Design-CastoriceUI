@@ -45,7 +45,7 @@ export function AuthPage({ bootstrap, onAuthenticated, background: documentBackg
     bootstrap_unavailable: t("服务器尚未生成一次性引导码", "The server has not generated a bootstrap token"),
     too_many_attempts: t("尝试次数过多，请过 10 分钟再试", "Too many attempts. Try again in 10 minutes"),
     authentication_busy: t("登录服务繁忙，请稍后重试", "Sign-in is busy. Try again shortly"),
-    invalid_username: t("用户名需为 3–64 个字符，仅限字母、数字、点、连字符或下划线", "Use 3–64 characters: letters, numbers, dots, hyphens, or underscores"),
+    invalid_username: t("用户名需为 3–64 个字符，仅限英文字母、数字、点、连字符或下划线", "Use 3–64 characters. Allowed characters are English letters, numbers, dots, hyphens, and underscores"),
     weak_password: t("密码需为 12–512 个字符，并包含大写字母、小写字母、数字、符号中的至少三类", "Use 12–512 characters with at least three of uppercase letters, lowercase letters, numbers, and symbols"),
     request_timeout: t("请求超时。请刷新页面确认当前状态后重试", "The request timed out. Refresh to check the current state, then try again"),
     network_unavailable: t("无法连接登录服务，请检查网络或服务器状态", "Cannot reach the sign-in service. Check the network or server"),
